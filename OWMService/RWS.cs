@@ -1,4 +1,5 @@
 ﻿using Microsoft.Win32;
+using OWMService.Config;
 using OWMService.Logging;
 using System;
 using System.Collections.Generic;
@@ -15,6 +16,7 @@ namespace OWMService
 
         private System.Timers.Timer m_timer;
         private readonly IEventLogger m_logger;
+        private readonly ISettingsProvider m_settingsProvider;
 
         private double m_servicePollInterval;
         private string m_serverName = Environment.MachineName;

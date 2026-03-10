@@ -64,6 +64,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Config\ISettingsProvider.cs" />
+    <Compile Include="Config\RegistrySettingsProvider.cs" />
+    <Compile Include="Config\Settings.cs" />
     <Compile Include="Logging\ConsoleEventLogger.cs" />
     <Compile Include="Logging\EventLogLogger.cs" />
     <Compile Include="Logging\IEventLogger.cs" />
