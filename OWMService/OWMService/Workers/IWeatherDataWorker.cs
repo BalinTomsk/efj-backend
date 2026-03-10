@@ -1,3 +1,5 @@
+using OWMService.Config;
+
 namespace OWMService.Workers
 {
     using OWMService.Config;

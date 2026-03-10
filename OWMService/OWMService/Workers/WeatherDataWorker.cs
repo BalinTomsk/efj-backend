@@ -8,8 +8,8 @@ namespace OWMService.Workers
     using System.Data.SqlClient;
     using System.Net;
     using System.Net.Http;
-    using System.Text;
     using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
  
     public class WeatherDataWorker : IWeatherDataWorker
     {
@@ -22,7 +22,7 @@ namespace OWMService.Workers
             // Configure once at static initialization instead of per-request
             ServicePointManager.Expect100Continue = true;
             ServicePointManager.DefaultConnectionLimit = 9999;
-            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
 
         public WeatherDataWorker(IEventLogger logger)
@@ -31,6 +31,11 @@ namespace OWMService.Workers
         }
 
         public bool Process(Settings settings)
+        {
+            return ProcessAsync(settings).GetAwaiter().GetResult();
+        }
+
+        public async Task<bool> ProcessAsync(Settings settings)
         {
             string conStr = settings.GetConnectionString();
             if (string.IsNullOrEmpty(conStr))
@@ -43,10 +48,10 @@ namespace OWMService.Workers
                 {
                     cnn.Open();
 
-                    List<Tuple<string, float, float, string>> stations = GetListOwsMeteo(cnn);
-                    m_logger.LogInfo(String.Format("Get {0} OWS stations.", stations.Count));
+                    List<StationData> stations = GetListOwsMeteo(cnn);
+                    m_logger.LogInfo($"Get {stations.Count} OWS stations.");
 
-                    ProcessEnvData(stations, settings, cnn);
+                    await ProcessEnvDataAsync(stations, settings, cnn);
                     m_logger.LogInfo("Read all OWS stations.");
 
                     ProcessFishState(cnn);
@@ -57,12 +62,12 @@ namespace OWMService.Workers
             }
             catch (Exception ex)
             {
-                m_logger.LogError("OWMService Failed to connect. " + ex.Message + " at: " + conStr);
+                m_logger.LogError($"OWMService Failed to connect. {ex.Message} at: {conStr}");
                 return false;
             }
         }
 
-        private void ProcessEnvData(List<Tuple<string, float, float, string>> stations, Settings settings, SqlConnection cnn)
+        private async Task ProcessEnvDataAsync(List<StationData> stations, Settings settings, SqlConnection cnn)
         {
             try
             {
@@ -72,28 +77,27 @@ namespace OWMService.Workers
                 {
                     try
                     {
-                        ProcessOWSPoint(item.Item1, item.Item2, item.Item3, settings, cnn);
+                        await ProcessOWSPointAsync(item.Mli, item.Latitude, item.Longitude, settings, cnn);
                         i++;
                     }
                     catch (Exception ex)
                     {
-                        m_logger.LogError(
-                            "OWMService station processing failed. " + ex.Message + " MLI: " + item.Item1 + " at: " + i);
+                        m_logger.LogError($"OWMService station processing failed. {ex.Message} MLI: {item.Mli} at: {i}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                m_logger.LogError("OWMService Failed in ProcessEnvData. " + ex.Message);
+                m_logger.LogError($"OWMService Failed in ProcessEnvData. {ex.Message}");
             }
         }
 
-        private List<Tuple<string, float, float, string>> GetListOwsMeteo(SqlConnection cnn)
+        private List<StationData> GetListOwsMeteo(SqlConnection cnn)
         {
-            var result = new List<Tuple<string, float, float, string>>();
+            var result = new List<StationData>();
 
             using (SqlCommand cmd = new SqlCommand(
-                "select mli, lat, lon, state from WaterStation w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)", cnn))
+                "select top 100 mli, lat, lon, state from WaterStation w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)", cnn))
             using (SqlDataReader dr = cmd.ExecuteReader())
             {
                 while (dr.Read())
@@ -103,16 +107,16 @@ namespace OWMService.Workers
                     float lon = (float)dr.GetDouble(2);
                     string state = dr.GetString(3);
 
-                    result.Add(Tuple.Create(mli, lat, lon, state));
+                    result.Add(new StationData { Mli = mli, Latitude = lat, Longitude = lon, State = state });
                 }
             }
 
             return result;
         }
 
-        private bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
+        private async Task<bool> ProcessOWSPointAsync(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
         {
-            string jsonData = ReadJSONOWSData(lat, lon, settings);
+            string jsonData = await ReadJSONOWSDataAsync(lat, lon, settings);
 
             if (string.IsNullOrEmpty(jsonData))
             {
@@ -124,11 +128,6 @@ namespace OWMService.Workers
 
         private void ProcessFishState(SqlConnection cnn)
         {
-            if (cnn == null)
-            {
-                return;
-            }
-
             using (SqlCommand cmd = new SqlCommand())
             {
                 cmd.CommandType = CommandType.StoredProcedure;
@@ -144,19 +143,18 @@ namespace OWMService.Workers
                 }
                 catch (Exception ex)
                 {
-                    m_logger.LogError("ProcessFishState: " + ex.Message);
+                    m_logger.LogError($"ProcessFishState: {ex.Message}");
                 }
             }
         }
 
-        private string ReadJSONOWSData(float lat, float lon, Settings settings)
+        private async Task<string> ReadJSONOWSDataAsync(float lat, float lon, Settings settings)
         {
             try
             {
-                string url = string.Format(@"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={0},{1}&format=json&units=e&language=en-US&apiKey={2}",
-                    lat, lon, settings.Wunderground);
+                string url = $"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={settings.Wunderground}";
 
-                using (HttpResponseMessage response = m_httpClient.GetAsync(url).Result)
+                using (HttpResponseMessage response = await m_httpClient.GetAsync(url))
                 {
                     if (!response.IsSuccessStatusCode)
                     {
@@ -164,7 +162,7 @@ namespace OWMService.Workers
                         return "";
                     }
 
-                    string result = response.Content.ReadAsStringAsync().Result;
+                    string result = await response.Content.ReadAsStringAsync();
                     
                     // Optimize escape sequence removal: use regex instead of multiple Replace calls
                     result = m_escapeSequenceRegex.Replace(result, "\"");
@@ -174,7 +172,7 @@ namespace OWMService.Workers
             }
             catch (Exception ex)
             {
-                m_logger.LogError("ReadJSONOWSData: " + ex.Message);
+                m_logger.LogError($"ReadJSONOWSData: {ex.Message}");
             }
 
             return "";
@@ -204,12 +202,20 @@ namespace OWMService.Workers
                 }
                 catch (Exception ex)
                 {
-                    m_logger.LogError("SaveJSONOWSData: " + ex.Message);
+                    m_logger.LogError($"SaveJSONOWSData: {ex.Message}");
                     return false;
                 }
             }
 
             return true;
         }
+    }
+
+    public class StationData
+    {
+        public string Mli { get; set; }
+        public float Latitude { get; set; }
+        public float Longitude { get; set; }
+        public string State { get; set; }
     }
 }

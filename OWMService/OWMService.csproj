@@ -71,9 +71,6 @@
     <Compile Include="Logging\EventLogLogger.cs" />
     <Compile Include="Logging\IEventLogger.cs" />
     <Compile Include="Logging\LoggerFactory.cs" />
-    <Compile Include="OpenWeather.cs">
-      <SubType>Component</SubType>
-    </Compile>
     <Compile Include="OWMService\Workers\IWeatherDataWorker.cs" />
     <Compile Include="OWMService\Workers\WeatherDataWorker.cs" />
     <Compile Include="ProjectInstaller.cs">
