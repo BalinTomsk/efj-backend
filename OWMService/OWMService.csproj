@@ -77,6 +77,8 @@
     <Compile Include="OpenWeather.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="OWMService\Workers\IWeatherDataWorker.cs" />
+    <Compile Include="OWMService\Workers\WeatherDataWorker.cs" />
     <Compile Include="ProjectInstaller.cs">
       <SubType>Component</SubType>
     </Compile>

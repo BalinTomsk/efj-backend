@@ -16,7 +16,7 @@ namespace OWMService
             {
                 // download data  WebClient  DownloadData
                  string url = String.Format(@"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={0},{1}&format=json&units=e&language=en-US&apiKey={2}"
-                                            , lat, lon, m_wunderground);
+                                            , lat, lon, m_settings.Wunderground);
                 //string file = System.IO.Path.GetFileName(url);
 
                 ServicePointManager.Expect100Continue = true;
