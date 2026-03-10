@@ -40,7 +40,7 @@ namespace OWMService
             }
             catch (Exception ex)
             {
-                eventLogRN.WriteEntry("readJSONOWSData: " + ex.Message, EventLogEntryType.Error);
+                m_logger.LogError("readJSONOWSData: " + ex.Message);
             }
             return "";
         }
@@ -68,7 +68,7 @@ namespace OWMService
                 }
                 catch (Exception ex)
                 {
-                    eventLogRN.WriteEntry("SaveJSONOWSData: " + ex.Message, EventLogEntryType.Error);
+                    m_logger.LogError("SaveJSONOWSData: " + ex.Message);
                 }
             }
             return;
@@ -102,7 +102,7 @@ namespace OWMService
                 }
                 catch (Exception ex)
                 {
-                    eventLogRN.WriteEntry("SaveJSONOWSData: " + ex.Message, EventLogEntryType.Error);
+                    m_logger.LogError("SaveJSONOWSData: " + ex.Message);
                     return false;
                 }
             }

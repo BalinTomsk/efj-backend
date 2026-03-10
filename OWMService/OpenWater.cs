@@ -33,7 +33,7 @@ namespace OWMService
             }
             catch (Exception ex)
             {
-                eventLogRN.WriteEntry("readJSONOWSData: " + ex.Message, EventLogEntryType.Error);
+                m_logger.LogError("readJSONOWSData: " + ex.Message);
             }
             return "";
         }

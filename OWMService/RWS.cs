@@ -1,8 +1,8 @@
 ﻿using Microsoft.Win32;
+using OWMService.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
-using System.Diagnostics;
 using System.ServiceProcess;
 using System.Timers;
 
@@ -14,7 +14,7 @@ namespace OWMService
         private const string EventLogName = "Application";
 
         private System.Timers.Timer m_timer;
-        private EventLog eventLogRN;
+        private readonly IEventLogger m_logger;
 
         private double m_servicePollInterval;
         private string m_serverName = Environment.MachineName;
@@ -26,11 +26,18 @@ namespace OWMService
         private bool m_bFlagProcessing = true;
         private const string NullGuid = "00000000-0000-0000-0000-000000000000";
 
+        // Default ctor used by SCM - selects logger based on build configuration:
+        // Debug => console logger; Release => Event Log logger.
         public RWS()
+            : this(LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName))
+        {
+        }
+
+        // Overload for dependency injection (tests, alternate loggers, etc.)
+        public RWS(IEventLogger logger)
         {
             InitializeComponent();
-
-            InitializeEventLog();
+            m_logger = logger ?? LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName);
         }
 
         private bool ReadSettings()
@@ -44,14 +51,14 @@ namespace OWMService
 
                 if (key == null)
                 {
-                    Log("Cannot open registry key: HKLM\\" + subKey, EventLogEntryType.Error);
+                    m_logger.LogError("Cannot open registry key: HKLM\\" + subKey);
                     return false;
                 }
 
                 m_serverName = key.GetValue("Server") as string;
                 if (string.IsNullOrWhiteSpace(m_serverName))
                 {
-                    Log("Cannot read MSSQL Server Name", EventLogEntryType.Error);
+                    m_logger.LogError("Cannot read MSSQL Server Name");
                     m_servicePollInterval = 100;
                     return false;
                 }
@@ -59,7 +66,7 @@ namespace OWMService
                 m_dbName = key.GetValue("dbName") as string;
                 if (string.IsNullOrWhiteSpace(m_dbName))
                 {
-                    Log("Cannot read MSSQL Server Db Name", EventLogEntryType.Error);
+                    m_logger.LogError("Cannot read MSSQL Server Db Name");
                     return false;
                 }
 
@@ -77,38 +84,19 @@ namespace OWMService
             }
             catch (Exception ex)
             {
-                Log("ReadSettings failed: " + ex.Message, EventLogEntryType.Error);
+                m_logger.LogError("ReadSettings failed: " + ex.Message);
                 return false;
-            }
-        }
-        private void InitializeEventLog()
-        {
-            try
-            {
-                if (!EventLog.SourceExists(EventSourceName))
-                {
-                    EventLog.CreateEventSource(EventSourceName, EventLogName);
-                }
-
-                eventLogRN = new EventLog();
-                eventLogRN.Source = EventSourceName;
-                eventLogRN.Log = EventLogName;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Failed to initialize Windows Event Log: " + ex.Message);
             }
         }
 
         protected override void OnStart(string[] args)
         {
-            Log("OWMService started.");
+            m_logger.LogInfo("OWMService started.");
 
             if (!ReadSettings())
             {
                 return;
             }
-
             m_timer = new System.Timers.Timer();
             m_timer.Interval = 10000;
             m_timer.Elapsed += TimerElapsed;
@@ -120,7 +108,7 @@ namespace OWMService
         {
             Console.WriteLine("OWMService stopped.");
 
-            Log("OWMService stopped.");
+            m_logger.LogInfo("OWMService stopped.");
             m_bFlagProcessing = true;
 
             if (m_timer != null)
@@ -129,18 +117,35 @@ namespace OWMService
                 m_timer.Dispose();
                 m_timer = null;
             }
+
+            if (m_logger is IDisposable disposable)
+            {
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch
+                {
+                    // swallow disposal exceptions to avoid failing stop
+                }
+            }
         }
+
         protected override void OnContinue()
         {
             m_bFlagProcessing = false;
-            eventLogRN.WriteEntry("OWMService OnContinue.");
+            m_logger.LogInfo("OWMService OnContinue.");
         }
 
         protected override void OnShutdown()
         {
             m_bFlagProcessing = true;
-            m_timer.Stop();
-            eventLogRN.WriteEntry("OWMService OnShutdown.");
+            if (m_timer != null)
+            {
+                m_timer.Stop();
+            }
+
+            m_logger.LogInfo("OWMService OnShutdown.");
             base.OnShutdown();
         }
 
@@ -155,7 +160,7 @@ namespace OWMService
 
             try
             {
-                Log("OWMService running at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                m_logger.LogInfo("OWMService running at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 Process(false);
             }
             finally
@@ -163,6 +168,7 @@ namespace OWMService
                 m_bFlagProcessing = false;
             }
         }
+
         protected string GetConnectionString()
         {
             return string.Format(
@@ -192,16 +198,21 @@ namespace OWMService
                     ProcessEnvData(stations, isDebug, cnn);
                     ProcessFishState(cnn);
 
-                    m_timer.Interval = 1000 * 60 * 2;
+                    if (m_timer != null)
+                    {
+                        m_timer.Interval = 1000 * 60 * 2;
+                    }
+
                     return true;
                 }
             }
             catch (Exception ex)
             {
-                eventLogRN.WriteEntry("OWMService Failed to connect. " + ex.Message + " at: " + conStr, EventLogEntryType.Error);
+                m_logger.LogError("OWMService Failed to connect. " + ex.Message + " at: " + conStr);
                 return false;
             }
         }
+
         private void ProcessEnvData(List<Tuple<string, float, float, string>> stations, bool isDebug, SqlConnection cnn)
         {
             try
@@ -217,18 +228,16 @@ namespace OWMService
                     }
                     catch (Exception ex)
                     {
-                        eventLogRN.WriteEntry(
-                            "OWMService station processing failed. " + ex.Message + " MLI: " + item.Item1 + " at: " + i,
-                            EventLogEntryType.Error);
+                        m_logger.LogError(
+                            "OWMService station processing failed. " + ex.Message + " MLI: " + item.Item1 + " at: " + i);
                     }
                 }
             }
             catch (Exception ex)
             {
-                eventLogRN.WriteEntry("OWMService Failed in ProcessEnvData. " + ex.Message, EventLogEntryType.Error);
+                m_logger.LogError("OWMService Failed in ProcessEnvData. " + ex.Message);
             }
         }
-
 
         private List<Tuple<string, float, float, string>> GetListOwsMeteo(SqlConnection cnn)
         {
@@ -250,22 +259,6 @@ namespace OWMService
             }
 
             return result;
-        }
-        private void Log(string message, EventLogEntryType entryType = EventLogEntryType.Information)
-        {
-            Console.WriteLine(message);
-
-            try
-            {
-                if (eventLogRN != null)
-                {
-                    eventLogRN.WriteEntry(message, entryType);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Failed to write to Windows Event Log: " + ex.Message);
-            }
         }
 
         public void StartDebug(string[] args)
