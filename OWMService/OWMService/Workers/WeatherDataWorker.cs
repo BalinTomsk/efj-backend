@@ -7,11 +7,23 @@ namespace OWMService.Workers
     using System.Data;
     using System.Data.SqlClient;
     using System.Net;
+    using System.Net.Http;
     using System.Text;
+    using System.Text.RegularExpressions;
  
     public class WeatherDataWorker : IWeatherDataWorker
     {
         private readonly IEventLogger m_logger;
+        private static readonly HttpClient m_httpClient = new HttpClient();
+        private static readonly Regex m_escapeSequenceRegex = new Regex(@"\\""");
+
+        static WeatherDataWorker()
+        {
+            // Configure once at static initialization instead of per-request
+            ServicePointManager.Expect100Continue = true;
+            ServicePointManager.DefaultConnectionLimit = 9999;
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls;
+        }
 
         public WeatherDataWorker(IEventLogger logger)
         {
@@ -101,7 +113,6 @@ namespace OWMService.Workers
         private bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
         {
             string jsonData = ReadJSONOWSData(lat, lon, settings);
-            System.Threading.Thread.Sleep(1024 * 1);
 
             if (string.IsNullOrEmpty(jsonData))
             {
@@ -145,22 +156,18 @@ namespace OWMService.Workers
                 string url = string.Format(@"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={0},{1}&format=json&units=e&language=en-US&apiKey={2}",
                     lat, lon, settings.Wunderground);
 
-                ServicePointManager.Expect100Continue = true;
-                ServicePointManager.DefaultConnectionLimit = 9999;
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls;
-
-                using (WebClient cln = new WebClient())
+                using (HttpResponseMessage response = m_httpClient.GetAsync(url).Result)
                 {
-                    cln.Headers.Add("User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:48.0) Gecko/20100101 Firefox/48.0");
-                    cln.Encoding = Encoding.UTF8;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        m_logger.LogError($"ReadJSONOWSData: HTTP {response.StatusCode}");
+                        return "";
+                    }
 
-                    byte[] data = cln.DownloadData(url);
-
-                    string result = Encoding.UTF8.GetString(data);
-                    result = result.Replace('\"', '"');
-                    string slash = string.Format("{0}{1}", '\\', '"');
-                    string da = string.Format("{0}", '"');
-                    result = result.Replace(slash, da);
+                    string result = response.Content.ReadAsStringAsync().Result;
+                    
+                    // Optimize escape sequence removal: use regex instead of multiple Replace calls
+                    result = m_escapeSequenceRegex.Replace(result, "\"");
 
                     return result;
                 }

@@ -5,55 +5,59 @@ using System.ServiceProcess;
 using System.Text;
 using System.Data.SqlClient;
 using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace OWMService
 {
     public partial class RWS : ServiceBase
     {
-        public string readJSONOWSData(float lat, float lon)
+        private static readonly HttpClient HttpClient = new HttpClient();
+        private const int WeatherApiDelayMs = 1024;
+
+        public async Task<string> ReadJSONOWSDataAsync(float lat, float lon)
         {
             try
             {
-                // download data  WebClient  DownloadData
-                 string url = String.Format(@"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={0},{1}&format=json&units=e&language=en-US&apiKey={2}"
-                                            , lat, lon, m_settings.Wunderground);
-                //string file = System.IO.Path.GetFileName(url);
+                string url = $"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={m_settings.Wunderground}";
 
-                ServicePointManager.Expect100Continue = true;
-                ServicePointManager.DefaultConnectionLimit = 9999;
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls;
+                HttpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:48.0) Gecko/20100101 Firefox/48.0");
 
-                using (WebClient cln = new WebClient())
+                using (HttpResponseMessage response = await HttpClient.GetAsync(url))
                 {
-                    cln.Headers.Add("User-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:48.0) Gecko/20100101 Firefox/48.0");
-                    cln.Encoding = UTF8Encoding.UTF8;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        m_logger.LogError($"Weather API returned status code: {response.StatusCode}");
+                        return string.Empty;
+                    }
 
-                    byte[] data = cln.DownloadData(url);
-
-                    string result = System.Text.UTF8Encoding.UTF8.GetString(data);
-                    result = result.Replace('\"', '"');
-                    string slash = string.Format("{0}{1}", '\\', '"');
-                    string da = string.Format("{0}", '"');
-                    result = result.Replace(slash, da);
+                    string result = await response.Content.ReadAsStringAsync();
                     return result;
                 }
             }
+            catch (HttpRequestException ex)
+            {
+                m_logger.LogError($"ReadJSONOWSDataAsync - HTTP Error: {ex.Message}");
+            }
             catch (Exception ex)
             {
-                m_logger.LogError("readJSONOWSData: " + ex.Message);
+                m_logger.LogError($"ReadJSONOWSDataAsync - Unexpected Error: {ex.Message}");
             }
-            return "";
+            return string.Empty;
         }
+
         /// <summary>
         /// Post processing fish probability data
         /// </summary>
         /// <param name="cnn"></param>
         void ProcessFishState(SqlConnection cnn)
         {
-            if ( null == cnn)
+            if (cnn == null)
             {
+                m_logger.LogError("ProcessFishState: Connection is null");
                 return;
             }
+
             using (SqlCommand cmd = new SqlCommand())
             {
                 cmd.CommandType = CommandType.StoredProcedure;
@@ -66,15 +70,19 @@ namespace OWMService
                     cmd.CommandText = "spTotalUpdateProbability";
                     cmd.ExecuteNonQuery();
                 }
+                catch (SqlException ex)
+                {
+                    m_logger.LogError($"ProcessFishState - SQL Error: {ex.Message}");
+                }
                 catch (Exception ex)
                 {
-                    m_logger.LogError("SaveJSONOWSData: " + ex.Message);
+                    m_logger.LogError($"ProcessFishState - Unexpected Error: {ex.Message}");
                 }
             }
-            return;
         }
+
         /// <summary>
-        /// save JSON file with weather info from wunderground to database for postprocessing
+        /// Save JSON file with weather info from wunderground to database for postprocessing
         /// </summary>
         /// <param name="jsonData"></param>
         /// <param name="mli"></param>
@@ -82,51 +90,64 @@ namespace OWMService
         /// <returns></returns>
         bool SaveJSONOWSData(string jsonData, string mli, SqlConnection cnn)
         {
-            if( String.IsNullOrEmpty(jsonData) || String.IsNullOrEmpty(mli) || null == cnn )
+            if (string.IsNullOrEmpty(jsonData) || string.IsNullOrEmpty(mli) || cnn == null)
             {
+                m_logger.LogError("SaveJSONOWSData: Invalid parameters provided");
                 return false;
             }
-            using (SqlCommand cmd = new SqlCommand())
+
+            using (SqlCommand cmd = new SqlCommand("UPDATE ows_meteo SET ows = @js WHERE mli = @mli", cnn))
             {
                 cmd.CommandType = CommandType.Text;
-                cmd.Connection = cnn;
-                cmd.CommandText = "UPDATE ows_meteo SET ows = @js WHERE mli = @mli";
-                cmd.Parameters.Add("@js",   SqlDbType.NVarChar);
-                cmd.Parameters.Add("@mli",  SqlDbType.VarChar);
+                cmd.Parameters.Add("@js", SqlDbType.NVarChar).Value = jsonData;
+                cmd.Parameters.Add("@mli", SqlDbType.VarChar).Value = mli;
+
                 try
                 {
-                    cmd.Parameters[0].Value = jsonData;
-                    cmd.Parameters[1].Value = mli;
-
                     cmd.ExecuteNonQuery();
+                    return true;
+                }
+                catch (SqlException ex)
+                {
+                    m_logger.LogError($"SaveJSONOWSData - SQL Error: {ex.Message}");
+                    return false;
                 }
                 catch (Exception ex)
                 {
-                    m_logger.LogError("SaveJSONOWSData: " + ex.Message);
+                    m_logger.LogError($"SaveJSONOWSData - Unexpected Error: {ex.Message}");
                     return false;
                 }
             }
-            return true;
         }
+
         /// <summary>
-        /// get weather data from wunderground
-        /// save JSON file to database for prostprocessing
+        /// Get weather data from wunderground
+        /// Save JSON file to database for postprocessing
         /// </summary>
         /// <param name="mli"></param>
         /// <param name="lat"></param>
         /// <param name="lon"></param>
         /// <param name="cnn"></param>
         /// <returns></returns>
-        public bool ProcessOWSPoint( string mli, float lat, float lon, SqlConnection cnn )
+        public async Task<bool> ProcessOWSPointAsync(string mli, float lat, float lon, SqlConnection cnn)
         {
-            string jsonData = readJSONOWSData(lat, lon);        // get weather data from wunderground
-            System.Threading.Thread.Sleep(1024 * 1);
-
-            if( String.IsNullOrEmpty(jsonData))
+            if (cnn == null)
             {
+                m_logger.LogError("ProcessOWSPointAsync: Connection is null");
                 return false;
             }
-            return SaveJSONOWSData(  jsonData, mli, cnn);       // save JSON file to database for prostprocessing
+
+            string jsonData = await ReadJSONOWSDataAsync(lat, lon);
+
+            if (string.IsNullOrEmpty(jsonData))
+            {
+                m_logger.LogError("ProcessOWSPointAsync: No weather data received");
+                return false;
+            }
+
+            await Task.Delay(WeatherApiDelayMs);
+
+            return SaveJSONOWSData(jsonData, mli, cnn);
         }
     }
 }

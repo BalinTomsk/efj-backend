@@ -71,9 +71,6 @@
     <Compile Include="Logging\EventLogLogger.cs" />
     <Compile Include="Logging\IEventLogger.cs" />
     <Compile Include="Logging\LoggerFactory.cs" />
-    <Compile Include="OpenWater.cs">
-      <SubType>Component</SubType>
-    </Compile>
     <Compile Include="OpenWeather.cs">
       <SubType>Component</SubType>
     </Compile>
