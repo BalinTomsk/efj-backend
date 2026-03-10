@@ -26,77 +26,46 @@ namespace OWMService
         private bool m_bFlagProcessing = true;
         private const string NullGuid = "00000000-0000-0000-0000-000000000000";
 
-        // Default ctor used by SCM - selects logger based on build configuration:
-        // Debug => console logger; Release => Event Log logger.
+        // Default ctor used by SCM - selects logger/provider based on defaults.
         public RWS()
-            : this(LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName))
+            : this(LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName), new RegistrySettingsProvider())
         {
         }
 
-        // Overload for dependency injection (tests, alternate loggers, etc.)
+        // Overload for DI (log provider); keeps registry provider.
         public RWS(IEventLogger logger)
+            : this(logger, new RegistrySettingsProvider())
+        {
+        }
+
+        // Full overload for DI (logger + settings provider).
+        public RWS(IEventLogger logger, ISettingsProvider settingsProvider)
         {
             InitializeComponent();
             m_logger = logger ?? LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName);
-        }
-
-        private bool ReadSettings()
-        {
-            const string subKey = @"SOFTWARE\FishFind\OWMService";
-
-            try
-            {
-                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-                using var key = baseKey.OpenSubKey(subKey);
-
-                if (key == null)
-                {
-                    m_logger.LogError("Cannot open registry key: HKLM\\" + subKey);
-                    return false;
-                }
-
-                m_serverName = key.GetValue("Server") as string;
-                if (string.IsNullOrWhiteSpace(m_serverName))
-                {
-                    m_logger.LogError("Cannot read MSSQL Server Name");
-                    m_servicePollInterval = 100;
-                    return false;
-                }
-
-                m_dbName = key.GetValue("dbName") as string;
-                if (string.IsNullOrWhiteSpace(m_dbName))
-                {
-                    m_logger.LogError("Cannot read MSSQL Server Db Name");
-                    return false;
-                }
-
-                m_userName = key.GetValue("userName") as string;
-                m_userPassword = key.GetValue("userPassword") as string;
-                m_wunderground = key.GetValue("wunderground") as string;
-
-                object intervalValue = key.GetValue("Interval");
-                if (intervalValue != null)
-                {
-                    m_servicePollInterval = Convert.ToInt32(intervalValue);
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                m_logger.LogError("ReadSettings failed: " + ex.Message);
-                return false;
-            }
+            m_settingsProvider = settingsProvider ?? new RegistrySettingsProvider();
         }
 
         protected override void OnStart(string[] args)
         {
-            m_logger.LogInfo("OWMService started.");
+            m_logger.LogInfo("OWMService starting.");
 
-            if (!ReadSettings())
+            if (!m_settingsProvider.TryReadSettings(out var settings, out var err))
             {
+                m_logger.LogError(err ?? "Failed to read settings.");
                 return;
             }
+
+            // apply settings
+            m_serverName = settings.Server ?? m_serverName;
+            m_dbName = settings.DbName ?? m_dbName;
+            m_userName = settings.UserName ?? m_userName;
+            m_userPassword = settings.UserPassword ?? m_userPassword;
+            m_wunderground = settings.Wunderground ?? m_wunderground;
+            m_servicePollInterval = settings.Interval > 0 ? settings.Interval : m_servicePollInterval;
+
+            m_logger.LogInfo("OWMService started.");
+
             m_timer = new System.Timers.Timer();
             m_timer.Interval = 10000;
             m_timer.Elapsed += TimerElapsed;
@@ -118,11 +87,11 @@ namespace OWMService
                 m_timer = null;
             }
 
-            if (m_logger is IDisposable disposable)
+            if (m_logger is IDisposable disposableLogger)
             {
                 try
                 {
-                    disposable.Dispose();
+                    disposableLogger.Dispose();
                 }
                 catch
                 {
