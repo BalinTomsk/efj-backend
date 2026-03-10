@@ -1,0 +1,35 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.kotlin
+!**/src/main\resources\application.yml 
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/
+OWMService/bin/*
+OWMService/obj/*
+OWMService/packages
+.vs
+
+### Mac OS ###
+.DS_Store
+
+############################
+# Application secrets
+############################
+application.yml
+.env
+config.ini
+fisheditor.sql 
+lakeeditor.sql 
+OWMService/Res/OWMService.reg

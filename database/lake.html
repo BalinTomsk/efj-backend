@@ -1,0 +1,3847 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN' 'http://www.w3.org/2002/04/xhtml-math-svg/xhtml-math-svg.dtd'>
+<html xmlns='http://www.w3.org/1999/xhtml' >
+<head>
+<title>fish</title>
+<meta http-equiv='Content-Type' content='text/html; charset=UTF-8'/>
+<meta http-equiv='X-UA-Compatible' content='IE=edge'/>
+<style type='text/css'>
+body {
+    font-family: 'trebuchet MS', 'Lucida sans', Dialog;
+    font-size: 12px;
+    color: #444;
+}
+
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+.bordered {
+    border: solid #ccc 1px;
+    -moz-border-radius: 6px;
+    -webkit-border-radius: 6px;
+    border-radius: 6px;
+    -webkit-box-shadow: 0 1px 1px #ccc;
+    -moz-box-shadow: 0 1px 1px #ccc;
+    box-shadow: 0 1px 1px #ccc;
+}
+
+.bordered tr:hover {
+    background: #fbf8e9;
+    -o-transition: all 0.1s ease-in-out;
+    -webkit-transition: all 0.1s ease-in-out;
+    -moz-transition: all 0.1s ease-in-out;
+    -ms-transition: all 0.1s ease-in-out;
+    transition: all 0.1s ease-in-out;
+}
+
+.bordered td, .bordered th {
+    border-left: 1px solid #ccc;
+    border-top: 1px solid #ccc;
+    padding: 4px;
+    text-align: left;
+}
+
+.bordered th {
+    background-color: #d7d7ea;
+    background-image: -webkit-gradient(linear, left top, left bottom, from(#f4f4fb), to(#d7d7ea));
+    background-image: -webkit-linear-gradient(top, #f4f4fb, #d7d7ea);
+    background-image:    -moz-linear-gradient(top, #f4f4fb, #d7d7ea);
+    background-image:     -ms-linear-gradient(top, #f4f4fb, #d7d7ea);
+    background-image:      -o-linear-gradient(top, #f4f4fb, #d7d7ea);
+    background-image:         linear-gradient(top, #f4f4fb, #d7d7ea);
+    -webkit-box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+    -moz-box-shadow:0 1px 0 rgba(255,255,255,.8) inset;
+    box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+    border-top: none;
+    text-shadow: 0 1px 0 rgba(255,255,255,.5);
+}
+
+.bordered td:first-child, .bordered th:first-child {
+    border-left: none;
+}
+
+.bordered th:first-child {
+    -moz-border-radius: 6px 0 0 0;
+    -webkit-border-radius: 6px 0 0 0;
+    border-radius: 6px 0 0 0;
+}
+
+.bordered th:last-child {
+    -moz-border-radius: 0 6px 0 0;
+    -webkit-border-radius: 0 6px 0 0;
+    border-radius: 0 6px 0 0;
+}
+
+.bordered th:only-child{
+    -moz-border-radius: 6px 6px 0 0;
+    -webkit-border-radius: 6px 6px 0 0;
+    border-radius: 6px 6px 0 0;
+}
+
+.bordered tr:last-child td:first-child {
+    -moz-border-radius: 0 0 0 6px;
+    -webkit-border-radius: 0 0 0 6px;
+    border-radius: 0 0 0 6px;
+}
+
+.bordered tr:last-child td:last-child {
+    -moz-border-radius: 0 0 6px 0;
+    -webkit-border-radius: 0 0 6px 0;
+    border-radius: 0 0 6px 0;
+}
+
+</style>
+</head>
+
+<body>
+<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'   width='1470' height='2060' viewbox='0 0 1470 2060' >
+  <script type='text/ecmascript'>
+  <![CDATA[
+  function hghl(el) { for ( var i in el ){ document.getElementById(el[i]).setAttribute('class','highlight');  }  }
+  function uhghl(el) { for ( var i in el ){ document.getElementById(el[i]).setAttribute('class','scene'); }  } 
+  ]]>
+  </script> 
+
+<style type='text/css'>
+  text                { fill:#000000; font-family: Tahoma, 'Trebuchet MS', Dialog; font-size:12px; }
+  text:hover          { fill:#a00000; font-size:13px; }
+  text.highlight      { fill:#a00000; font-size:13px; }
+  text.colType        { fill:#b3b3b3; }
+  path                { stroke:#54402e; stroke-width:1.25; fill:none; }
+  path.scene          { stroke-width:10; opacity:0;}
+  path.highlight      { stroke-width:7; stroke:#e5d78a; opacity:0.6;}
+  rect.table          { fill:#ffffff; stroke:#101010; stroke-width:0.44; filter:url(#shadow); }
+  line.delim          { stroke:#222; stroke-width:0.3; }
+  rect.callout        { fill:url(#calloutGradient); stroke:#bebdbd; stroke-width:0.5; filter: url(#shadow);}
+  rect.grp            { stroke:#b1b1b1; stroke-width:1.7; }
+</style>
+<defs>
+  <pattern patternUnits='userSpaceOnUse' id='layoutBgA' width='10' height='20' x='0' y='0' viewBox='0 0 5 10'>  
+     <line x1='-2' y1='1' x2='7' y2='10' stroke='#f3f3f3' stroke-width='.5'/>  
+     <line x1='-2' y1='6' x2='7' y2='15' stroke='#f3f3f3' stroke-width='.5'/>  
+     <line x1='-2' y1='-4' x2='7' y2='5' stroke='#f3f3f3' stroke-width='.5'/>  
+  </pattern>  
+  <radialGradient id='layoutBgB' gradientUnits='userSpaceOnUse' cx='50%' cy='50%' r='75%' fx='46%' fy='22%'>
+     <stop offset='0%' stop-opacity='.2' stop-color='#f0f0f0' />  
+     <stop offset='100%' stop-color='#e7e7e7' />  
+  </radialGradient>
+  <linearGradient id='tableHeaderGradient0' x1='0%' y1='0%' x2='0%' y2='90%' >
+          <stop offset='-50%' stop-color='#b7c8e3'/> 
+          <stop offset='20%' stop-color='#fafafa'/> 
+          <stop offset='100%' stop-color='#b7c8e3'/> 
+   </linearGradient>
+  <linearGradient id='groupUnderTitleLine' x1='0%' y1='0%' x2='100%' y2='0%' >
+          <stop offset='0%' stop-color='#999999' stop-opacity='0.7'/> 
+          <stop offset='100%' stop-color='#999999' stop-opacity='0' /> 
+   </linearGradient>
+  <radialGradient id='calloutGradient' cx='25%' cy='20%' r='80%' fx='10%' fy='10%'>
+	   <stop offset='0%' stop-color='#ffffff' />
+    <stop offset='100%' stop-color='#f8f6d1' />
+  </radialGradient>
+  <filter id='shadow' width='120%' height='120%'> 
+      <feOffset result='offOut' in='SourceGraphic' dx='2' dy='2' /> 
+      <feColorMatrix result='matrixOut' in='offOut' type='matrix' 
+      values='0.1 0 0 0 0 0 0.1 0 0 0 0 0 0.1 0 0 0 0 0 0.5 0' /> 
+      <feGaussianBlur result='blurOut' in='matrixOut' stdDeviation='3' /> 
+      <feBlend in='SourceGraphic' in2='blurOut' mode='normal' /> 
+    </filter> 
+  <filter id='fkShadow' height='130%'> 
+    <feGaussianBlur in='SourceAlpha' stdDeviation='1.5'/> <!-- stdDeviation is how much to blur -->
+    <feOffset dx='1.2' dy='1.2' result='offsetblur'/> <!-- how much to offset -->
+    <feMerge>
+    <feMergeNode/> <!-- this contains the offset blurred image -->
+    <feMergeNode in='SourceGraphic'/> <!-- this contains the element that the filter is applied to -->
+    </feMerge>
+  </filter>
+  <radialGradient id='legendGradient' fx='5%' fy='5%' r='75%' spreadMethod='pad'>
+          <stop offset='0%' stop-color='#eaf6ee' stop-opacity='1'/> 
+          <stop offset='100%' stop-color='#cce3ca' stop-opacity='1' /> 
+   </radialGradient>
+  <symbol id='calloutArrowDown' overflow='visible' >
+      <path d='M 0,0 L 7,11 L 15,0 z' style='fill:#f8f6d1;stroke:none; filter: url(#shadow);' />
+      <path d='M 0,0 L 7,11 L 15,0' style='stroke:#bebdbd; stroke-width:0.5;' />
+  </symbol>
+  <symbol id='calloutArrowUp' overflow='visible' >
+      <path d='M 0,15 L 7,3 L 15,15 z' style='fill:#ffffff; stroke:none; filter: url(#shadow);' />
+      <path d='M 0,15 L 7,3 L 15,15' style='stroke:#bebdbd; stroke-width:0.5;' />
+  </symbol>
+  <symbol id='pk' overflow='visible' >
+    <g transform='scale(0.99)'>
+     <path style='fill:#fbea8e;stroke:#472106;stroke-width:0.5;stroke-linecap:round;stroke-linejoin:round;'
+        d='M 9.3678877,3.5695485 C 9.1030218,3.2729386 9.0796382,2.7628519 9.3396185,2.4517097 9.5449651,2.1956495 9.9040386,2.0980533 10.199638,2.2169415 10.533525,2.3415459 10.775153,2.706942 10.750675,3.0842709 10.737029,3.3980003 10.541153,3.699122 10.258248,3.8066067 9.966649,3.9250429 9.6169668,3.8418805 9.4008073,3.6062324 9.3894892,3.5943518 9.3785264,3.582104 9.3678886,3.5695487 z M 11.226617,6.9916004 C 11.888137,6.3548946 12.293488,5.4172188 12.311087,4.442353 12.378144,2.7379364 11.248678,1.0541269 9.7322318,0.44767357 8.3887112,-0.1280313 6.7865012,0.26822889 5.8918395,1.4007929 5.080823,2.3839145 4.9336815,3.8452096 5.3635544,5.101615 L 4.3670905,5.315913 C 4.0664984,5.3682645 4.0967703,5.6316724 4.2574957,5.8208829 L 4.9124,6.5655244 4.1543436,7.2512357 3.2136002,7.2163506 3.1674775,8.5586827 2.0406832,8.5086512 1.5965306,8.9299953 1.5471661,10.179833 0.75616674,10.195223 0.2112857,10.758575 0.15354288,11.735988 0.07199052,12.765553 c 0.36440953,0.238225 0.79006967,0.195492 1.44938278,-0.02675 L 6.3033562,8.1282037 6.8217102,8.6765688 C 6.9985465,8.8799427 7.3003699,8.7497574 7.358381,8.5016252 L 7.4938877,7.5084164 c 0.8537488,0.3985387 1.8303125,0.4711541 2.6851793,0.1427713 0.393927,-0.1407258 0.746858,-0.3701772 1.04755,-0.6595873 z'/>
+     <path d='M 6.8014948,6.3102123 0.15369063,13.024481 0.21560535,12.141962 6.0062342,6.2683782 z'
+        style='fill:#ffe5a5;fill-opacity:1;stroke:#854e31;stroke-width:0.06912433;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:3.00300009'/>
+    </g>
+  </symbol>
+  <symbol id='unq' overflow='visible' >
+    <g transform='scale(0.99)'>
+      <rect style='fill:#e07554;stroke:#7e4d31;stroke-width:0.71934468;stroke-linecap:round;stroke-linejoin:round;'
+         width='2.29' height='8.43' x='7.48' y='-0.76' ry='1.14' transform='matrix(0.701,0.713,-0.727,0.685,0,0)' />
+      <path style='fill:white;stroke:#858585;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;'
+         d='m 26.04,8.64 a 4.13,4.13 0 1 1 -8.26,0 4.13,4.13 0 1 1 8.26,0 z'
+         transform='matrix(1.025,0,0,0.987,-14.690,-3.862)' />
+      <text x='5.5' y='7.7' style='font-size:8px;fill:#8a8a8a;'>1</text>
+    </g>
+  </symbol>
+  <symbol id='idx' overflow='visible' >
+    <g transform='scale(0.99)'>
+      <rect style='fill:#e07554;stroke:#7e4d31;stroke-width:0.71934468;stroke-linecap:round;stroke-linejoin:round;'
+         width='2.29' height='8.43' x='7.48' y='-0.76' ry='1.14' transform='matrix(0.701,0.713,-0.727,0.685,0,0)' />
+      <path style='fill:white;stroke:#858585;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;'
+         d='m 26.04,8.64 a 4.13,4.13 0 1 1 -8.26,0 4.13,4.13 0 1 1 8.26,0 z'
+         transform='matrix(1.025,0,0,0.987,-14.690,-3.862)' />
+    </g>
+  </symbol>
+  <symbol id='fk' overflow='visible' >
+    <g transform='scale(0.87)'>
+      <path style='fill:#b7d0f6;stroke:#000000;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;'
+      d='M 12.48,0.33 7.07,0.89 9.067,2.974 0.329,11.731 1.073,12.597 9.811,3.841 11.77,5.78 z' />
+    </g>
+  </symbol>
+  <symbol id='ref' overflow='visible' >
+    <g transform='scale(0.87)'>
+      <path style='fill:#f3e1b7;stroke:#000000;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;'
+          d='M 0.10,12.70 5.31,12.15 3.40,10.06 11.82,1.32 11.11,0.45 2.68,9.19 0.80,7.24 z'/>
+    </g>
+  </symbol>
+  <symbol id='flag' overflow='visible' >
+    <g transform='scale(0.92)'>
+      <path style='fill:#b7d0f6;stroke:#000000;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;'
+          d='M 0.12,12.67 0.16,7.22 C 2.59,7.22 4.13,8.78 9.22,4.22 5.68,4.98 2.53,4.50 0.09,1.80 z'/>
+    </g>
+  </symbol>
+  <symbol id='nn' overflow='visible' >
+  <path style='stroke:#9b3e50;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;'
+          d='M 0,0 3,3 M 0,3 3,0 z'/>
+  </symbol>
+  <marker id='arrow01' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 15.000,3.750 L 7.500,2.500 L 7.500,7.500 L 15.000,3.750 z' style='fill:#5e554d;' />
+  </marker>
+  <marker id='arrow1' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 15.000,3.750 L 7.500,2.500 L 7.500,7.500 L 15.000,3.750 z' style='fill:#5e554d;' />
+  </marker>
+  <marker id='foot01' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 0.00,3.75 L 15.00,3.75 z' />
+    <circle cx='11.25' cy='3.75' r='2.50' style='fill:white;stroke:#5e554d;' />
+    <path d='M 3.75,0.00 L 3.75, 7.50 z' />
+  </marker>
+  <marker id='foot0p' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 0.00,3.75 L 15.00,3.75 z' />
+    <circle cx='11.25' cy='3.75' r='2.50' style='fill:white;stroke:#5e554d;' />
+    <path d='M 0.00,0.00 L 7.50,3.75 L 0.00,7.50' />
+  </marker>
+  <marker id='foot1' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 0.00,3.75 L 15.00,3.75 z' />
+    <path d='M 7.50,0.00 L 7.50, 7.50 z' />
+    <path d='M 3.75,0.00 L 3.75, 7.50 z' />
+  </marker>
+  <marker id='foot1p' viewBox='0 0 15.00 7.50' refX='7.50' refY='3.75' markerUnits='strokeWidth' markerWidth='15.00' markerHeight='7.50' orient='auto'>
+    <path d='M 0.00,3.75 L 15.00,3.75 z' />
+    <path d='M 7.50,0.00 L 7.50, 7.50 z' />
+    <path d='M 0.00,0.00 L 7.50,3.75 L 0.00,7.50' />
+  </marker>
+</defs>
+
+<!-- ============= Desktop ============= -->
+<rect x='1' y='1' width='1468' height='2058' rx='7' ry='7' style='fill:url(#layoutBgA); stroke:#333333; stroke-width:0.5;' />
+<rect x='1' y='1' width='1468' height='2058' rx='7' ry='7' style='fill:url(#layoutBgB)'/>
+
+<!-- ============= Legend ============= -->
+<g transform='translate(10,10)'>
+  <rect x='10' y='10' width='260' height='64' rx='6' ry='6' style='fill:url(#legendGradient);filter:url(#shadow);'/> 
+  <text x='20' y='30'><tspan>Project</tspan> envionx by <a xlink:href='http://www.dbschema.com' text-decoration='underline'>DbSchema</a></text> 
+  <text x='20' y='44'><tspan>Layout</tspan> fish</text> 
+  <text x='20' y='58' style='fill:#777'><tspan>Column comments as mouse-over tooltips.</tspan></text> 
+</g>
+
+<g transform='translate(0,110)'>
+<!-- ============= Group 'www' ============= -->
+<rect class='grp' style='fill:#c4e0f9;stroke:#b6c6d4' x='29' y='10' width='182' height='620' />
+<text x='40' y='25'>www</text>
+<rect style='fill:url(#groupUnderTitleLine); stroke-width:2;' x='40' y='28' width='160' height='2' />
+
+<!-- ============= Group 'weather' ============= -->
+<rect class='grp' style='fill:#c4e0f9;stroke:#b6c6d4' x='254' y='10' width='1187' height='770' />
+<text x='265' y='25'>weather</text>
+<rect style='fill:url(#groupUnderTitleLine); stroke-width:2;' x='265' y='28' width='1165' height='2' />
+
+<!-- ============= Group 'fish' ============= -->
+<rect class='grp' style='fill:#c4e0f9;stroke:#b6c6d4' x='299' y='865' width='1052' height='1055' />
+<text x='310' y='880'>fish</text>
+<rect style='fill:url(#groupUnderTitleLine); stroke-width:2;' x='310' y='883' width='1030' height='2' />
+
+<!-- ============= Fk 'fish_FK_Species_Family' ============= -->
+<path id='fish_FK_Species_Family'  onmouseover="hghl(['fish_FK_Species_Family','dbo.fish.family_Id','dbo.fish_family.Family_id'])" onmouseout="uhghl(['fish_FK_Species_Family','dbo.fish.family_Id','dbo.fish_family.Family_id'])" transform='translate(7,0)' class='scene' d='M 765 990 L 517,990 Q 510,990 510,997 L 510,1672 Q 510,1680 502,1680 L 495,1680' >
+	<title>Fk FK_Species_Family
+fish ref fish_family ( family_Id -&gt; Family_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)' marker-end='url(#arrow1)'    d='M 765 990 L 517,990 Q 510,990 510,997 L 510,1672 Q 510,1680 502,1680 L 495,1680' ></path>
+<text x='725' y='985' transform='rotate(0 725,985)' title='Fk FK_Species_Family
+fish ref fish_family ( family_Id -&gt; Family_id )' style='fill:#cfc391;'>family_Id</text>
+<!-- ============= Fk 'weather_Forecast_FK__weather_For__mli__3CF5A22C' ============= -->
+<path id='weather_Forecast_FK__weather_For__mli__3CF5A22C'  onmouseover="hghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C','dbo.weather_Forecast.mli','dbo.WaterStation.mli'])" onmouseout="uhghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C','dbo.weather_Forecast.mli','dbo.WaterStation.mli'])" transform='translate(7,0)' class='scene' d='M 705 495 L 802,495 Q 810,495 810,487 L 810,292 Q 810,285 817,285 L 840,285' >
+	<title>Fk FK__weather_For__mli__3CF5A22C
+weather_Forecast ref WaterStation ( mli )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot0p)' marker-end='url(#arrow1)'    d='M 705 495 L 802,495 Q 810,495 810,487 L 810,292 Q 810,285 817,285 L 840,285' ></path>
+<text x='712' y='490' transform='rotate(0 712,490)' title='Fk FK__weather_For__mli__3CF5A22C
+weather_Forecast ref WaterStation ( mli )' style='fill:#cfc391;'>mli</text>
+<!-- ============= Fk 'fish_location_FK_fish_location_station' ============= -->
+<path id='fish_location_FK_fish_location_station'  onmouseover="hghl(['fish_location_FK_fish_location_station','dbo.fish_location.station_Id','dbo.WaterStation.id'])" onmouseout="uhghl(['fish_location_FK_fish_location_station','dbo.fish_location.station_Id','dbo.WaterStation.id'])" transform='translate(7,0)' class='scene' d='M 1140 930 L 1027,930 Q 1020,930 1020,922 L 1020,277 Q 1020,270 1012,270 L 1005,270' >
+	<title>Fk FK_fish_location_station
+fish_location ref WaterStation ( station_Id -&gt; id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)' marker-end='url(#arrow1)'    d='M 1140 930 L 1027,930 Q 1020,930 1020,922 L 1020,277 Q 1020,270 1012,270 L 1005,270' ></path>
+<text x='1096' y='925' transform='rotate(0 1096,925)' title='Fk FK_fish_location_station
+fish_location ref WaterStation ( station_Id -&gt; id )' style='fill:#cfc391;'>station_Id</text>
+<!-- ============= Fk 'fish_location_FK_fish_location_fish' ============= -->
+<path id='fish_location_FK_fish_location_fish'  onmouseover="hghl(['fish_location_FK_fish_location_fish','dbo.fish_location.fish_Id','dbo.fish.fish_id'])" onmouseout="uhghl(['fish_location_FK_fish_location_fish','dbo.fish_location.fish_Id','dbo.fish.fish_id'])" transform='translate(7,0)' class='scene' d='M 1140 945 L 982,945 Q 975,945 975,937 L 975,930' >
+	<title>Fk FK_fish_location_fish
+fish_location ref fish ( fish_Id -&gt; fish_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)'     d='M 1140 945 L 982,945 Q 975,945 975,937 L 975,930' ></path>
+<text x='1110' y='940' transform='rotate(0 1110,940)' title='Fk FK_fish_location_fish
+fish_location ref fish ( fish_Id -&gt; fish_id )' style='fill:#cfc391;'>fish_Id</text>
+<!-- ============= Fk 'fish_Rule_FK_fish_Rule_fish' ============= -->
+<path id='fish_Rule_FK_fish_Rule_fish'  onmouseover="hghl(['fish_Rule_FK_fish_Rule_fish','dbo.fish_Rule.fish_Id','dbo.fish.fish_id'])" onmouseout="uhghl(['fish_Rule_FK_fish_Rule_fish','dbo.fish_Rule.fish_Id','dbo.fish.fish_id'])" transform='translate(7,0)' class='scene' d='M 1155 1125 L 982,1125 Q 975,1125 975,1117 L 975,937 Q 975,930 967,930 L 960,930' >
+	<title>Fk FK_fish_Rule_fish
+fish_Rule ref fish ( fish_Id -&gt; fish_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)' marker-end='url(#arrow1)'    d='M 1155 1125 L 982,1125 Q 975,1125 975,1117 L 975,937 Q 975,930 967,930 L 960,930' ></path>
+<text x='1125' y='1120' transform='rotate(0 1125,1120)' title='Fk FK_fish_Rule_fish
+fish_Rule ref fish ( fish_Id -&gt; fish_id )' style='fill:#cfc391;'>fish_Id</text>
+<!-- ============= Fk 'fish_record_FK_fish_rec_lake' ============= -->
+<path id='fish_record_FK_fish_rec_lake'  onmouseover="hghl(['fish_record_FK_fish_rec_lake','dbo.fish_record.lake_id','dbo.Lake.lake_id'])" onmouseout="uhghl(['fish_record_FK_fish_rec_lake','dbo.fish_record.lake_id','dbo.Lake.lake_id'])" transform='translate(7,0)' class='scene' d='M 465 1065 L 532,1065 Q 540,1065 540,1072 L 540,1080' >
+	<title>Fk FK_fish_rec_lake
+fish_record ref Lake ( lake_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)'     d='M 465 1065 L 532,1065 Q 540,1065 540,1072 L 540,1080' ></path>
+<text x='472' y='1060' transform='rotate(0 472,1060)' title='Fk FK_fish_rec_lake
+fish_record ref Lake ( lake_id )' style='fill:#cfc391;'>lake_id</text>
+<!-- ============= Fk 'fish_record_FK_fish_rec_fish' ============= -->
+<path id='fish_record_FK_fish_rec_fish'  onmouseover="hghl(['fish_record_FK_fish_rec_fish','dbo.fish_record.fish_id','dbo.fish.fish_id'])" onmouseout="uhghl(['fish_record_FK_fish_rec_fish','dbo.fish_record.fish_id','dbo.fish.fish_id'])" transform='translate(7,0)' class='scene' d='M 465 1050 L 742,1050 Q 750,1050 750,1042 L 750,1035' >
+	<title>Fk FK_fish_rec_fish
+fish_record ref fish ( fish_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)'     d='M 465 1050 L 742,1050 Q 750,1050 750,1042 L 750,1035' ></path>
+<text x='472' y='1045' transform='rotate(0 472,1045)' title='Fk FK_fish_rec_fish
+fish_record ref fish ( fish_id )' style='fill:#cfc391;'>fish_id</text>
+<!-- ============= Fk 'lake_fish_FK_lake_fish_Lake' ============= -->
+<path id='lake_fish_FK_lake_fish_Lake'  onmouseover="hghl(['lake_fish_FK_lake_fish_Lake','dbo.lake_fish.lake_Id','dbo.Lake.lake_id'])" onmouseout="uhghl(['lake_fish_FK_lake_fish_Lake','dbo.lake_fish.lake_Id','dbo.Lake.lake_id'])" transform='translate(7,0)' class='scene' d='M 495 1275 L 532,1275 Q 540,1275 540,1282 L 540,1290' >
+	<title>Fk FK_lake_fish_Lake
+lake_fish ref Lake ( lake_Id -&gt; lake_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)'     d='M 495 1275 L 532,1275 Q 540,1275 540,1282 L 540,1290' ></path>
+<text x='502' y='1270' transform='rotate(0 502,1270)' title='Fk FK_lake_fish_Lake
+lake_fish ref Lake ( lake_Id -&gt; lake_id )' style='fill:#cfc391;'>lake_Id</text>
+<!-- ============= Fk 'lake_fish_FK_lake_fish_fish' ============= -->
+<path id='lake_fish_FK_lake_fish_fish'  onmouseover="hghl(['lake_fish_FK_lake_fish_fish','dbo.lake_fish.fish_id','dbo.fish.fish_id'])" onmouseout="uhghl(['lake_fish_FK_lake_fish_fish','dbo.lake_fish.fish_id','dbo.fish.fish_id'])" transform='translate(7,0)' class='scene' d='M 495 1290 L 742,1290 Q 750,1290 750,1282 L 750,1275' >
+	<title>Fk FK_lake_fish_fish
+lake_fish ref fish ( fish_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1p)'     d='M 495 1290 L 742,1290 Q 750,1290 750,1282 L 750,1275' ></path>
+<text x='502' y='1285' transform='rotate(0 502,1285)' title='Fk FK_lake_fish_fish
+lake_fish ref fish ( fish_id )' style='fill:#cfc391;'>fish_id</text>
+<!-- ============= Fk 'fish_general_FK__fish_gene__fish___462A06AB' ============= -->
+<path id='fish_general_FK__fish_gene__fish___462A06AB'  onmouseover="hghl(['fish_general_FK__fish_gene__fish___462A06AB','dbo.fish_general.fish_id','dbo.fish.fish_id'])" onmouseout="uhghl(['fish_general_FK__fish_gene__fish___462A06AB','dbo.fish_general.fish_id','dbo.fish.fish_id'])" transform='translate(7,0)' class='scene' d='M 480 1485 L 742,1485 Q 750,1485 750,1477 L 750,937 Q 750,930 757,930 L 765,930' >
+	<title>Fk FK__fish_gene__fish___462A06AB
+fish_general ref fish ( fish_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1)' marker-end='url(#arrow1)'    d='M 480 1485 L 742,1485 Q 750,1485 750,1477 L 750,937 Q 750,930 757,930 L 765,930' ></path>
+<text x='487' y='1480' transform='rotate(0 487,1480)' title='Fk FK__fish_gene__fish___462A06AB
+fish_general ref fish ( fish_id )' style='fill:#cfc391;'>fish_id</text>
+<!-- ============= Fk 'Parking_Spot_FK_Parking_Spot' ============= -->
+<path id='Parking_Spot_FK_Parking_Spot'  onmouseover="hghl(['Parking_Spot_FK_Parking_Spot','dbo.Parking_Spot.lake_id','dbo.Lake.lake_id'])" onmouseout="uhghl(['Parking_Spot_FK_Parking_Spot','dbo.Parking_Spot.lake_id','dbo.Lake.lake_id'])" transform='translate(7,0)' class='scene' d='M 420 585 L 532,585 Q 540,585 540,592 L 540,1327 Q 540,1335 547,1335 L 795,1335' >
+	<title>Fk FK_Parking_Spot
+Parking_Spot ref Lake ( lake_id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot0p)' marker-end='url(#arrow1)'    d='M 420 585 L 532,585 Q 540,585 540,592 L 540,1327 Q 540,1335 547,1335 L 795,1335' ></path>
+<text x='427' y='580' transform='rotate(0 427,580)' title='Fk FK_Parking_Spot
+Parking_Spot ref Lake ( lake_id )' style='fill:#cfc391;'>lake_id</text>
+<!-- ============= Fk 'Weather_station_FK_Weather_station_wsi' ============= -->
+<path id='Weather_station_FK_Weather_station_wsi'  onmouseover="hghl(['Weather_station_FK_Weather_station_wsi','dbo.Weather_station.weather_station_id','dbo.WaterStation.id'])" onmouseout="uhghl(['Weather_station_FK_Weather_station_wsi','dbo.Weather_station.weather_station_id','dbo.WaterStation.id'])" transform='translate(7,0)' class='scene' d='M 780 645 L 817,645 Q 825,645 825,637 L 825,277 Q 825,270 832,270 L 840,270' >
+	<title>Fk FK_Weather_station_wsi
+Weather_station ref WaterStation ( weather_station_id -&gt; id )</title>
+</path>
+<path class='defo' transform='translate(7,0)' marker-start='url(#foot1)' marker-end='url(#arrow1)'    d='M 780 645 L 817,645 Q 825,645 825,637 L 825,277 Q 825,270 832,270 L 840,270' ></path>
+<text x='787' y='640' transform='rotate(0 787,640)' title='Fk FK_Weather_station_wsi
+Weather_station ref WaterStation ( weather_station_id -&gt; id )' style='fill:#cfc391;'>weather_station_id</text>
+<!-- ============= Table 'ImportWaterData' ============= -->
+<rect class='table' x='735' y='53' width='105' height='135' rx='7' ry='7' />
+<line class='delim' x1='735.500000' y1='79.500000' x2='839.500000' y2='79.500000'/>
+<line class='delim' x1='750.500000' y1='79.500000' x2='750.500000' y2='187.500000'/>
+<line class='delim' x1='828.500000' y1='79.500000' x2='828.500000' y2='187.500000'/>
+<path d='M 735.50 79.50 L 735.50 60.50 Q 735.50 53.50 742.50 53.50 L 832.50 53.50 Q 839.50 53.50 839.50 60.50 L 839.50 79.50 L735.50 79.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#ImportWaterData'><text x='744' y='71'>ImportWaterData</text><title>Table dbo.ImportWaterData</title></a>
+  <a xlink:href='#ImportWaterData.mli'><text id='dbo.ImportWaterData.mli' x='753' y='97'>mli</text><text x='825' y='97' text-anchor='end' class='colType'>varchar</text><title>mli
+varchar</title></a>
+  <a xlink:href='#ImportWaterData.stamp'><text id='dbo.ImportWaterData.stamp' x='753' y='112'>stamp</text><text x='825' y='112' text-anchor='end' class='colType'>datetime</text><title>stamp
+datetime</title></a>
+  <a xlink:href='#ImportWaterData.dt'><text id='dbo.ImportWaterData.dt' x='753' y='127'>dt</text><text x='825' y='127' text-anchor='end' class='colType'>int</text><title>dt
+int</title></a>
+  <a xlink:href='#ImportWaterData.hr'><text id='dbo.ImportWaterData.hr' x='753' y='142'>hr</text><text x='825' y='142' text-anchor='end' class='colType'>int</text><title>hr
+int</title></a>
+  <a xlink:href='#ImportWaterData.data'><text id='dbo.ImportWaterData.data' x='753' y='157'>data</text><text x='825' y='157' text-anchor='end' class='colType'>float</text><title>data
+float</title></a>
+  <a xlink:href='#ImportWaterData.elev'><text id='dbo.ImportWaterData.elev' x='753' y='172'>elev</text><text x='825' y='172' text-anchor='end' class='colType'>float</text><title>elev
+float</title></a>
+
+<!-- ============= Table 'fish' ============= -->
+<rect class='table' x='780' y='893' width='180' height='360' rx='7' ry='7' />
+<line class='delim' x1='780.500000' y1='919.500000' x2='959.500000' y2='919.500000'/>
+<line class='delim' x1='795.500000' y1='919.500000' x2='795.500000' y2='1252.500000'/>
+<line class='delim' x1='948.500000' y1='919.500000' x2='948.500000' y2='1252.500000'/>
+<path d='M 780.50 919.50 L 780.50 900.50 Q 780.50 893.50 787.50 893.50 L 952.50 893.50 Q 959.50 893.50 959.50 900.50 L 959.50 919.50 L780.50 919.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish'><text x='858' y='911'>fish</text><title>Table dbo.fish</title></a>
+  <use id='nn' x='782' y='927' xlink:href='#nn'/><a xlink:href='#fish.fish_id'><use id='pk' x='782' y='926' xlink:href='#pk'/><title>Pk PK__Species__3213E83F7FD5EEA5 ( fish_id ) </title></a>
+<a xlink:href='#fish.fish_id'><text id='dbo.fish.fish_id' x='798' y='937' onmouseover="hghl(['fish_Rule_FK_fish_Rule_fish','fish_general_FK__fish_gene__fish___462A06AB','fish_location_FK_fish_location_fish','fish_record_FK_fish_rec_fish','lake_fish_FK_lake_fish_fish'])" onmouseout="uhghl(['fish_Rule_FK_fish_Rule_fish','fish_general_FK__fish_gene__fish___462A06AB','fish_location_FK_fish_location_fish','fish_record_FK_fish_rec_fish','lake_fish_FK_lake_fish_fish'])">fish_id</text><text x='945' y='937' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_id
+* uniqueidentifier default (newid())</title></a>
+<a xlink:href='#fish.fish_id'><use id='ref' x='948' y='926' xlink:href='#ref'/><title>Referred by fish_Rule ( fish_Id -&gt; fish_id ) 
+Referred by fish_general ( fish_id ) 
+Referred by fish_location ( fish_Id -&gt; fish_id ) 
+Referred by fish_record ( fish_id ) 
+Referred by lake_fish ( fish_id ) </title></a>
+  <use id='nn' x='782' y='942' xlink:href='#nn'/><a xlink:href='#fish.fish_name'><use id='idx' x='782' y='941' xlink:href='#idx'/><title>IDX_fish_name ( fish_name ) </title></a>
+<a xlink:href='#fish.fish_name'><text id='dbo.fish.fish_name' x='798' y='952'>fish_name</text><text x='945' y='952' text-anchor='end' class='colType'>varchar</text><title>fish_name
+* varchar</title></a>
+  <use id='nn' x='782' y='957' xlink:href='#nn'/><a xlink:href='#fish.fish_latin'><use id='unq' x='782' y='956' xlink:href='#unq'/><title>Unq UK_Species_Latin ( fish_latin ) </title></a>
+<a xlink:href='#fish.fish_latin'><text id='dbo.fish.fish_latin' x='798' y='967'>fish_latin</text><text x='945' y='967' text-anchor='end' class='colType'>varchar</text><title>fish_latin
+* varchar</title></a>
+  <a xlink:href='#fish.descrip'><text id='dbo.fish.descrip' x='798' y='982'>descrip</text><text x='945' y='982' text-anchor='end' class='colType'>nvarchar</text><title>descrip
+nvarchar</title></a>
+  <use id='nn' x='782' y='987' xlink:href='#nn'/><a xlink:href='#fish.family_Id'><text id='dbo.fish.family_Id' x='798' y='997' onmouseover="hghl(['fish_FK_Species_Family'])" onmouseout="uhghl(['fish_FK_Species_Family'])">family_Id</text><text x='945' y='997' text-anchor='end' class='colType'>uniqueidentifier</text><title>family_Id
+* uniqueidentifier default ('00000000-0000-0000-0000-000000000000')</title></a>
+<a xlink:href='#fish.family_Id'><use id='fk' x='948' y='986' xlink:href='#fk'/><title>References fish_family ( family_Id -&gt; Family_id ) </title></a>
+  <a xlink:href='#fish.length'><use id='idx' x='782' y='1001' xlink:href='#idx'/><title>idx_fish_len ( length ) </title></a>
+<a xlink:href='#fish.length'><text id='dbo.fish.length' x='798' y='1012'>length</text><text x='945' y='1012' text-anchor='end' class='colType'>float</text><title>length
+float</title></a>
+  <a xlink:href='#fish.water_type'><text id='dbo.fish.water_type' x='798' y='1027'>water_type</text><text x='945' y='1027' text-anchor='end' class='colType'>int</text><title>water_type
+int</title></a>
+  <a xlink:href='#fish.img'><text id='dbo.fish.img' x='798' y='1042'>img</text><text x='945' y='1042' text-anchor='end' class='colType'>image</text><title>img
+image</title></a>
+  <a xlink:href='#fish.fish_type'><use id='idx' x='782' y='1046' xlink:href='#idx'/><title>idx_fish_fishtype ( fish_type ) </title></a>
+<a xlink:href='#fish.fish_type'><text id='dbo.fish.fish_type' x='798' y='1057'>fish_type</text><text x='945' y='1057' text-anchor='end' class='colType'>int</text><title>fish_type
+int default ((0))</title></a>
+  <a xlink:href='#fish.food_type'><text id='dbo.fish.food_type' x='798' y='1072'>food_type</text><text x='945' y='1072' text-anchor='end' class='colType'>int</text><title>food_type
+int default ((0))</title></a>
+  <a xlink:href='#fish.react_color'><text id='dbo.fish.react_color' x='798' y='1087'>react_color</text><text x='945' y='1087' text-anchor='end' class='colType'>int</text><title>react_color
+int default ((0))</title></a>
+  <a xlink:href='#fish.natural_color'><text id='dbo.fish.natural_color' x='798' y='1102'>natural_color</text><text x='945' y='1102' text-anchor='end' class='colType'>int</text><title>natural_color
+int default ((0))</title></a>
+  <use id='nn' x='782' y='1107' xlink:href='#nn'/><a xlink:href='#fish.stamp'><text id='dbo.fish.stamp' x='798' y='1117'>stamp</text><text x='945' y='1117' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#fish.food_habitat'><text id='dbo.fish.food_habitat' x='798' y='1132'>food_habitat</text><text x='945' y='1132' text-anchor='end' class='colType'>int</text><title>food_habitat
+int default ((0))</title></a>
+  <a xlink:href='#fish.terrestrial_insects'><text id='dbo.fish.terrestrial_insects' x='798' y='1147'>terrestrial_insects</text><text x='945' y='1147' text-anchor='end' class='colType'>int</text><title>terrestrial_insects
+int default ((0))</title></a>
+  <a xlink:href='#fish.crustaceans'><text id='dbo.fish.crustaceans' x='798' y='1162'>crustaceans</text><text x='945' y='1162' text-anchor='end' class='colType'>int</text><title>crustaceans
+int default ((0))</title></a>
+  <a xlink:href='#fish.terrestrial_animals'><text id='dbo.fish.terrestrial_animals' x='798' y='1177'>terrestrial_animals</text><text x='945' y='1177' text-anchor='end' class='colType'>int</text><title>terrestrial_animals
+int default ((0))</title></a>
+  <a xlink:href='#fish.locked'><text id='dbo.fish.locked' x='798' y='1192'>locked</text><text x='945' y='1192' text-anchor='end' class='colType'>bit</text><title>locked
+bit default ((0))</title></a>
+  <a xlink:href='#fish.editor'><text id='dbo.fish.editor' x='798' y='1207'>editor</text><text x='945' y='1207' text-anchor='end' class='colType'>uniqueidentifier</text><title>editor
+uniqueidentifier</title></a>
+  <a xlink:href='#fish.node_food_habitat'><text id='dbo.fish.node_food_habitat' x='798' y='1222'>node_food_habitat</text><text x='945' y='1222' text-anchor='end' class='colType'>nvarchar</text><title>node_food_habitat
+nvarchar</title></a>
+  <a xlink:href='#fish.alt_Name'><text id='dbo.fish.alt_Name' x='798' y='1237'>alt_Name</text><text x='945' y='1237' text-anchor='end' class='colType'>varchar</text><title>alt_Name
+varchar</title></a>
+
+<!-- ============= Table 'SessionHandler' ============= -->
+<rect class='table' x='45' y='38' width='150' height='240' rx='7' ry='7' />
+<line class='delim' x1='45.500000' y1='64.500000' x2='194.500000' y2='64.500000'/>
+<line class='delim' x1='60.500000' y1='64.500000' x2='60.500000' y2='277.500000'/>
+<line class='delim' x1='183.500000' y1='64.500000' x2='183.500000' y2='277.500000'/>
+<path d='M 45.50 64.50 L 45.50 45.50 Q 45.50 38.50 52.50 38.50 L 187.50 38.50 Q 194.50 38.50 194.50 45.50 L 194.50 64.50 L45.50 64.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#SessionHandler'><text x='79' y='56'>SessionHandler</text><title>Table dbo.SessionHandler</title></a>
+  <use id='nn' x='47' y='72' xlink:href='#nn'/><a xlink:href='#SessionHandler.id'><use id='pk' x='47' y='71' xlink:href='#pk'/><title>Pk PK_SessionHandler ( id ) </title></a>
+<a xlink:href='#SessionHandler.id'><text id='dbo.SessionHandler.id' x='63' y='82'>id</text><text x='180' y='82' text-anchor='end' class='colType'>uniqueidentifier</text><title>id
+* uniqueidentifier default (newid())</title></a>
+  <use id='nn' x='47' y='87' xlink:href='#nn'/><a xlink:href='#SessionHandler.ipAddr'><text id='dbo.SessionHandler.ipAddr' x='63' y='97'>ipAddr</text><text x='180' y='97' text-anchor='end' class='colType'>varchar</text><title>ipAddr
+* varchar</title></a>
+  <use id='nn' x='47' y='102' xlink:href='#nn'/><a xlink:href='#SessionHandler.startSess'><text id='dbo.SessionHandler.startSess' x='63' y='112'>startSess</text><text x='180' y='112' text-anchor='end' class='colType'>datetime</text><title>startSess
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#SessionHandler.endSess'><text id='dbo.SessionHandler.endSess' x='63' y='127'>endSess</text><text x='180' y='127' text-anchor='end' class='colType'>datetime</text><title>endSess
+datetime</title></a>
+  <use id='nn' x='47' y='132' xlink:href='#nn'/><a xlink:href='#SessionHandler.userAgent'><text id='dbo.SessionHandler.userAgent' x='63' y='142'>userAgent</text><text x='180' y='142' text-anchor='end' class='colType'>nvarchar</text><title>userAgent
+* nvarchar</title></a>
+  <use id='nn' x='47' y='147' xlink:href='#nn'/><a xlink:href='#SessionHandler.addr'><text id='dbo.SessionHandler.addr' x='63' y='157'>addr</text><text x='180' y='157' text-anchor='end' class='colType'>varchar</text><title>addr
+* varchar</title></a>
+  <use id='nn' x='47' y='162' xlink:href='#nn'/><a xlink:href='#SessionHandler.host'><text id='dbo.SessionHandler.host' x='63' y='172'>host</text><text x='180' y='172' text-anchor='end' class='colType'>varchar</text><title>host
+* varchar</title></a>
+  <a xlink:href='#SessionHandler.startPage'><text id='dbo.SessionHandler.startPage' x='63' y='187'>startPage</text><text x='180' y='187' text-anchor='end' class='colType'>varchar</text><title>startPage
+varchar</title></a>
+  <a xlink:href='#SessionHandler.endPage'><text id='dbo.SessionHandler.endPage' x='63' y='202'>endPage</text><text x='180' y='202' text-anchor='end' class='colType'>varchar</text><title>endPage
+varchar</title></a>
+  <a xlink:href='#SessionHandler.userId'><text id='dbo.SessionHandler.userId' x='63' y='217'>userId</text><text x='180' y='217' text-anchor='end' class='colType'>uniqueidentifier</text><title>userId
+uniqueidentifier</title></a>
+  <use id='nn' x='47' y='222' xlink:href='#nn'/><a xlink:href='#SessionHandler.visitedPages'><text id='dbo.SessionHandler.visitedPages' x='63' y='232'>visitedPages</text><text x='180' y='232' text-anchor='end' class='colType'>int</text><title>visitedPages
+* int default ((1))</title></a>
+  <use id='nn' x='47' y='237' xlink:href='#nn'/><a xlink:href='#SessionHandler.sid'><text id='dbo.SessionHandler.sid' x='63' y='247'>sid</text><text x='180' y='247' text-anchor='end' class='colType'>bigint identity</text><title>sid
+* bigint identity</title></a>
+  <a xlink:href='#SessionHandler.cookie'><text id='dbo.SessionHandler.cookie' x='63' y='262'>cookie</text><text x='180' y='262' text-anchor='end' class='colType'>varchar</text><title>cookie
+varchar</title></a>
+
+<!-- ============= Table 'Users' ============= -->
+<rect class='table' x='60' y='323' width='135' height='285' rx='7' ry='7' />
+<line class='delim' x1='60.500000' y1='349.500000' x2='194.500000' y2='349.500000'/>
+<line class='delim' x1='75.500000' y1='349.500000' x2='75.500000' y2='607.500000'/>
+<line class='delim' x1='183.500000' y1='349.500000' x2='183.500000' y2='607.500000'/>
+<path d='M 60.50 349.50 L 60.50 330.50 Q 60.50 323.50 67.50 323.50 L 187.50 323.50 Q 194.50 323.50 194.50 330.50 L 194.50 349.50 L60.50 349.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Users'><text x='110' y='341'>Users</text><title>Table dbo.Users</title></a>
+  <use id='nn' x='62' y='357' xlink:href='#nn'/><a xlink:href='#Users.id'><use id='pk' x='62' y='356' xlink:href='#pk'/><title>Pk PK_Users ( id ) </title></a>
+<a xlink:href='#Users.id'><text id='dbo.Users.id' x='78' y='367'>id</text><text x='180' y='367' text-anchor='end' class='colType'>uniqueidentifier</text><title>id
+* uniqueidentifier default (newid())</title></a>
+  <use id='nn' x='62' y='372' xlink:href='#nn'/><a xlink:href='#Users.userName'><text id='dbo.Users.userName' x='78' y='382'>userName</text><text x='180' y='382' text-anchor='end' class='colType'>varchar</text><title>userName
+* varchar</title></a>
+  <use id='nn' x='62' y='387' xlink:href='#nn'/><a xlink:href='#Users.psw'><text id='dbo.Users.psw' x='78' y='397'>psw</text><text x='180' y='397' text-anchor='end' class='colType'>binary</text><title>psw
+* binary</title></a>
+  <a xlink:href='#Users.titul'><text id='dbo.Users.titul' x='78' y='412'>titul</text><text x='180' y='412' text-anchor='end' class='colType'>nvarchar</text><title>titul
+nvarchar</title></a>
+  <use id='nn' x='62' y='417' xlink:href='#nn'/><a xlink:href='#Users.firstName'><text id='dbo.Users.firstName' x='78' y='427'>firstName</text><text x='180' y='427' text-anchor='end' class='colType'>nvarchar</text><title>firstName
+* nvarchar</title></a>
+  <use id='nn' x='62' y='432' xlink:href='#nn'/><a xlink:href='#Users.lastName'><text id='dbo.Users.lastName' x='78' y='442'>lastName</text><text x='180' y='442' text-anchor='end' class='colType'>nvarchar</text><title>lastName
+* nvarchar</title></a>
+  <use id='nn' x='62' y='447' xlink:href='#nn'/><a xlink:href='#Users.email'><use id='unq' x='62' y='446' xlink:href='#unq'/><title>Unq UK_Users_Email ( email ) </title></a>
+<a xlink:href='#Users.email'><text id='dbo.Users.email' x='78' y='457'>email</text><text x='180' y='457' text-anchor='end' class='colType'>varchar</text><title>email
+* varchar</title></a>
+  <use id='nn' x='62' y='462' xlink:href='#nn'/><a xlink:href='#Users.stamp'><text id='dbo.Users.stamp' x='78' y='472'>stamp</text><text x='180' y='472' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getutcdate())</title></a>
+  <use id='nn' x='62' y='477' xlink:href='#nn'/><a xlink:href='#Users.lastVisit'><text id='dbo.Users.lastVisit' x='78' y='487'>lastVisit</text><text x='180' y='487' text-anchor='end' class='colType'>datetime</text><title>lastVisit
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#Users.postal'><text id='dbo.Users.postal' x='78' y='502'>postal</text><text x='180' y='502' text-anchor='end' class='colType'>varchar</text><title>postal
+varchar</title></a>
+  <a xlink:href='#Users.subs'><text id='dbo.Users.subs' x='78' y='517'>subs</text><text x='180' y='517' text-anchor='end' class='colType'>bit</text><title>subs
+bit</title></a>
+  <use id='nn' x='62' y='522' xlink:href='#nn'/><a xlink:href='#Users.question'><text id='dbo.Users.question' x='78' y='532'>question</text><text x='180' y='532' text-anchor='end' class='colType'>nvarchar</text><title>question
+* nvarchar</title></a>
+  <use id='nn' x='62' y='537' xlink:href='#nn'/><a xlink:href='#Users.answer'><text id='dbo.Users.answer' x='78' y='547'>answer</text><text x='180' y='547' text-anchor='end' class='colType'>binary</text><title>answer
+* binary</title></a>
+  <a xlink:href='#Users.cell'><text id='dbo.Users.cell' x='78' y='562'>cell</text><text x='180' y='562' text-anchor='end' class='colType'>bigint</text><title>cell
+bigint</title></a>
+  <use id='nn' x='62' y='567' xlink:href='#nn'/><a xlink:href='#Users.access'><text id='dbo.Users.access' x='78' y='577'>access</text><text x='180' y='577' text-anchor='end' class='colType'>int</text><title>access
+* int default ((0))</title></a>
+  <a xlink:href='#Users.suspended'><text id='dbo.Users.suspended' x='78' y='592'>suspended</text><text x='180' y='592' text-anchor='end' class='colType'>bit</text><title>suspended
+bit</title></a>
+
+<!-- ============= Table 'access_point' ============= -->
+<rect class='table' x='270' y='38' width='150' height='255' rx='7' ry='7' />
+<line class='delim' x1='270.500000' y1='64.500000' x2='419.500000' y2='64.500000'/>
+<line class='delim' x1='285.500000' y1='64.500000' x2='285.500000' y2='292.500000'/>
+<line class='delim' x1='408.500000' y1='64.500000' x2='408.500000' y2='292.500000'/>
+<path d='M 270.50 64.50 L 270.50 45.50 Q 270.50 38.50 277.50 38.50 L 412.50 38.50 Q 419.50 38.50 419.50 45.50 L 419.50 64.50 L270.50 64.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#access_point'><text x='309' y='56'>access_point</text><title>Table dbo.access_point</title></a>
+  <a xlink:href='#access_point.OFGID'><text id='dbo.access_point.OFGID' x='288' y='82'>OFGID</text><text x='405' y='82' text-anchor='end' class='colType'>int</text><title>OFGID
+int</title></a>
+  <a xlink:href='#access_point.pointType'><text id='dbo.access_point.pointType' x='288' y='97'>pointType</text><text x='405' y='97' text-anchor='end' class='colType'>nvarchar</text><title>pointType
+nvarchar</title></a>
+  <a xlink:href='#access_point.lastVerif'><text id='dbo.access_point.lastVerif' x='288' y='112'>lastVerif</text><text x='405' y='112' text-anchor='end' class='colType'>nvarchar</text><title>lastVerif
+nvarchar</title></a>
+  <a xlink:href='#access_point.verifSrc'><text id='dbo.access_point.verifSrc' x='288' y='127'>verifSrc</text><text x='405' y='127' text-anchor='end' class='colType'>nvarchar</text><title>verifSrc
+nvarchar</title></a>
+  <a xlink:href='#access_point.Parking'><text id='dbo.access_point.Parking' x='288' y='142'>Parking</text><text x='405' y='142' text-anchor='end' class='colType'>nvarchar</text><title>Parking
+nvarchar</title></a>
+  <a xlink:href='#access_point.ownerType'><text id='dbo.access_point.ownerType' x='288' y='157'>ownerType</text><text x='405' y='157' text-anchor='end' class='colType'>nvarchar</text><title>ownerType
+nvarchar</title></a>
+  <a xlink:href='#access_point.matType'><text id='dbo.access_point.matType' x='288' y='172'>matType</text><text x='405' y='172' text-anchor='end' class='colType'>nvarchar</text><title>matType
+nvarchar</title></a>
+  <a xlink:href='#access_point.accessType'><text id='dbo.access_point.accessType' x='288' y='187'>accessType</text><text x='405' y='187' text-anchor='end' class='colType'>nvarchar</text><title>accessType
+nvarchar</title></a>
+  <a xlink:href='#access_point.userFee'><text id='dbo.access_point.userFee' x='288' y='202'>userFee</text><text x='405' y='202' text-anchor='end' class='colType'>nvarchar</text><title>userFee
+nvarchar</title></a>
+  <a xlink:href='#access_point.visibility'><text id='dbo.access_point.visibility' x='288' y='217'>visibility</text><text x='405' y='217' text-anchor='end' class='colType'>nvarchar</text><title>visibility
+nvarchar</title></a>
+  <a xlink:href='#access_point.siteName'><text id='dbo.access_point.siteName' x='288' y='232'>siteName</text><text x='405' y='232' text-anchor='end' class='colType'>nvarchar</text><title>siteName
+nvarchar</title></a>
+  <a xlink:href='#access_point.photoUrl'><text id='dbo.access_point.photoUrl' x='288' y='247'>photoUrl</text><text x='405' y='247' text-anchor='end' class='colType'>nvarchar</text><title>photoUrl
+nvarchar</title></a>
+  <a xlink:href='#access_point.country'><text id='dbo.access_point.country' x='288' y='262'>country</text><text x='405' y='262' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#access_point.state'><text id='dbo.access_point.state' x='288' y='277'>state</text><text x='405' y='277' text-anchor='end' class='colType'>char</text><title>state
+char</title></a>
+
+<!-- ============= Table 'weather_Forecast' ============= -->
+<rect class='table' x='525' y='233' width='180' height='315' rx='7' ry='7' />
+<line class='delim' x1='525.500000' y1='259.500000' x2='704.500000' y2='259.500000'/>
+<line class='delim' x1='540.500000' y1='259.500000' x2='540.500000' y2='547.500000'/>
+<line class='delim' x1='693.500000' y1='259.500000' x2='693.500000' y2='547.500000'/>
+<path d='M 525.50 259.50 L 525.50 240.50 Q 525.50 233.50 532.50 233.50 L 697.50 233.50 Q 704.50 233.50 704.50 240.50 L 704.50 259.50 L525.50 259.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#weather_Forecast'><text x='567' y='251'>weather_Forecast</text><title>Table dbo.weather_Forecast</title></a>
+  <use id='nn' x='527' y='267' xlink:href='#nn'/><a xlink:href='#weather_Forecast.tmHigh'><text id='dbo.weather_Forecast.tmHigh' x='543' y='277'>tmHigh</text><text x='690' y='277' text-anchor='end' class='colType'>float</text><title>tmHigh
+* float</title></a>
+  <use id='nn' x='527' y='282' xlink:href='#nn'/><a xlink:href='#weather_Forecast.tmLow'><text id='dbo.weather_Forecast.tmLow' x='543' y='292'>tmLow</text><text x='690' y='292' text-anchor='end' class='colType'>float</text><title>tmLow
+* float</title></a>
+  <a xlink:href='#weather_Forecast.humidity'><text id='dbo.weather_Forecast.humidity' x='543' y='307'>humidity</text><text x='690' y='307' text-anchor='end' class='colType'>float</text><title>humidity
+float</title></a>
+  <a xlink:href='#weather_Forecast.maxWin'><text id='dbo.weather_Forecast.maxWin' x='543' y='322'>maxWin</text><text x='690' y='322' text-anchor='end' class='colType'>float</text><title>maxWin
+float</title></a>
+  <a xlink:href='#weather_Forecast.degree'><text id='dbo.weather_Forecast.degree' x='543' y='337'>degree</text><text x='690' y='337' text-anchor='end' class='colType'>float</text><title>degree
+float</title></a>
+  <a xlink:href='#weather_Forecast.direction'><text id='dbo.weather_Forecast.direction' x='543' y='352'>direction</text><text x='690' y='352' text-anchor='end' class='colType'>varchar</text><title>direction
+varchar</title></a>
+  <a xlink:href='#weather_Forecast.shortText'><text id='dbo.weather_Forecast.shortText' x='543' y='367'>shortText</text><text x='690' y='367' text-anchor='end' class='colType'>varchar</text><title>shortText
+varchar</title></a>
+  <a xlink:href='#weather_Forecast.longText'><text id='dbo.weather_Forecast.longText' x='543' y='382'>longText</text><text x='690' y='382' text-anchor='end' class='colType'>varchar</text><title>longText
+varchar</title></a>
+  <a xlink:href='#weather_Forecast.icon'><text id='dbo.weather_Forecast.icon' x='543' y='397'>icon</text><text x='690' y='397' text-anchor='end' class='colType'>varchar</text><title>icon
+varchar</title></a>
+  <use id='nn' x='527' y='402' xlink:href='#nn'/><a xlink:href='#weather_Forecast.dt'><use id='idx' x='527' y='401' xlink:href='#idx'/><title>IDX_weather_Forecast ( mli, dt ) IDX_weather_Forecast_dt ( dt ) </title></a>
+<a xlink:href='#weather_Forecast.dt'><text id='dbo.weather_Forecast.dt' x='543' y='412'>dt</text><text x='690' y='412' text-anchor='end' class='colType'>date</text><title>dt
+* date</title></a>
+  <a xlink:href='#weather_Forecast.tm'><text id='dbo.weather_Forecast.tm' x='543' y='427'>tm</text><text x='690' y='427' text-anchor='end' class='colType'>time</text><title>tm
+time</title></a>
+  <a xlink:href='#weather_Forecast.pressure'><text id='dbo.weather_Forecast.pressure' x='543' y='442'>pressure</text><text x='690' y='442' text-anchor='end' class='colType'>float</text><title>pressure
+float</title></a>
+  <a xlink:href='#weather_Forecast.rain_today'><text id='dbo.weather_Forecast.rain_today' x='543' y='457'>rain_today</text><text x='690' y='457' text-anchor='end' class='colType'>float</text><title>rain_today
+float</title></a>
+  <a xlink:href='#weather_Forecast.tmDay'><text id='dbo.weather_Forecast.tmDay' x='543' y='472'>tmDay</text><text x='690' y='472' text-anchor='end' class='colType'>float</text><title>tmDay
+float</title></a>
+  <a xlink:href='#weather_Forecast.city_id'><text id='dbo.weather_Forecast.city_id' x='543' y='487'>city_id</text><text x='690' y='487' text-anchor='end' class='colType'>int</text><title>city_id
+int</title></a>
+  <a xlink:href='#weather_Forecast.mli'><use id='idx' x='527' y='491' xlink:href='#idx'/><title>IDX_weather_Forecast ( mli, dt ) </title></a>
+<a xlink:href='#weather_Forecast.mli'><text id='dbo.weather_Forecast.mli' x='543' y='502' onmouseover="hghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C'])" onmouseout="uhghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C'])">mli</text><text x='690' y='502' text-anchor='end' class='colType'>varchar</text><title>mli
+varchar</title></a>
+<a xlink:href='#weather_Forecast.mli'><use id='fk' x='693' y='491' xlink:href='#fk'/><title>References WaterStation ( mli ) </title></a>
+  <a xlink:href='#weather_Forecast.temperature'><text id='dbo.weather_Forecast.temperature' x='543' y='517'>temperature</text><text x='690' y='517' text-anchor='end' class='colType'>tinyint</text><title>temperature
+tinyint</title></a>
+  <a xlink:href='#weather_Forecast.weather_temperature'><text id='dbo.weather_Forecast.weather_temperature' x='543' y='532'>weather_temperature</text><text x='690' y='532' text-anchor='end' class='colType'>smallint</text><title>weather_temperature
+smallint</title></a>
+
+<!-- ============= Table 'County' ============= -->
+<rect class='table' x='1125' y='68' width='105' height='120' rx='7' ry='7' />
+<line class='delim' x1='1125.500000' y1='94.500000' x2='1229.500000' y2='94.500000'/>
+<line class='delim' x1='1140.500000' y1='94.500000' x2='1140.500000' y2='187.500000'/>
+<line class='delim' x1='1218.500000' y1='94.500000' x2='1218.500000' y2='187.500000'/>
+<path d='M 1125.50 94.50 L 1125.50 75.50 Q 1125.50 68.50 1132.50 68.50 L 1222.50 68.50 Q 1229.50 68.50 1229.50 75.50 L 1229.50 94.50 L1125.50 94.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#County'><text x='1157' y='86'>County</text><title>Table dbo.County</title></a>
+  <a xlink:href='#County.county'><text id='dbo.County.county' x='1143' y='112'>county</text><text x='1215' y='112' text-anchor='end' class='colType'>varchar</text><title>county
+varchar</title></a>
+  <a xlink:href='#County.country'><text id='dbo.County.country' x='1143' y='127'>country</text><text x='1215' y='127' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#County.state_id'><text id='dbo.County.state_id' x='1143' y='142'>state_id</text><text x='1215' y='142' text-anchor='end' class='colType'>int</text><title>state_id
+int</title></a>
+  <a xlink:href='#County.county_Id'><text id='dbo.County.county_Id' x='1143' y='157'>county_Id</text><text x='1215' y='157' text-anchor='end' class='colType'>int</text><title>county_Id
+int</title></a>
+  <a xlink:href='#County.state'><text id='dbo.County.state' x='1143' y='172'>state</text><text x='1215' y='172' text-anchor='end' class='colType'>char</text><title>state
+char</title></a>
+
+<!-- ============= Table 'Country' ============= -->
+<rect class='table' x='900' y='53' width='150' height='90' rx='7' ry='7' />
+<line class='delim' x1='900.500000' y1='79.500000' x2='1049.500000' y2='79.500000'/>
+<line class='delim' x1='915.500000' y1='79.500000' x2='915.500000' y2='142.500000'/>
+<line class='delim' x1='1038.500000' y1='79.500000' x2='1038.500000' y2='142.500000'/>
+<path d='M 900.50 79.50 L 900.50 60.50 Q 900.50 53.50 907.50 53.50 L 1042.50 53.50 Q 1049.50 53.50 1049.50 60.50 L 1049.50 79.50 L900.50 79.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Country'><text x='953' y='71'>Country</text><title>Table dbo.Country</title></a>
+  <use id='nn' x='902' y='87' xlink:href='#nn'/><a xlink:href='#Country.Country_id'><use id='pk' x='902' y='86' xlink:href='#pk'/><title>Pk PK__Country__3213E83F0CBAE877 ( Country_id ) </title></a>
+<a xlink:href='#Country.Country_id'><text id='dbo.Country.Country_id' x='918' y='97'>Country_id</text><text x='1035' y='97' text-anchor='end' class='colType'>char</text><title>Country_id
+* char</title></a>
+  <use id='nn' x='902' y='102' xlink:href='#nn'/><a xlink:href='#Country.Country_name'><text id='dbo.Country.Country_name' x='918' y='112'>Country_name</text><text x='1035' y='112' text-anchor='end' class='colType'>varchar</text><title>Country_name
+* varchar</title></a>
+  <a xlink:href='#Country.picture'><text id='dbo.Country.picture' x='918' y='127'>picture</text><text x='1035' y='127' text-anchor='end' class='colType'>image</text><title>picture
+image</title></a>
+
+<!-- ============= Table 'States' ============= -->
+<rect class='table' x='1305' y='233' width='105' height='90' rx='7' ry='7' />
+<line class='delim' x1='1305.500000' y1='259.500000' x2='1409.500000' y2='259.500000'/>
+<line class='delim' x1='1320.500000' y1='259.500000' x2='1320.500000' y2='322.500000'/>
+<line class='delim' x1='1398.500000' y1='259.500000' x2='1398.500000' y2='322.500000'/>
+<path d='M 1305.50 259.50 L 1305.50 240.50 Q 1305.50 233.50 1312.50 233.50 L 1402.50 233.50 Q 1409.50 233.50 1409.50 240.50 L 1409.50 259.50 L1305.50 259.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#States'><text x='1339' y='251'>States</text><title>Table dbo.States</title></a>
+  <use id='nn' x='1307' y='267' xlink:href='#nn'/><a xlink:href='#States.state'><use id='pk' x='1307' y='266' xlink:href='#pk'/><title>Pk PK_States ( state, country ) </title></a>
+<a xlink:href='#States.state'><text id='dbo.States.state' x='1323' y='277'>state</text><text x='1395' y='277' text-anchor='end' class='colType'>char</text><title>state
+* char</title></a>
+  <use id='nn' x='1307' y='282' xlink:href='#nn'/><a xlink:href='#States.country'><use id='pk' x='1307' y='281' xlink:href='#pk'/><title>Pk PK_States ( state, country ) </title></a>
+<a xlink:href='#States.country'><text id='dbo.States.country' x='1323' y='292'>country</text><text x='1395' y='292' text-anchor='end' class='colType'>char</text><title>country
+* char</title></a>
+  <use id='nn' x='1307' y='297' xlink:href='#nn'/><a xlink:href='#States.shift'><text id='dbo.States.shift' x='1323' y='307'>shift</text><text x='1395' y='307' text-anchor='end' class='colType'>int</text><title>shift
+* int default ((0))</title></a>
+
+<!-- ============= Table 'City' ============= -->
+<rect class='table' x='1125' y='203' width='105' height='195' rx='7' ry='7' />
+<line class='delim' x1='1125.500000' y1='229.500000' x2='1229.500000' y2='229.500000'/>
+<line class='delim' x1='1140.500000' y1='229.500000' x2='1140.500000' y2='397.500000'/>
+<line class='delim' x1='1218.500000' y1='229.500000' x2='1218.500000' y2='397.500000'/>
+<path d='M 1125.50 229.50 L 1125.50 210.50 Q 1125.50 203.50 1132.50 203.50 L 1222.50 203.50 Q 1229.50 203.50 1229.50 210.50 L 1229.50 229.50 L1125.50 229.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#City'><text x='1165' y='221'>City</text><title>Table dbo.City</title></a>
+  <use id='nn' x='1127' y='237' xlink:href='#nn'/><a xlink:href='#City.place'><use id='idx' x='1127' y='236' xlink:href='#idx'/><title>IDX_City_Place_Country ( place, country ) </title></a>
+<a xlink:href='#City.place'><text id='dbo.City.place' x='1143' y='247'>place</text><text x='1215' y='247' text-anchor='end' class='colType'>varchar</text><title>place
+* varchar</title></a>
+  <use id='nn' x='1127' y='252' xlink:href='#nn'/><a xlink:href='#City.state'><text id='dbo.City.state' x='1143' y='262'>state</text><text x='1215' y='262' text-anchor='end' class='colType'>varchar</text><title>state
+* varchar</title></a>
+  <use id='nn' x='1127' y='267' xlink:href='#nn'/><a xlink:href='#City.lat'><text id='dbo.City.lat' x='1143' y='277'>lat</text><text x='1215' y='277' text-anchor='end' class='colType'>float</text><title>lat
+* float</title></a>
+  <use id='nn' x='1127' y='282' xlink:href='#nn'/><a xlink:href='#City.lon'><text id='dbo.City.lon' x='1143' y='292'>lon</text><text x='1215' y='292' text-anchor='end' class='colType'>float</text><title>lon
+* float</title></a>
+  <use id='nn' x='1127' y='297' xlink:href='#nn'/><a xlink:href='#City.stamp'><text id='dbo.City.stamp' x='1143' y='307'>stamp</text><text x='1215' y='307' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime</title></a>
+  <a xlink:href='#City.country'><use id='idx' x='1127' y='311' xlink:href='#idx'/><title>IDX_City_Place_Country ( place, country ) </title></a>
+<a xlink:href='#City.country'><text id='dbo.City.country' x='1143' y='322'>country</text><text x='1215' y='322' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#City.county'><text id='dbo.City.county' x='1143' y='337'>county</text><text x='1215' y='337' text-anchor='end' class='colType'>varchar</text><title>county
+varchar</title></a>
+  <use id='nn' x='1127' y='342' xlink:href='#nn'/><a xlink:href='#City.region'><text id='dbo.City.region' x='1143' y='352'>region</text><text x='1215' y='352' text-anchor='end' class='colType'>int</text><title>region
+* int</title></a>
+  <a xlink:href='#City.city_id'><text id='dbo.City.city_id' x='1143' y='367'>city_id</text><text x='1215' y='367' text-anchor='end' class='colType'>int</text><title>city_id
+int</title></a>
+  <use id='nn' x='1127' y='372' xlink:href='#nn'/><a xlink:href='#City.population'><text id='dbo.City.population' x='1143' y='382'>population</text><text x='1215' y='382' text-anchor='end' class='colType'>int</text><title>population
+* int default ((0))</title></a>
+
+<!-- ============= Table 'USPost' ============= -->
+<rect class='table' x='1290' y='53' width='105' height='150' rx='7' ry='7' />
+<line class='delim' x1='1290.500000' y1='79.500000' x2='1394.500000' y2='79.500000'/>
+<line class='delim' x1='1305.500000' y1='79.500000' x2='1305.500000' y2='202.500000'/>
+<line class='delim' x1='1383.500000' y1='79.500000' x2='1383.500000' y2='202.500000'/>
+<path d='M 1290.50 79.50 L 1290.50 60.50 Q 1290.50 53.50 1297.50 53.50 L 1387.50 53.50 Q 1394.50 53.50 1394.50 60.50 L 1394.50 79.50 L1290.50 79.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#USPost'><text x='1322' y='71'>USPost</text><title>Table dbo.USPost</title></a>
+  <use id='nn' x='1292' y='87' xlink:href='#nn'/><a xlink:href='#USPost.zip'><use id='pk' x='1292' y='86' xlink:href='#pk'/><title>Pk PK_USPost ( zip ) </title></a>
+<a xlink:href='#USPost.zip'><text id='dbo.USPost.zip' x='1308' y='97'>zip</text><text x='1380' y='97' text-anchor='end' class='colType'>int</text><title>zip
+* int default ((-1))</title></a>
+  <use id='nn' x='1292' y='102' xlink:href='#nn'/><a xlink:href='#USPost.lon'><text id='dbo.USPost.lon' x='1308' y='112'>lon</text><text x='1380' y='112' text-anchor='end' class='colType'>float</text><title>lon
+* float</title></a>
+  <use id='nn' x='1292' y='117' xlink:href='#nn'/><a xlink:href='#USPost.lat'><text id='dbo.USPost.lat' x='1308' y='127'>lat</text><text x='1380' y='127' text-anchor='end' class='colType'>float</text><title>lat
+* float</title></a>
+  <a xlink:href='#USPost.country'><text id='dbo.USPost.country' x='1308' y='142'>country</text><text x='1380' y='142' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#USPost.place'><text id='dbo.USPost.place' x='1308' y='157'>place</text><text x='1380' y='157' text-anchor='end' class='colType'>varchar</text><title>place
+varchar</title></a>
+  <a xlink:href='#USPost.county'><text id='dbo.USPost.county' x='1308' y='172'>county</text><text x='1380' y='172' text-anchor='end' class='colType'>varchar</text><title>county
+varchar</title></a>
+  <a xlink:href='#USPost.state'><text id='dbo.USPost.state' x='1308' y='187'>state</text><text x='1380' y='187' text-anchor='end' class='colType'>varchar</text><title>state
+varchar</title></a>
+
+<!-- ============= Table 'CurrentWaterState' ============= -->
+<rect class='table' x='1305' y='413' width='120' height='225' rx='7' ry='7' />
+<line class='delim' x1='1305.500000' y1='439.500000' x2='1424.500000' y2='439.500000'/>
+<line class='delim' x1='1320.500000' y1='439.500000' x2='1320.500000' y2='637.500000'/>
+<line class='delim' x1='1413.500000' y1='439.500000' x2='1413.500000' y2='637.500000'/>
+<path d='M 1305.50 439.50 L 1305.50 420.50 Q 1305.50 413.50 1312.50 413.50 L 1417.50 413.50 Q 1424.50 413.50 1424.50 420.50 L 1424.50 439.50 L1305.50 439.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#CurrentWaterState'><text x='1317' y='431'>CurrentWaterState</text><title>Table dbo.CurrentWaterState</title></a>
+  <use id='nn' x='1307' y='447' xlink:href='#nn'/><a xlink:href='#CurrentWaterState.mli'><use id='pk' x='1307' y='446' xlink:href='#pk'/><title>Pk PK_CurrentWaterState ( mli ) </title></a>
+<a xlink:href='#CurrentWaterState.mli'><text id='dbo.CurrentWaterState.mli' x='1323' y='457'>mli</text><text x='1410' y='457' text-anchor='end' class='colType'>varchar</text><title>mli
+* varchar default ('')</title></a>
+  <a xlink:href='#CurrentWaterState.temperature'><use id='idx' x='1307' y='461' xlink:href='#idx'/><title>idx_CurrentWaterState_tm ( temperature ) </title></a>
+<a xlink:href='#CurrentWaterState.temperature'><text id='dbo.CurrentWaterState.temperature' x='1323' y='472'>temperature</text><text x='1410' y='472' text-anchor='end' class='colType'>float</text><title>temperature
+float</title></a>
+  <a xlink:href='#CurrentWaterState.conductance'><text id='dbo.CurrentWaterState.conductance' x='1323' y='487'>conductance</text><text x='1410' y='487' text-anchor='end' class='colType'>float</text><title>conductance
+float</title></a>
+  <a xlink:href='#CurrentWaterState.discharge'><text id='dbo.CurrentWaterState.discharge' x='1323' y='502'>discharge</text><text x='1410' y='502' text-anchor='end' class='colType'>float</text><title>discharge
+float</title></a>
+  <a xlink:href='#CurrentWaterState.turbidity'><text id='dbo.CurrentWaterState.turbidity' x='1323' y='517'>turbidity</text><text x='1410' y='517' text-anchor='end' class='colType'>float</text><title>turbidity
+float</title></a>
+  <a xlink:href='#CurrentWaterState.oxygen'><use id='idx' x='1307' y='521' xlink:href='#idx'/><title>idx_CurrentWaterState_ox ( oxygen ) </title></a>
+<a xlink:href='#CurrentWaterState.oxygen'><text id='dbo.CurrentWaterState.oxygen' x='1323' y='532'>oxygen</text><text x='1410' y='532' text-anchor='end' class='colType'>float</text><title>oxygen
+float</title></a>
+  <a xlink:href='#CurrentWaterState.ph'><use id='idx' x='1307' y='536' xlink:href='#idx'/><title>idx_CurrentWaterState_ph ( ph ) </title></a>
+<a xlink:href='#CurrentWaterState.ph'><text id='dbo.CurrentWaterState.ph' x='1323' y='547'>ph</text><text x='1410' y='547' text-anchor='end' class='colType'>float</text><title>ph
+float</title></a>
+  <a xlink:href='#CurrentWaterState.elevation'><text id='dbo.CurrentWaterState.elevation' x='1323' y='562'>elevation</text><text x='1410' y='562' text-anchor='end' class='colType'>float</text><title>elevation
+float</title></a>
+  <use id='nn' x='1307' y='567' xlink:href='#nn'/><a xlink:href='#CurrentWaterState.stamp'><text id='dbo.CurrentWaterState.stamp' x='1323' y='577'>stamp</text><text x='1410' y='577' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getutcdate())</title></a>
+  <use id='nn' x='1307' y='582' xlink:href='#nn'/><a xlink:href='#CurrentWaterState.iterstamp'><text id='dbo.CurrentWaterState.iterstamp' x='1323' y='592'>iterstamp</text><text x='1410' y='592' text-anchor='end' class='colType'>datetime</text><title>iterstamp
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#CurrentWaterState.velocity'><use id='idx' x='1307' y='596' xlink:href='#idx'/><title>idx_CurrentWaterState_ve ( velocity ) </title></a>
+<a xlink:href='#CurrentWaterState.velocity'><text id='dbo.CurrentWaterState.velocity' x='1323' y='607'>velocity</text><text x='1410' y='607' text-anchor='end' class='colType'>float</text><title>velocity
+float</title></a>
+  <use id='nn' x='1307' y='612' xlink:href='#nn'/><a xlink:href='#CurrentWaterState.sid'><text id='dbo.CurrentWaterState.sid' x='1323' y='622'>sid</text><text x='1410' y='622' text-anchor='end' class='colType'>int</text><title>sid
+* int default ((0))</title></a>
+
+<!-- ============= Table 'Lake' ============= -->
+<rect class='table' x='810' y='1298' width='150' height='600' rx='7' ry='7' />
+<line class='delim' x1='810.500000' y1='1324.500000' x2='959.500000' y2='1324.500000'/>
+<line class='delim' x1='825.500000' y1='1324.500000' x2='825.500000' y2='1897.500000'/>
+<line class='delim' x1='948.500000' y1='1324.500000' x2='948.500000' y2='1897.500000'/>
+<path d='M 810.50 1324.50 L 810.50 1305.50 Q 810.50 1298.50 817.50 1298.50 L 952.50 1298.50 Q 959.50 1298.50 959.50 1305.50 L 959.50 1324.50 L810.50 1324.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Lake'><text x='870' y='1316'>Lake</text><title>Table dbo.Lake</title></a>
+  <use id='nn' x='812' y='1332' xlink:href='#nn'/><a xlink:href='#Lake.lake_id'><use id='pk' x='812' y='1331' xlink:href='#pk'/><title>Pk PK_Lake ( lake_id ) </title></a>
+<a xlink:href='#Lake.lake_id'><text id='dbo.Lake.lake_id' x='828' y='1342' onmouseover="hghl(['Parking_Spot_FK_Parking_Spot','fish_record_FK_fish_rec_lake','lake_fish_FK_lake_fish_Lake'])" onmouseout="uhghl(['Parking_Spot_FK_Parking_Spot','fish_record_FK_fish_rec_lake','lake_fish_FK_lake_fish_Lake'])">lake_id</text><text x='945' y='1342' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_id
+* uniqueidentifier</title></a>
+<a xlink:href='#Lake.lake_id'><use id='ref' x='948' y='1331' xlink:href='#ref'/><title>Referred by Parking_Spot ( lake_id ) 
+Referred by fish_record ( lake_id ) 
+Referred by lake_fish ( lake_Id -&gt; lake_id ) </title></a>
+  <use id='nn' x='812' y='1347' xlink:href='#nn'/><a xlink:href='#Lake.Country'><use id='unq' x='812' y='1346' xlink:href='#unq'/><title>Unq UK_Lake ( lake_name, Country, State, county ) </title></a>
+<a xlink:href='#Lake.Country'><text id='dbo.Lake.Country' x='828' y='1357'>Country</text><text x='945' y='1357' text-anchor='end' class='colType'>char</text><title>Country
+* char</title></a>
+  <use id='nn' x='812' y='1362' xlink:href='#nn'/><a xlink:href='#Lake.State'><use id='unq' x='812' y='1361' xlink:href='#unq'/><title>Unq UK_Lake ( lake_name, Country, State, county ) iDX_WaterStation_LK ( State ) </title></a>
+<a xlink:href='#Lake.State'><text id='dbo.Lake.State' x='828' y='1372'>State</text><text x='945' y='1372' text-anchor='end' class='colType'>char</text><title>State
+* char</title></a>
+  <a xlink:href='#Lake.stamp'><text id='dbo.Lake.stamp' x='828' y='1387'>stamp</text><text x='945' y='1387' text-anchor='end' class='colType'>smalldatetime</text><title>stamp
+smalldatetime</title></a>
+  <use id='nn' x='812' y='1392' xlink:href='#nn'/><a xlink:href='#Lake.locType'><text id='dbo.Lake.locType' x='828' y='1402'>locType</text><text x='945' y='1402' text-anchor='end' class='colType'>int</text><title>locType
+* int</title></a>
+  <use id='nn' x='812' y='1407' xlink:href='#nn'/><a xlink:href='#Lake.lake_name'><use id='unq' x='812' y='1406' xlink:href='#unq'/><title>Unq UK_Lake ( lake_name, Country, State, county ) </title></a>
+<a xlink:href='#Lake.lake_name'><text id='dbo.Lake.lake_name' x='828' y='1417'>lake_name</text><text x='945' y='1417' text-anchor='end' class='colType'>nvarchar</text><title>lake_name
+* nvarchar</title></a>
+  <a xlink:href='#Lake.source'><use id='idx' x='812' y='1421' xlink:href='#idx'/><title>idx_Lake_source ( source ) </title></a>
+<a xlink:href='#Lake.source'><text id='dbo.Lake.source' x='828' y='1432'>source</text><text x='945' y='1432' text-anchor='end' class='colType'>uniqueidentifier</text><title>source
+uniqueidentifier</title></a>
+  <a xlink:href='#Lake.mouth'><use id='idx' x='812' y='1436' xlink:href='#idx'/><title>idx_Lake_mouth ( mouth ) </title></a>
+<a xlink:href='#Lake.mouth'><text id='dbo.Lake.mouth' x='828' y='1447'>mouth</text><text x='945' y='1447' text-anchor='end' class='colType'>uniqueidentifier</text><title>mouth
+uniqueidentifier</title></a>
+  <a xlink:href='#Lake.sourceElevation'><text id='dbo.Lake.sourceElevation' x='828' y='1462'>sourceElevation</text><text x='945' y='1462' text-anchor='end' class='colType'>int</text><title>sourceElevation
+int</title></a>
+  <a xlink:href='#Lake.mouthElevation'><text id='dbo.Lake.mouthElevation' x='828' y='1477'>mouthElevation</text><text x='945' y='1477' text-anchor='end' class='colType'>int</text><title>mouthElevation
+int</title></a>
+  <a xlink:href='#Lake.link'><text id='dbo.Lake.link' x='828' y='1492'>link</text><text x='945' y='1492' text-anchor='end' class='colType'>nvarchar</text><title>link
+nvarchar</title></a>
+  <a xlink:href='#Lake.sourceLat'><text id='dbo.Lake.sourceLat' x='828' y='1507'>sourceLat</text><text x='945' y='1507' text-anchor='end' class='colType'>float</text><title>sourceLat
+float</title></a>
+  <a xlink:href='#Lake.sourceLon'><text id='dbo.Lake.sourceLon' x='828' y='1522'>sourceLon</text><text x='945' y='1522' text-anchor='end' class='colType'>float</text><title>sourceLon
+float</title></a>
+  <a xlink:href='#Lake.mouthLat'><text id='dbo.Lake.mouthLat' x='828' y='1537'>mouthLat</text><text x='945' y='1537' text-anchor='end' class='colType'>float</text><title>mouthLat
+float</title></a>
+  <a xlink:href='#Lake.mouthLon'><text id='dbo.Lake.mouthLon' x='828' y='1552'>mouthLon</text><text x='945' y='1552' text-anchor='end' class='colType'>float</text><title>mouthLon
+float</title></a>
+  <a xlink:href='#Lake.length'><text id='dbo.Lake.length' x='828' y='1567'>length</text><text x='945' y='1567' text-anchor='end' class='colType'>int</text><title>length
+int</title></a>
+  <a xlink:href='#Lake.depth'><text id='dbo.Lake.depth' x='828' y='1582'>depth</text><text x='945' y='1582' text-anchor='end' class='colType'>int</text><title>depth
+int</title></a>
+  <a xlink:href='#Lake.elevation'><text id='dbo.Lake.elevation' x='828' y='1597'>elevation</text><text x='945' y='1597' text-anchor='end' class='colType'>int</text><title>elevation
+int</title></a>
+  <a xlink:href='#Lake.area'><text id='dbo.Lake.area' x='828' y='1612'>area</text><text x='945' y='1612' text-anchor='end' class='colType'>int</text><title>area
+int</title></a>
+  <a xlink:href='#Lake.county'><use id='unq' x='812' y='1616' xlink:href='#unq'/><title>Unq UK_Lake ( lake_name, Country, State, county ) </title></a>
+<a xlink:href='#Lake.county'><text id='dbo.Lake.county' x='828' y='1627'>county</text><text x='945' y='1627' text-anchor='end' class='colType'>nvarchar</text><title>county
+nvarchar</title></a>
+  <a xlink:href='#Lake.width'><text id='dbo.Lake.width' x='828' y='1642'>width</text><text x='945' y='1642' text-anchor='end' class='colType'>int</text><title>width
+int</title></a>
+  <a xlink:href='#Lake.pic'><text id='dbo.Lake.pic' x='828' y='1657'>pic</text><text x='945' y='1657' text-anchor='end' class='colType'>image</text><title>pic
+image</title></a>
+  <a xlink:href='#Lake.phosphorus'><text id='dbo.Lake.phosphorus' x='828' y='1672'>phosphorus</text><text x='945' y='1672' text-anchor='end' class='colType'>float</text><title>phosphorus
+float</title></a>
+  <a xlink:href='#Lake.location'><text id='dbo.Lake.location' x='828' y='1687'>location</text><text x='945' y='1687' text-anchor='end' class='colType'>nvarchar</text><title>location
+nvarchar</title></a>
+  <a xlink:href='#Lake.map'><text id='dbo.Lake.map' x='828' y='1702'>map</text><text x='945' y='1702' text-anchor='end' class='colType'>image</text><title>map
+image</title></a>
+  <a xlink:href='#Lake.region'><text id='dbo.Lake.region' x='828' y='1717'>region</text><text x='945' y='1717' text-anchor='end' class='colType'>int</text><title>region
+int</title></a>
+  <a xlink:href='#Lake.locked'><text id='dbo.Lake.locked' x='828' y='1732'>locked</text><text x='945' y='1732' text-anchor='end' class='colType'>bit</text><title>locked
+bit</title></a>
+  <a xlink:href='#Lake.old_id'><text id='dbo.Lake.old_id' x='828' y='1747'>old_id</text><text x='945' y='1747' text-anchor='end' class='colType'>varchar</text><title>old_id
+varchar</title></a>
+  <a xlink:href='#Lake.editor'><text id='dbo.Lake.editor' x='828' y='1762'>editor</text><text x='945' y='1762' text-anchor='end' class='colType'>uniqueidentifier</text><title>editor
+uniqueidentifier</title></a>
+  <a xlink:href='#Lake.basin'><text id='dbo.Lake.basin' x='828' y='1777'>basin</text><text x='945' y='1777' text-anchor='end' class='colType'>varchar</text><title>basin
+varchar</title></a>
+  <a xlink:href='#Lake.descript'><text id='dbo.Lake.descript' x='828' y='1792'>descript</text><text x='945' y='1792' text-anchor='end' class='colType'>nvarchar</text><title>descript
+nvarchar</title></a>
+  <use id='nn' x='812' y='1797' xlink:href='#nn'/><a xlink:href='#Lake.sid'><use id='idx' x='812' y='1796' xlink:href='#idx'/><title>idx_Lake_sid ( sid ) </title></a>
+<a xlink:href='#Lake.sid'><text id='dbo.Lake.sid' x='828' y='1807'>sid</text><text x='945' y='1807' text-anchor='end' class='colType'>int identity</text><title>sid
+* int identity</title></a>
+  <a xlink:href='#Lake.city'><text id='dbo.Lake.city' x='828' y='1822'>city</text><text x='945' y='1822' text-anchor='end' class='colType'>nvarchar</text><title>city
+nvarchar</title></a>
+  <a xlink:href='#Lake.alt_Name'><text id='dbo.Lake.alt_Name' x='828' y='1837'>alt_Name</text><text x='945' y='1837' text-anchor='end' class='colType'>nvarchar</text><title>alt_Name
+nvarchar</title></a>
+  <a xlink:href='#Lake.PH'><text id='dbo.Lake.PH' x='828' y='1852'>PH</text><text x='945' y='1852' text-anchor='end' class='colType'>float</text><title>PH
+float</title></a>
+  <a xlink:href='#Lake.surfaceHA'><text id='dbo.Lake.surfaceHA' x='828' y='1867'>surfaceHA</text><text x='945' y='1867' text-anchor='end' class='colType'>int</text><title>surfaceHA
+int</title></a>
+  <a xlink:href='#Lake.IsFish'><text id='dbo.Lake.IsFish' x='828' y='1882'>IsFish</text><text x='945' y='1882' text-anchor='end' class='colType'>bit</text><title>IsFish
+bit</title></a>
+
+<!-- ============= Table 'fish_location' ============= -->
+<rect class='table' x='1155' y='893' width='165' height='135' rx='7' ry='7' />
+<line class='delim' x1='1155.500000' y1='919.500000' x2='1319.500000' y2='919.500000'/>
+<line class='delim' x1='1170.500000' y1='919.500000' x2='1170.500000' y2='1027.500000'/>
+<line class='delim' x1='1308.500000' y1='919.500000' x2='1308.500000' y2='1027.500000'/>
+<path d='M 1155.50 919.50 L 1155.50 900.50 Q 1155.50 893.50 1162.50 893.50 L 1312.50 893.50 Q 1319.50 893.50 1319.50 900.50 L 1319.50 919.50 L1155.50 919.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_location'><text x='1204' y='911'>fish_location</text><title>Table dbo.fish_location</title></a>
+  <use id='nn' x='1157' y='927' xlink:href='#nn'/><a xlink:href='#fish_location.station_Id'><use id='idx' x='1157' y='926' xlink:href='#idx'/><title>idx_fish_location_st ( station_Id ) </title></a>
+<a xlink:href='#fish_location.station_Id'><text id='dbo.fish_location.station_Id' x='1173' y='937' onmouseover="hghl(['fish_location_FK_fish_location_station'])" onmouseout="uhghl(['fish_location_FK_fish_location_station'])">station_Id</text><text x='1305' y='937' text-anchor='end' class='colType'>uniqueidentifier</text><title>station_Id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_location.station_Id'><use id='fk' x='1308' y='926' xlink:href='#fk'/><title>References WaterStation ( station_Id -&gt; id ) </title></a>
+  <use id='nn' x='1157' y='942' xlink:href='#nn'/><a xlink:href='#fish_location.fish_Id'><use id='idx' x='1157' y='941' xlink:href='#idx'/><title>idx_fish_location_fish ( fish_Id ) </title></a>
+<a xlink:href='#fish_location.fish_Id'><text id='dbo.fish_location.fish_Id' x='1173' y='952' onmouseover="hghl(['fish_location_FK_fish_location_fish'])" onmouseout="uhghl(['fish_location_FK_fish_location_fish'])">fish_Id</text><text x='1305' y='952' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_Id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_location.fish_Id'><use id='fk' x='1308' y='941' xlink:href='#fk'/><title>References fish ( fish_Id -&gt; fish_id ) </title></a>
+  <a xlink:href='#fish_location.today'><text id='dbo.fish_location.today' x='1173' y='967'>today</text><text x='1305' y='967' text-anchor='end' class='colType'>int</text><title>today
+int default ((0))</title></a>
+  <a xlink:href='#fish_location.stamp'><text id='dbo.fish_location.stamp' x='1173' y='982'>stamp</text><text x='1305' y='982' text-anchor='end' class='colType'>datetime</text><title>stamp
+datetime</title></a>
+  <a xlink:href='#fish_location.probability'><text id='dbo.fish_location.probability' x='1173' y='997'>probability</text><text x='1305' y='997' text-anchor='end' class='colType'>int</text><title>probability
+int default ((100))</title></a>
+  <use id='nn' x='1157' y='1002' xlink:href='#nn'/><a xlink:href='#fish_location.id'><use id='idx' x='1157' y='1001' xlink:href='#idx'/><title>idx_fish_location_id ( id ) </title></a>
+<a xlink:href='#fish_location.id'><text id='dbo.fish_location.id' x='1173' y='1012'>id</text><text x='1305' y='1012' text-anchor='end' class='colType'>int identity</text><title>id
+* int identity</title></a>
+
+<!-- ============= Table 'fish_Rule' ============= -->
+<rect class='table' x='1170' y='1073' width='165' height='630' rx='7' ry='7' />
+<line class='delim' x1='1170.500000' y1='1099.500000' x2='1334.500000' y2='1099.500000'/>
+<line class='delim' x1='1185.500000' y1='1099.500000' x2='1185.500000' y2='1702.500000'/>
+<line class='delim' x1='1323.500000' y1='1099.500000' x2='1323.500000' y2='1702.500000'/>
+<path d='M 1170.50 1099.50 L 1170.50 1080.50 Q 1170.50 1073.50 1177.50 1073.50 L 1327.50 1073.50 Q 1334.50 1073.50 1334.50 1080.50 L 1334.50 1099.50 L1170.50 1099.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_Rule'><text x='1227' y='1091'>fish_Rule</text><title>Table dbo.fish_Rule</title></a>
+  <use id='nn' x='1172' y='1107' xlink:href='#nn'/><a xlink:href='#fish_Rule.id'><use id='pk' x='1172' y='1106' xlink:href='#pk'/><title>Pk PK__fish_Rul__3213E83F4BADD5D7 ( id ) </title></a>
+<a xlink:href='#fish_Rule.id'><text id='dbo.fish_Rule.id' x='1188' y='1117'>id</text><text x='1320' y='1117' text-anchor='end' class='colType'>uniqueidentifier</text><title>id
+* uniqueidentifier default (newid())</title></a>
+  <use id='nn' x='1172' y='1122' xlink:href='#nn'/><a xlink:href='#fish_Rule.fish_Id'><use id='unq' x='1172' y='1121' xlink:href='#unq'/><title>Unq UK_fish_Rule ( fish_Id, periodStart, periodEnd ) </title></a>
+<a xlink:href='#fish_Rule.fish_Id'><text id='dbo.fish_Rule.fish_Id' x='1188' y='1132' onmouseover="hghl(['fish_Rule_FK_fish_Rule_fish'])" onmouseout="uhghl(['fish_Rule_FK_fish_Rule_fish'])">fish_Id</text><text x='1320' y='1132' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_Id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_Rule.fish_Id'><use id='fk' x='1323' y='1121' xlink:href='#fk'/><title>References fish ( fish_Id -&gt; fish_id ) </title></a>
+  <use id='nn' x='1172' y='1137' xlink:href='#nn'/><a xlink:href='#fish_Rule.periodStart'><use id='unq' x='1172' y='1136' xlink:href='#unq'/><title>Unq UK_fish_Rule ( fish_Id, periodStart, periodEnd ) </title></a>
+<a xlink:href='#fish_Rule.periodStart'><text id='dbo.fish_Rule.periodStart' x='1188' y='1147'>periodStart</text><text x='1320' y='1147' text-anchor='end' class='colType'>int</text><title>periodStart
+* int</title></a>
+  <use id='nn' x='1172' y='1152' xlink:href='#nn'/><a xlink:href='#fish_Rule.periodEnd'><use id='unq' x='1172' y='1151' xlink:href='#unq'/><title>Unq UK_fish_Rule ( fish_Id, periodStart, periodEnd ) </title></a>
+<a xlink:href='#fish_Rule.periodEnd'><text id='dbo.fish_Rule.periodEnd' x='1188' y='1162'>periodEnd</text><text x='1320' y='1162' text-anchor='end' class='colType'>int</text><title>periodEnd
+* int</title></a>
+  <a xlink:href='#fish_Rule.depthMin'><text id='dbo.fish_Rule.depthMin' x='1188' y='1177'>depthMin</text><text x='1320' y='1177' text-anchor='end' class='colType'>float</text><title>depthMin
+float</title></a>
+  <a xlink:href='#fish_Rule.depthMax'><text id='dbo.fish_Rule.depthMax' x='1188' y='1192'>depthMax</text><text x='1320' y='1192' text-anchor='end' class='colType'>float</text><title>depthMax
+float</title></a>
+  <a xlink:href='#fish_Rule.phL'><text id='dbo.fish_Rule.phL' x='1188' y='1207'>phL</text><text x='1320' y='1207' text-anchor='end' class='colType'>float</text><title>phL
+float</title></a>
+  <a xlink:href='#fish_Rule.phH'><text id='dbo.fish_Rule.phH' x='1188' y='1222'>phH</text><text x='1320' y='1222' text-anchor='end' class='colType'>float</text><title>phH
+float</title></a>
+  <a xlink:href='#fish_Rule.tmL'><use id='idx' x='1172' y='1226' xlink:href='#idx'/><title>idx_fish_Rule_tm ( tmL, tmH ) </title></a>
+<a xlink:href='#fish_Rule.tmL'><text id='dbo.fish_Rule.tmL' x='1188' y='1237'>tmL</text><text x='1320' y='1237' text-anchor='end' class='colType'>float</text><title>tmL
+float</title></a>
+  <a xlink:href='#fish_Rule.tmH'><use id='idx' x='1172' y='1241' xlink:href='#idx'/><title>idx_fish_Rule_tm ( tmL, tmH ) </title></a>
+<a xlink:href='#fish_Rule.tmH'><text id='dbo.fish_Rule.tmH' x='1188' y='1252'>tmH</text><text x='1320' y='1252' text-anchor='end' class='colType'>float</text><title>tmH
+float</title></a>
+  <a xlink:href='#fish_Rule.tuL'><text id='dbo.fish_Rule.tuL' x='1188' y='1267'>tuL</text><text x='1320' y='1267' text-anchor='end' class='colType'>float</text><title>tuL
+float</title></a>
+  <a xlink:href='#fish_Rule.tuH'><text id='dbo.fish_Rule.tuH' x='1188' y='1282'>tuH</text><text x='1320' y='1282' text-anchor='end' class='colType'>float</text><title>tuH
+float</title></a>
+  <a xlink:href='#fish_Rule.oxL'><text id='dbo.fish_Rule.oxL' x='1188' y='1297'>oxL</text><text x='1320' y='1297' text-anchor='end' class='colType'>float</text><title>oxL
+float</title></a>
+  <a xlink:href='#fish_Rule.oxH'><text id='dbo.fish_Rule.oxH' x='1188' y='1312'>oxH</text><text x='1320' y='1312' text-anchor='end' class='colType'>float</text><title>oxH
+float</title></a>
+  <a xlink:href='#fish_Rule.veL'><text id='dbo.fish_Rule.veL' x='1188' y='1327'>veL</text><text x='1320' y='1327' text-anchor='end' class='colType'>float</text><title>veL
+float</title></a>
+  <a xlink:href='#fish_Rule.veH'><text id='dbo.fish_Rule.veH' x='1188' y='1342'>veH</text><text x='1320' y='1342' text-anchor='end' class='colType'>float</text><title>veH
+float</title></a>
+  <a xlink:href='#fish_Rule.habitat'><text id='dbo.fish_Rule.habitat' x='1188' y='1357'>habitat</text><text x='1320' y='1357' text-anchor='end' class='colType'>int</text><title>habitat
+int default ((0))</title></a>
+  <a xlink:href='#fish_Rule.feedsOver'><text id='dbo.fish_Rule.feedsOver' x='1188' y='1372'>feedsOver</text><text x='1320' y='1372' text-anchor='end' class='colType'>int</text><title>feedsOver
+int default ((0))</title></a>
+  <a xlink:href='#fish_Rule.react_color'><text id='dbo.fish_Rule.react_color' x='1188' y='1387'>react_color</text><text x='1320' y='1387' text-anchor='end' class='colType'>int</text><title>react_color
+int default ((0))</title></a>
+  <a xlink:href='#fish_Rule.natural_color'><text id='dbo.fish_Rule.natural_color' x='1188' y='1402'>natural_color</text><text x='1320' y='1402' text-anchor='end' class='colType'>int</text><title>natural_color
+int default ((0))</title></a>
+  <a xlink:href='#fish_Rule.spawnsOver'><text id='dbo.fish_Rule.spawnsOver' x='1188' y='1417'>spawnsOver</text><text x='1320' y='1417' text-anchor='end' class='colType'>int</text><title>spawnsOver
+int default ((0))</title></a>
+  <a xlink:href='#fish_Rule.spawnsIn'><text id='dbo.fish_Rule.spawnsIn' x='1188' y='1432'>spawnsIn</text><text x='1320' y='1432' text-anchor='end' class='colType'>int</text><title>spawnsIn
+int default ((0))</title></a>
+  <use id='nn' x='1172' y='1437' xlink:href='#nn'/><a xlink:href='#fish_Rule.stamp'><text id='dbo.fish_Rule.stamp' x='1188' y='1447'>stamp</text><text x='1320' y='1447' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#fish_Rule.locked'><text id='dbo.fish_Rule.locked' x='1188' y='1462'>locked</text><text x='1320' y='1462' text-anchor='end' class='colType'>bit</text><title>locked
+bit default ((0))</title></a>
+  <a xlink:href='#fish_Rule.editor'><text id='dbo.fish_Rule.editor' x='1188' y='1477'>editor</text><text x='1320' y='1477' text-anchor='end' class='colType'>varchar</text><title>editor
+varchar</title></a>
+  <a xlink:href='#fish_Rule.tmC'><text id='dbo.fish_Rule.tmC' x='1188' y='1492'>tmC</text><text x='1320' y='1492' text-anchor='end' class='colType'>float</text><title>tmC
+float</title></a>
+  <a xlink:href='#fish_Rule.tmLD'><text id='dbo.fish_Rule.tmLD' x='1188' y='1507'>tmLD</text><text x='1320' y='1507' text-anchor='end' class='colType'>float</text><title>tmLD
+float</title></a>
+  <a xlink:href='#fish_Rule.tmHD'><text id='dbo.fish_Rule.tmHD' x='1188' y='1522'>tmHD</text><text x='1320' y='1522' text-anchor='end' class='colType'>float</text><title>tmHD
+float</title></a>
+  <a xlink:href='#fish_Rule.phHD'><text id='dbo.fish_Rule.phHD' x='1188' y='1537'>phHD</text><text x='1320' y='1537' text-anchor='end' class='colType'>float</text><title>phHD
+float</title></a>
+  <a xlink:href='#fish_Rule.phLD'><text id='dbo.fish_Rule.phLD' x='1188' y='1552'>phLD</text><text x='1320' y='1552' text-anchor='end' class='colType'>float</text><title>phLD
+float</title></a>
+  <a xlink:href='#fish_Rule.phC'><text id='dbo.fish_Rule.phC' x='1188' y='1567'>phC</text><text x='1320' y='1567' text-anchor='end' class='colType'>float</text><title>phC
+float</title></a>
+  <a xlink:href='#fish_Rule.oxC'><text id='dbo.fish_Rule.oxC' x='1188' y='1582'>oxC</text><text x='1320' y='1582' text-anchor='end' class='colType'>float</text><title>oxC
+float</title></a>
+  <a xlink:href='#fish_Rule.oxLD'><text id='dbo.fish_Rule.oxLD' x='1188' y='1597'>oxLD</text><text x='1320' y='1597' text-anchor='end' class='colType'>float</text><title>oxLD
+float</title></a>
+  <a xlink:href='#fish_Rule.oxHD'><text id='dbo.fish_Rule.oxHD' x='1188' y='1612'>oxHD</text><text x='1320' y='1612' text-anchor='end' class='colType'>float</text><title>oxHD
+float</title></a>
+  <a xlink:href='#fish_Rule.parent_id'><text id='dbo.fish_Rule.parent_id' x='1188' y='1627'>parent_id</text><text x='1320' y='1627' text-anchor='end' class='colType'>uniqueidentifier</text><title>parent_id
+uniqueidentifier</title></a>
+  <a xlink:href='#fish_Rule.lake_id'><text id='dbo.fish_Rule.lake_id' x='1188' y='1642'>lake_id</text><text x='1320' y='1642' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_id
+uniqueidentifier</title></a>
+  <a xlink:href='#fish_Rule.tuC'><text id='dbo.fish_Rule.tuC' x='1188' y='1657'>tuC</text><text x='1320' y='1657' text-anchor='end' class='colType'>float</text><title>tuC
+float</title></a>
+  <a xlink:href='#fish_Rule.tuLD'><text id='dbo.fish_Rule.tuLD' x='1188' y='1672'>tuLD</text><text x='1320' y='1672' text-anchor='end' class='colType'>float</text><title>tuLD
+float</title></a>
+  <a xlink:href='#fish_Rule.tuHD'><text id='dbo.fish_Rule.tuHD' x='1188' y='1687'>tuHD</text><text x='1320' y='1687' text-anchor='end' class='colType'>float</text><title>tuHD
+float</title></a>
+
+<!-- ============= Table 'fish_spot' ============= -->
+<rect class='table' x='315' y='893' width='150' height='90' rx='7' ry='7' />
+<line class='delim' x1='315.500000' y1='919.500000' x2='464.500000' y2='919.500000'/>
+<line class='delim' x1='330.500000' y1='919.500000' x2='330.500000' y2='982.500000'/>
+<line class='delim' x1='453.500000' y1='919.500000' x2='453.500000' y2='982.500000'/>
+<path d='M 315.50 919.50 L 315.50 900.50 Q 315.50 893.50 322.50 893.50 L 457.50 893.50 Q 464.50 893.50 464.50 900.50 L 464.50 919.50 L315.50 919.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_spot'><text x='364' y='911'>fish_spot</text><title>Table dbo.fish_spot</title></a>
+  <use id='nn' x='317' y='927' xlink:href='#nn'/><a xlink:href='#fish_spot.spot_ID'><use id='pk' x='317' y='926' xlink:href='#pk'/><title>Pk PK_SpotFish ( spot_ID, fish_ID ) </title></a>
+<a xlink:href='#fish_spot.spot_ID'><text id='dbo.fish_spot.spot_ID' x='333' y='937'>spot_ID</text><text x='450' y='937' text-anchor='end' class='colType'>uniqueidentifier</text><title>spot_ID
+* uniqueidentifier</title></a>
+  <use id='nn' x='317' y='942' xlink:href='#nn'/><a xlink:href='#fish_spot.fish_ID'><use id='pk' x='317' y='941' xlink:href='#pk'/><title>Pk PK_SpotFish ( spot_ID, fish_ID ) </title></a>
+<a xlink:href='#fish_spot.fish_ID'><text id='dbo.fish_spot.fish_ID' x='333' y='952'>fish_ID</text><text x='450' y='952' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_ID
+* uniqueidentifier default ('00000000-0000-0000-0000-000000000000')</title></a>
+  <a xlink:href='#fish_spot.comment'><text id='dbo.fish_spot.comment' x='333' y='967'>comment</text><text x='450' y='967' text-anchor='end' class='colType'>nvarchar</text><title>comment
+nvarchar</title></a>
+
+<!-- ============= Table 'fish_record' ============= -->
+<rect class='table' x='315' y='1013' width='150' height='180' rx='7' ry='7' />
+<line class='delim' x1='315.500000' y1='1039.500000' x2='464.500000' y2='1039.500000'/>
+<line class='delim' x1='330.500000' y1='1039.500000' x2='330.500000' y2='1192.500000'/>
+<line class='delim' x1='453.500000' y1='1039.500000' x2='453.500000' y2='1192.500000'/>
+<path d='M 315.50 1039.50 L 315.50 1020.50 Q 315.50 1013.50 322.50 1013.50 L 457.50 1013.50 Q 464.50 1013.50 464.50 1020.50 L 464.50 1039.50 L315.50 1039.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_record'><text x='359' y='1031'>fish_record</text><title>Table dbo.fish_record</title></a>
+  <use id='nn' x='317' y='1047' xlink:href='#nn'/><a xlink:href='#fish_record.fish_id'><use id='unq' x='317' y='1046' xlink:href='#unq'/><title>Unq UK_fish_record ( fish_id, lake_id, stamp ) </title></a>
+<a xlink:href='#fish_record.fish_id'><text id='dbo.fish_record.fish_id' x='333' y='1057' onmouseover="hghl(['fish_record_FK_fish_rec_fish'])" onmouseout="uhghl(['fish_record_FK_fish_rec_fish'])">fish_id</text><text x='450' y='1057' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_record.fish_id'><use id='fk' x='453' y='1046' xlink:href='#fk'/><title>References fish ( fish_id ) </title></a>
+  <use id='nn' x='317' y='1062' xlink:href='#nn'/><a xlink:href='#fish_record.lake_id'><use id='unq' x='317' y='1061' xlink:href='#unq'/><title>Unq UK_fish_record ( fish_id, lake_id, stamp ) </title></a>
+<a xlink:href='#fish_record.lake_id'><text id='dbo.fish_record.lake_id' x='333' y='1072' onmouseover="hghl(['fish_record_FK_fish_rec_lake'])" onmouseout="uhghl(['fish_record_FK_fish_rec_lake'])">lake_id</text><text x='450' y='1072' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_record.lake_id'><use id='fk' x='453' y='1061' xlink:href='#fk'/><title>References Lake ( lake_id ) </title></a>
+  <use id='nn' x='317' y='1077' xlink:href='#nn'/><a xlink:href='#fish_record.stamp'><use id='unq' x='317' y='1076' xlink:href='#unq'/><title>Unq UK_fish_record ( fish_id, lake_id, stamp ) </title></a>
+<a xlink:href='#fish_record.stamp'><text id='dbo.fish_record.stamp' x='333' y='1087'>stamp</text><text x='450' y='1087' text-anchor='end' class='colType'>date</text><title>stamp
+* date</title></a>
+  <a xlink:href='#fish_record.angler'><text id='dbo.fish_record.angler' x='333' y='1102'>angler</text><text x='450' y='1102' text-anchor='end' class='colType'>nvarchar</text><title>angler
+nvarchar</title></a>
+  <a xlink:href='#fish_record.weight'><text id='dbo.fish_record.weight' x='333' y='1117'>weight</text><text x='450' y='1117' text-anchor='end' class='colType'>float</text><title>weight
+float</title></a>
+  <a xlink:href='#fish_record.length'><text id='dbo.fish_record.length' x='333' y='1132'>length</text><text x='450' y='1132' text-anchor='end' class='colType'>float</text><title>length
+float</title></a>
+  <a xlink:href='#fish_record.Girth'><text id='dbo.fish_record.Girth' x='333' y='1147'>Girth</text><text x='450' y='1147' text-anchor='end' class='colType'>float</text><title>Girth
+float</title></a>
+  <a xlink:href='#fish_record.lure'><text id='dbo.fish_record.lure' x='333' y='1162'>lure</text><text x='450' y='1162' text-anchor='end' class='colType'>varchar</text><title>lure
+varchar</title></a>
+  <a xlink:href='#fish_record.link'><text id='dbo.fish_record.link' x='333' y='1177'>link</text><text x='450' y='1177' text-anchor='end' class='colType'>nvarchar</text><title>link
+nvarchar</title></a>
+
+<!-- ============= Table 'lake_fish' ============= -->
+<rect class='table' x='315' y='1238' width='180' height='180' rx='7' ry='7' />
+<line class='delim' x1='315.500000' y1='1264.500000' x2='494.500000' y2='1264.500000'/>
+<line class='delim' x1='330.500000' y1='1264.500000' x2='330.500000' y2='1417.500000'/>
+<line class='delim' x1='483.500000' y1='1264.500000' x2='483.500000' y2='1417.500000'/>
+<path d='M 315.50 1264.50 L 315.50 1245.50 Q 315.50 1238.50 322.50 1238.50 L 487.50 1238.50 Q 494.50 1238.50 494.50 1245.50 L 494.50 1264.50 L315.50 1264.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#lake_fish'><text x='380' y='1256'>lake_fish</text><title>Table dbo.lake_fish</title></a>
+  <use id='nn' x='317' y='1272' xlink:href='#nn'/><a xlink:href='#lake_fish.lake_Id'><use id='pk' x='317' y='1271' xlink:href='#pk'/><title>Pk PK__lake_fis__142F02A2239FE47D ( lake_Id, fish_id, probability ) </title></a>
+<a xlink:href='#lake_fish.lake_Id'><text id='dbo.lake_fish.lake_Id' x='333' y='1282' onmouseover="hghl(['lake_fish_FK_lake_fish_Lake'])" onmouseout="uhghl(['lake_fish_FK_lake_fish_Lake'])">lake_Id</text><text x='480' y='1282' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_Id
+* uniqueidentifier</title></a>
+<a xlink:href='#lake_fish.lake_Id'><use id='fk' x='483' y='1271' xlink:href='#fk'/><title>References Lake ( lake_Id -&gt; lake_id ) </title></a>
+  <use id='nn' x='317' y='1287' xlink:href='#nn'/><a xlink:href='#lake_fish.fish_id'><use id='pk' x='317' y='1286' xlink:href='#pk'/><title>Pk PK__lake_fis__142F02A2239FE47D ( lake_Id, fish_id, probability ) </title></a>
+<a xlink:href='#lake_fish.fish_id'><text id='dbo.lake_fish.fish_id' x='333' y='1297' onmouseover="hghl(['lake_fish_FK_lake_fish_fish'])" onmouseout="uhghl(['lake_fish_FK_lake_fish_fish'])">fish_id</text><text x='480' y='1297' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_id
+* uniqueidentifier</title></a>
+<a xlink:href='#lake_fish.fish_id'><use id='fk' x='483' y='1286' xlink:href='#fk'/><title>References fish ( fish_id ) </title></a>
+  <use id='nn' x='317' y='1302' xlink:href='#nn'/><a xlink:href='#lake_fish.probability'><use id='pk' x='317' y='1301' xlink:href='#pk'/><title>Pk PK__lake_fis__142F02A2239FE47D ( lake_Id, fish_id, probability ) </title></a>
+<a xlink:href='#lake_fish.probability'><text id='dbo.lake_fish.probability' x='333' y='1312'>probability</text><text x='480' y='1312' text-anchor='end' class='colType'>tinyint</text><title>probability
+* tinyint default ((0))</title></a>
+  <use id='nn' x='317' y='1317' xlink:href='#nn'/><a xlink:href='#lake_fish.created'><text id='dbo.lake_fish.created' x='333' y='1327'>created</text><text x='480' y='1327' text-anchor='end' class='colType'>datetime</text><title>created
+* datetime default (getutcdate())</title></a>
+  <a xlink:href='#lake_fish.link'><text id='dbo.lake_fish.link' x='333' y='1342'>link</text><text x='480' y='1342' text-anchor='end' class='colType'>nvarchar</text><title>link
+nvarchar</title></a>
+  <use id='nn' x='317' y='1347' xlink:href='#nn'/><a xlink:href='#lake_fish.probability_source_type'><text id='dbo.lake_fish.probability_source_type' x='333' y='1357'>probability_source_type</text><text x='480' y='1357' text-anchor='end' class='colType'>tinyint</text><title>probability_source_type
+* tinyint default ((0))</title></a>
+  <a xlink:href='#lake_fish.spawn'><text id='dbo.lake_fish.spawn' x='333' y='1372'>spawn</text><text x='480' y='1372' text-anchor='end' class='colType'>int</text><title>spawn
+int default ((0))</title></a>
+  <use id='nn' x='317' y='1377' xlink:href='#nn'/><a xlink:href='#lake_fish.sid'><text id='dbo.lake_fish.sid' x='333' y='1387'>sid</text><text x='480' y='1387' text-anchor='end' class='colType'>int identity</text><title>sid
+* int identity</title></a>
+  <a xlink:href='#lake_fish.tributaries'><text id='dbo.lake_fish.tributaries' x='333' y='1402'>tributaries</text><text x='480' y='1402' text-anchor='end' class='colType'>bit</text><title>tributaries
+bit default ((0))</title></a>
+
+<!-- ============= Table 'fish_general' ============= -->
+<rect class='table' x='330' y='1448' width='150' height='165' rx='7' ry='7' />
+<line class='delim' x1='330.500000' y1='1474.500000' x2='479.500000' y2='1474.500000'/>
+<line class='delim' x1='345.500000' y1='1474.500000' x2='345.500000' y2='1612.500000'/>
+<line class='delim' x1='468.500000' y1='1474.500000' x2='468.500000' y2='1612.500000'/>
+<path d='M 330.50 1474.50 L 330.50 1455.50 Q 330.50 1448.50 337.50 1448.50 L 472.50 1448.50 Q 479.50 1448.50 479.50 1455.50 L 479.50 1474.50 L330.50 1474.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_general'><text x='372' y='1466'>fish_general</text><title>Table dbo.fish_general</title></a>
+  <use id='nn' x='332' y='1482' xlink:href='#nn'/><a xlink:href='#fish_general.fish_id'><use id='pk' x='332' y='1481' xlink:href='#pk'/><title>Pk PK__fish_gen__231D11A43805392F ( fish_id ) </title></a>
+<a xlink:href='#fish_general.fish_id'><text id='dbo.fish_general.fish_id' x='348' y='1492' onmouseover="hghl(['fish_general_FK__fish_gene__fish___462A06AB'])" onmouseout="uhghl(['fish_general_FK__fish_gene__fish___462A06AB'])">fish_id</text><text x='465' y='1492' text-anchor='end' class='colType'>uniqueidentifier</text><title>fish_id
+* uniqueidentifier</title></a>
+<a xlink:href='#fish_general.fish_id'><use id='fk' x='468' y='1481' xlink:href='#fk'/><title>References fish ( fish_id ) </title></a>
+  <a xlink:href='#fish_general.fin'><text id='dbo.fish_general.fin' x='348' y='1507'>fin</text><text x='465' y='1507' text-anchor='end' class='colType'>nvarchar</text><title>fin
+nvarchar</title></a>
+  <a xlink:href='#fish_general.body'><text id='dbo.fish_general.body' x='348' y='1522'>body</text><text x='465' y='1522' text-anchor='end' class='colType'>nvarchar</text><title>body
+nvarchar</title></a>
+  <a xlink:href='#fish_general.habitat'><text id='dbo.fish_general.habitat' x='348' y='1537'>habitat</text><text x='465' y='1537' text-anchor='end' class='colType'>nvarchar</text><title>habitat
+nvarchar</title></a>
+  <a xlink:href='#fish_general.feeding'><text id='dbo.fish_general.feeding' x='348' y='1552'>feeding</text><text x='465' y='1552' text-anchor='end' class='colType'>nvarchar</text><title>feeding
+nvarchar</title></a>
+  <a xlink:href='#fish_general.link'><text id='dbo.fish_general.link' x='348' y='1567'>link</text><text x='465' y='1567' text-anchor='end' class='colType'>nvarchar</text><title>link
+nvarchar</title></a>
+  <a xlink:href='#fish_general.note'><text id='dbo.fish_general.note' x='348' y='1582'>note</text><text x='465' y='1582' text-anchor='end' class='colType'>nvarchar</text><title>note
+nvarchar</title></a>
+  <use id='nn' x='332' y='1587' xlink:href='#nn'/><a xlink:href='#fish_general.stamp'><text id='dbo.fish_general.stamp' x='348' y='1597'>stamp</text><text x='465' y='1597' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getutcdate())</title></a>
+
+<!-- ============= Table 'fish_family' ============= -->
+<rect class='table' x='345' y='1643' width='150' height='135' rx='7' ry='7' />
+<line class='delim' x1='345.500000' y1='1669.500000' x2='494.500000' y2='1669.500000'/>
+<line class='delim' x1='360.500000' y1='1669.500000' x2='360.500000' y2='1777.500000'/>
+<line class='delim' x1='483.500000' y1='1669.500000' x2='483.500000' y2='1777.500000'/>
+<path d='M 345.50 1669.50 L 345.50 1650.50 Q 345.50 1643.50 352.50 1643.50 L 487.50 1643.50 Q 494.50 1643.50 494.50 1650.50 L 494.50 1669.50 L345.50 1669.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#fish_family'><text x='391' y='1661'>fish_family</text><title>Table dbo.fish_family</title></a>
+  <use id='nn' x='347' y='1677' xlink:href='#nn'/><a xlink:href='#fish_family.Family_id'><use id='pk' x='347' y='1676' xlink:href='#pk'/><title>Pk PK_Family ( Family_id ) </title></a>
+<a xlink:href='#fish_family.Family_id'><text id='dbo.fish_family.Family_id' x='363' y='1687' onmouseover="hghl(['fish_FK_Species_Family'])" onmouseout="uhghl(['fish_FK_Species_Family'])">Family_id</text><text x='480' y='1687' text-anchor='end' class='colType'>uniqueidentifier</text><title>Family_id
+* uniqueidentifier default (newid())</title></a>
+<a xlink:href='#fish_family.Family_id'><use id='ref' x='483' y='1676' xlink:href='#ref'/><title>Referred by fish ( family_Id -&gt; Family_id ) </title></a>
+  <use id='nn' x='347' y='1692' xlink:href='#nn'/><a xlink:href='#fish_family.Family_name'><text id='dbo.fish_family.Family_name' x='363' y='1702'>Family_name</text><text x='480' y='1702' text-anchor='end' class='colType'>varchar</text><title>Family_name
+* varchar</title></a>
+  <a xlink:href='#fish_family.link'><text id='dbo.fish_family.link' x='363' y='1717'>link</text><text x='480' y='1717' text-anchor='end' class='colType'>varchar</text><title>link
+varchar</title></a>
+  <use id='nn' x='347' y='1722' xlink:href='#nn'/><a xlink:href='#fish_family.fid'><text id='dbo.fish_family.fid' x='363' y='1732'>fid</text><text x='480' y='1732' text-anchor='end' class='colType'>int</text><title>fid
+* int</title></a>
+  <a xlink:href='#fish_family.descr'><text id='dbo.fish_family.descr' x='363' y='1747'>descr</text><text x='480' y='1747' text-anchor='end' class='colType'>nvarchar</text><title>descr
+nvarchar</title></a>
+  <use id='nn' x='347' y='1752' xlink:href='#nn'/><a xlink:href='#fish_family.created'><text id='dbo.fish_family.created' x='363' y='1762'>created</text><text x='480' y='1762' text-anchor='end' class='colType'>datetime</text><title>created
+* datetime default (getdate())</title></a>
+
+<!-- ============= Table 'Spot' ============= -->
+<rect class='table' x='480' y='53' width='150' height='135' rx='7' ry='7' />
+<line class='delim' x1='480.500000' y1='79.500000' x2='629.500000' y2='79.500000'/>
+<line class='delim' x1='495.500000' y1='79.500000' x2='495.500000' y2='187.500000'/>
+<line class='delim' x1='618.500000' y1='79.500000' x2='618.500000' y2='187.500000'/>
+<path d='M 480.50 79.50 L 480.50 60.50 Q 480.50 53.50 487.50 53.50 L 622.50 53.50 Q 629.50 53.50 629.50 60.50 L 629.50 79.50 L480.50 79.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Spot'><text x='541' y='71'>Spot</text><title>Table dbo.Spot</title></a>
+  <use id='nn' x='482' y='87' xlink:href='#nn'/><a xlink:href='#Spot.spot_id'><use id='pk' x='482' y='86' xlink:href='#pk'/><title>Pk PK__sportfis__3213E83F2B4A5C8F ( spot_id ) </title></a>
+<a xlink:href='#Spot.spot_id'><text id='dbo.Spot.spot_id' x='498' y='97'>spot_id</text><text x='615' y='97' text-anchor='end' class='colType'>uniqueidentifier</text><title>spot_id
+* uniqueidentifier default (newid())</title></a>
+  <a xlink:href='#Spot.spot_lat'><text id='dbo.Spot.spot_lat' x='498' y='112'>spot_lat</text><text x='615' y='112' text-anchor='end' class='colType'>float</text><title>spot_lat
+float</title></a>
+  <a xlink:href='#Spot.spot_lon'><text id='dbo.Spot.spot_lon' x='498' y='127'>spot_lon</text><text x='615' y='127' text-anchor='end' class='colType'>float</text><title>spot_lon
+float</title></a>
+  <use id='nn' x='482' y='132' xlink:href='#nn'/><a xlink:href='#Spot.lake_Id'><text id='dbo.Spot.lake_Id' x='498' y='142'>lake_Id</text><text x='615' y='142' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_Id
+* uniqueidentifier default ('00000000-0000-0000-0000-000000000000')</title></a>
+  <use id='nn' x='482' y='147' xlink:href='#nn'/><a xlink:href='#Spot.spot_created'><text id='dbo.Spot.spot_created' x='498' y='157'>spot_created</text><text x='615' y='157' text-anchor='end' class='colType'>datetime</text><title>spot_created
+* datetime default (getdate())</title></a>
+  <use id='nn' x='482' y='162' xlink:href='#nn'/><a xlink:href='#Spot.spot_sid'><text id='dbo.Spot.spot_sid' x='498' y='172'>spot_sid</text><text x='615' y='172' text-anchor='end' class='colType'>int identity</text><title>spot_sid
+* int identity</title></a>
+
+<!-- ============= Table 'Parking_Spot' ============= -->
+<rect class='table' x='270' y='323' width='150' height='285' rx='7' ry='7' />
+<line class='delim' x1='270.500000' y1='349.500000' x2='419.500000' y2='349.500000'/>
+<line class='delim' x1='285.500000' y1='349.500000' x2='285.500000' y2='607.500000'/>
+<line class='delim' x1='408.500000' y1='349.500000' x2='408.500000' y2='607.500000'/>
+<path d='M 270.50 349.50 L 270.50 330.50 Q 270.50 323.50 277.50 323.50 L 412.50 323.50 Q 419.50 323.50 419.50 330.50 L 419.50 349.50 L270.50 349.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Parking_Spot'><text x='310' y='341'>Parking_Spot</text><title>Table dbo.Parking_Spot</title></a>
+  <use id='nn' x='272' y='357' xlink:href='#nn'/><a xlink:href='#Parking_Spot.ID'><text id='dbo.Parking_Spot.ID' x='288' y='367'>ID</text><text x='405' y='367' text-anchor='end' class='colType'>int</text><title>ID
+* int</title></a>
+  <a xlink:href='#Parking_Spot.fish_name'><text id='dbo.Parking_Spot.fish_name' x='288' y='382'>fish_name</text><text x='405' y='382' text-anchor='end' class='colType'>nvarchar</text><title>fish_name
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot."TROUT_SP"'><text id='dbo.Parking_Spot."TROUT_SP"' x='288' y='397'>"TROUT_SP"</text><text x='405' y='397' text-anchor='end' class='colType'>nvarchar</text><title>"TROUT_SP"
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot.lake_name'><text id='dbo.Parking_Spot.lake_name' x='288' y='412'>lake_name</text><text x='405' y='412' text-anchor='end' class='colType'>nvarchar</text><title>lake_name
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot.municipality'><text id='dbo.Parking_Spot.municipality' x='288' y='427'>municipality</text><text x='405' y='427' text-anchor='end' class='colType'>nvarchar</text><title>municipality
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot.county'><text id='dbo.Parking_Spot.county' x='288' y='442'>county</text><text x='405' y='442' text-anchor='end' class='colType'>nvarchar</text><title>county
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot.region'><text id='dbo.Parking_Spot.region' x='288' y='457'>region</text><text x='405' y='457' text-anchor='end' class='colType'>tinyint</text><title>region
+tinyint</title></a>
+  <a xlink:href='#Parking_Spot.road'><text id='dbo.Parking_Spot.road' x='288' y='472'>road</text><text x='405' y='472' text-anchor='end' class='colType'>nvarchar</text><title>road
+nvarchar</title></a>
+  <a xlink:href='#Parking_Spot.reglation_link'><text id='dbo.Parking_Spot.reglation_link' x='288' y='487'>reglation_link</text><text x='405' y='487' text-anchor='end' class='colType'>varchar</text><title>reglation_link
+varchar</title></a>
+  <a xlink:href='#Parking_Spot.map_link'><text id='dbo.Parking_Spot.map_link' x='288' y='502'>map_link</text><text x='405' y='502' text-anchor='end' class='colType'>varchar</text><title>map_link
+varchar</title></a>
+  <a xlink:href='#Parking_Spot.parking_num'><text id='dbo.Parking_Spot.parking_num' x='288' y='517'>parking_num</text><text x='405' y='517' text-anchor='end' class='colType'>tinyint</text><title>parking_num
+tinyint</title></a>
+  <a xlink:href='#Parking_Spot.state'><text id='dbo.Parking_Spot.state' x='288' y='532'>state</text><text x='405' y='532' text-anchor='end' class='colType'>char</text><title>state
+char</title></a>
+  <a xlink:href='#Parking_Spot.country'><text id='dbo.Parking_Spot.country' x='288' y='547'>country</text><text x='405' y='547' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#Parking_Spot.lat'><text id='dbo.Parking_Spot.lat' x='288' y='562'>lat</text><text x='405' y='562' text-anchor='end' class='colType'>float</text><title>lat
+float</title></a>
+  <a xlink:href='#Parking_Spot.lon'><text id='dbo.Parking_Spot.lon' x='288' y='577'>lon</text><text x='405' y='577' text-anchor='end' class='colType'>float</text><title>lon
+float</title></a>
+  <a xlink:href='#Parking_Spot.lake_id'><text id='dbo.Parking_Spot.lake_id' x='288' y='592' onmouseover="hghl(['Parking_Spot_FK_Parking_Spot'])" onmouseout="uhghl(['Parking_Spot_FK_Parking_Spot'])">lake_id</text><text x='405' y='592' text-anchor='end' class='colType'>uniqueidentifier</text><title>lake_id
+uniqueidentifier</title></a>
+<a xlink:href='#Parking_Spot.lake_id'><use id='fk' x='408' y='581' xlink:href='#fk'/><title>References Lake ( lake_id ) </title></a>
+
+<!-- ============= Table 'WaterData' ============= -->
+<rect class='table' x='1065' y='443' width='120' height='315' rx='7' ry='7' />
+<line class='delim' x1='1065.500000' y1='469.500000' x2='1184.500000' y2='469.500000'/>
+<line class='delim' x1='1080.500000' y1='469.500000' x2='1080.500000' y2='757.500000'/>
+<line class='delim' x1='1173.500000' y1='469.500000' x2='1173.500000' y2='757.500000'/>
+<path d='M 1065.50 469.50 L 1065.50 450.50 Q 1065.50 443.50 1072.50 443.50 L 1177.50 443.50 Q 1184.50 443.50 1184.50 450.50 L 1184.50 469.50 L1065.50 469.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#WaterData'><text x='1096' y='461'>WaterData</text><title>Table dbo.WaterData</title></a>
+  <use id='nn' x='1067' y='477' xlink:href='#nn'/><a xlink:href='#WaterData.id'><use id='pk' x='1067' y='476' xlink:href='#pk'/><title>Pk PK__WaterDat__3213E83F04273924 ( id ) </title></a>
+<a xlink:href='#WaterData.id'><text id='dbo.WaterData.id' x='1083' y='487'>id</text><text x='1170' y='487' text-anchor='end' class='colType'>bigint identity</text><title>id
+* bigint identity</title></a>
+  <use id='nn' x='1067' y='492' xlink:href='#nn'/><a xlink:href='#WaterData.stamp'><use id='idx' x='1067' y='491' xlink:href='#idx'/><title>IDX_WaterData_dt ( stamp ) </title></a>
+<a xlink:href='#WaterData.stamp'><text id='dbo.WaterData.stamp' x='1083' y='502'>stamp</text><text x='1170' y='502' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime</title></a>
+  <a xlink:href='#WaterData.temperature'><text id='dbo.WaterData.temperature' x='1083' y='517'>temperature</text><text x='1170' y='517' text-anchor='end' class='colType'>float</text><title>temperature
+float</title></a>
+  <a xlink:href='#WaterData.conductance'><text id='dbo.WaterData.conductance' x='1083' y='532'>conductance</text><text x='1170' y='532' text-anchor='end' class='colType'>float</text><title>conductance
+float</title></a>
+  <a xlink:href='#WaterData.discharge'><text id='dbo.WaterData.discharge' x='1083' y='547'>discharge</text><text x='1170' y='547' text-anchor='end' class='colType'>float</text><title>discharge
+float</title></a>
+  <a xlink:href='#WaterData.turbidity'><text id='dbo.WaterData.turbidity' x='1083' y='562'>turbidity</text><text x='1170' y='562' text-anchor='end' class='colType'>float</text><title>turbidity
+float</title></a>
+  <a xlink:href='#WaterData.oxygen'><text id='dbo.WaterData.oxygen' x='1083' y='577'>oxygen</text><text x='1170' y='577' text-anchor='end' class='colType'>float</text><title>oxygen
+float</title></a>
+  <a xlink:href='#WaterData.ph'><text id='dbo.WaterData.ph' x='1083' y='592'>ph</text><text x='1170' y='592' text-anchor='end' class='colType'>float</text><title>ph
+float</title></a>
+  <a xlink:href='#WaterData.elevation'><text id='dbo.WaterData.elevation' x='1083' y='607'>elevation</text><text x='1170' y='607' text-anchor='end' class='colType'>float</text><title>elevation
+float</title></a>
+  <a xlink:href='#WaterData.precipitation'><text id='dbo.WaterData.precipitation' x='1083' y='622'>precipitation</text><text x='1170' y='622' text-anchor='end' class='colType'>float</text><title>precipitation
+float</title></a>
+  <a xlink:href='#WaterData.wind'><text id='dbo.WaterData.wind' x='1083' y='637'>wind</text><text x='1170' y='637' text-anchor='end' class='colType'>float</text><title>wind
+float</title></a>
+  <a xlink:href='#WaterData.winddir'><text id='dbo.WaterData.winddir' x='1083' y='652'>winddir</text><text x='1170' y='652' text-anchor='end' class='colType'>float</text><title>winddir
+float</title></a>
+  <a xlink:href='#WaterData.humidity'><text id='dbo.WaterData.humidity' x='1083' y='667'>humidity</text><text x='1170' y='667' text-anchor='end' class='colType'>float</text><title>humidity
+float</title></a>
+  <a xlink:href='#WaterData.air'><text id='dbo.WaterData.air' x='1083' y='682'>air</text><text x='1170' y='682' text-anchor='end' class='colType'>float</text><title>air
+float</title></a>
+  <a xlink:href='#WaterData.velocity'><text id='dbo.WaterData.velocity' x='1083' y='697'>velocity</text><text x='1170' y='697' text-anchor='end' class='colType'>float</text><title>velocity
+float</title></a>
+  <a xlink:href='#WaterData.pressure'><text id='dbo.WaterData.pressure' x='1083' y='712'>pressure</text><text x='1170' y='712' text-anchor='end' class='colType'>float</text><title>pressure
+float</title></a>
+  <use id='nn' x='1067' y='717' xlink:href='#nn'/><a xlink:href='#WaterData.mli'><use id='idx' x='1067' y='716' xlink:href='#idx'/><title>IDX_WaterData_MLI ( mli ) </title></a>
+<a xlink:href='#WaterData.mli'><text id='dbo.WaterData.mli' x='1083' y='727'>mli</text><text x='1170' y='727' text-anchor='end' class='colType'>varchar</text><title>mli
+* varchar default ('')</title></a>
+  <use id='nn' x='1067' y='732' xlink:href='#nn'/><a xlink:href='#WaterData.sid'><use id='idx' x='1067' y='731' xlink:href='#idx'/><title>idx_WaterData_sid ( sid ) </title></a>
+<a xlink:href='#WaterData.sid'><text id='dbo.WaterData.sid' x='1083' y='742'>sid</text><text x='1170' y='742' text-anchor='end' class='colType'>int</text><title>sid
+* int default ((0))</title></a>
+
+<!-- ============= Table 'CanPostLatLon' ============= -->
+<rect class='table' x='285' y='638' width='90' height='90' rx='7' ry='7' />
+<line class='delim' x1='285.500000' y1='664.500000' x2='374.500000' y2='664.500000'/>
+<line class='delim' x1='300.500000' y1='664.500000' x2='300.500000' y2='727.500000'/>
+<line class='delim' x1='363.500000' y1='664.500000' x2='363.500000' y2='727.500000'/>
+<path d='M 285.50 664.50 L 285.50 645.50 Q 285.50 638.50 292.50 638.50 L 367.50 638.50 Q 374.50 638.50 374.50 645.50 L 374.50 664.50 L285.50 664.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#CanPostLatLon'><text x='290' y='656'>CanPostLatLon</text><title>Table dbo.CanPostLatLon</title></a>
+  <use id='nn' x='287' y='672' xlink:href='#nn'/><a xlink:href='#CanPostLatLon.postal'><use id='pk' x='287' y='671' xlink:href='#pk'/><title>Pk PK_CanPostLatLon ( postal ) </title></a>
+<a xlink:href='#CanPostLatLon.postal'><text id='dbo.CanPostLatLon.postal' x='303' y='682'>postal</text><text x='360' y='682' text-anchor='end' class='colType'>char</text><title>postal
+* char</title></a>
+  <a xlink:href='#CanPostLatLon.lat'><use id='idx' x='287' y='686' xlink:href='#idx'/><title>IDX_CanPostLatLon ( lat, lon ) </title></a>
+<a xlink:href='#CanPostLatLon.lat'><text id='dbo.CanPostLatLon.lat' x='303' y='697'>lat</text><text x='360' y='697' text-anchor='end' class='colType'>real</text><title>lat
+real</title></a>
+  <a xlink:href='#CanPostLatLon.lon'><use id='idx' x='287' y='701' xlink:href='#idx'/><title>IDX_CanPostLatLon ( lat, lon ) </title></a>
+<a xlink:href='#CanPostLatLon.lon'><text id='dbo.CanPostLatLon.lon' x='303' y='712'>lon</text><text x='360' y='712' text-anchor='end' class='colType'>real</text><title>lon
+real</title></a>
+
+<!-- ============= Table 'GeoIP' ============= -->
+<rect class='table' x='420' y='638' width='105' height='105' rx='7' ry='7' />
+<line class='delim' x1='420.500000' y1='664.500000' x2='524.500000' y2='664.500000'/>
+<line class='delim' x1='435.500000' y1='664.500000' x2='435.500000' y2='742.500000'/>
+<line class='delim' x1='513.500000' y1='664.500000' x2='513.500000' y2='742.500000'/>
+<path d='M 420.50 664.50 L 420.50 645.50 Q 420.50 638.50 427.50 638.50 L 517.50 638.50 Q 524.50 638.50 524.50 645.50 L 524.50 664.50 L420.50 664.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#GeoIP'><text x='455' y='656'>GeoIP</text><title>Table dbo.GeoIP</title></a>
+  <use id='nn' x='422' y='672' xlink:href='#nn'/><a xlink:href='#GeoIP.id'><use id='pk' x='422' y='671' xlink:href='#pk'/><title>Pk PK_GeoIP ( id ) </title></a>
+<a xlink:href='#GeoIP.id'><text id='dbo.GeoIP.id' x='438' y='682'>id</text><text x='510' y='682' text-anchor='end' class='colType'>int</text><title>id
+* int</title></a>
+  <use id='nn' x='422' y='687' xlink:href='#nn'/><a xlink:href='#GeoIP.latitude'><use id='idx' x='422' y='686' xlink:href='#idx'/><title>idx_GeoIP_lat ( latitude ) </title></a>
+<a xlink:href='#GeoIP.latitude'><text id='dbo.GeoIP.latitude' x='438' y='697'>latitude</text><text x='510' y='697' text-anchor='end' class='colType'>float</text><title>latitude
+* float</title></a>
+  <use id='nn' x='422' y='702' xlink:href='#nn'/><a xlink:href='#GeoIP.longitude'><use id='idx' x='422' y='701' xlink:href='#idx'/><title>idx_GeoIP_lon ( longitude ) </title></a>
+<a xlink:href='#GeoIP.longitude'><text id='dbo.GeoIP.longitude' x='438' y='712'>longitude</text><text x='510' y='712' text-anchor='end' class='colType'>float</text><title>longitude
+* float</title></a>
+  <use id='nn' x='422' y='717' xlink:href='#nn'/><a xlink:href='#GeoIP.ip4'><use id='idx' x='422' y='716' xlink:href='#idx'/><title>idx_GeoIP_ip4 ( ip4 ) </title></a>
+<a xlink:href='#GeoIP.ip4'><text id='dbo.GeoIP.ip4' x='438' y='727'>ip4</text><text x='510' y='727' text-anchor='end' class='colType'>binary</text><title>ip4
+* binary</title></a>
+
+<!-- ============= Table 'WaterStation' ============= -->
+<rect class='table' x='855' y='233' width='150' height='435' rx='7' ry='7' />
+<line class='delim' x1='855.500000' y1='259.500000' x2='1004.500000' y2='259.500000'/>
+<line class='delim' x1='870.500000' y1='259.500000' x2='870.500000' y2='667.500000'/>
+<line class='delim' x1='993.500000' y1='259.500000' x2='993.500000' y2='667.500000'/>
+<path d='M 855.50 259.50 L 855.50 240.50 Q 855.50 233.50 862.50 233.50 L 997.50 233.50 Q 1004.50 233.50 1004.50 240.50 L 1004.50 259.50 L855.50 259.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#WaterStation'><text x='896' y='251'>WaterStation</text><title>Table dbo.WaterStation</title></a>
+  <use id='nn' x='857' y='267' xlink:href='#nn'/><a xlink:href='#WaterStation.id'><use id='pk' x='857' y='266' xlink:href='#pk'/><title>Pk PK_WaterStationId ( id ) </title></a>
+<a xlink:href='#WaterStation.id'><text id='dbo.WaterStation.id' x='873' y='277' onmouseover="hghl(['fish_location_FK_fish_location_station','Weather_station_FK_Weather_station_wsi'])" onmouseout="uhghl(['fish_location_FK_fish_location_station','Weather_station_FK_Weather_station_wsi'])">id</text><text x='990' y='277' text-anchor='end' class='colType'>uniqueidentifier</text><title>id
+* uniqueidentifier</title></a>
+<a xlink:href='#WaterStation.id'><use id='ref' x='993' y='266' xlink:href='#ref'/><title>Referred by fish_location ( station_Id -&gt; id ) 
+Referred by Weather_station ( weather_station_id -&gt; id ) </title></a>
+  <use id='nn' x='857' y='282' xlink:href='#nn'/><a xlink:href='#WaterStation.mli'><use id='idx' x='857' y='281' xlink:href='#idx'/><title>idx_WaterStation_mli ( mli ) </title></a>
+<a xlink:href='#WaterStation.mli'><text id='dbo.WaterStation.mli' x='873' y='292' onmouseover="hghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C'])" onmouseout="uhghl(['weather_Forecast_FK__weather_For__mli__3CF5A22C'])">mli</text><text x='990' y='292' text-anchor='end' class='colType'>varchar</text><title>mli
+* varchar</title></a>
+<a xlink:href='#WaterStation.mli'><use id='ref' x='993' y='281' xlink:href='#ref'/><title>Referred by weather_Forecast ( mli ) </title></a>
+  <a xlink:href='#WaterStation.state'><use id='idx' x='857' y='296' xlink:href='#idx'/><title>idx_WaterStation_state ( state ) </title></a>
+<a xlink:href='#WaterStation.state'><text id='dbo.WaterStation.state' x='873' y='307'>state</text><text x='990' y='307' text-anchor='end' class='colType'>char</text><title>state
+char</title></a>
+  <a xlink:href='#WaterStation.lat'><use id='idx' x='857' y='311' xlink:href='#idx'/><title>idx_WaterStation_cll ( country, lat, lon ) idx_WaterStation_lat ( lat ) idx_WaterStation_latlon ( lat, lon ) </title></a>
+<a xlink:href='#WaterStation.lat'><text id='dbo.WaterStation.lat' x='873' y='322'>lat</text><text x='990' y='322' text-anchor='end' class='colType'>float</text><title>lat
+float</title></a>
+  <a xlink:href='#WaterStation.lon'><use id='idx' x='857' y='326' xlink:href='#idx'/><title>idx_WaterStation_cll ( country, lat, lon ) idx_WaterStation_latlon ( lat, lon ) idx_WaterStation_lon ( lon ) </title></a>
+<a xlink:href='#WaterStation.lon'><text id='dbo.WaterStation.lon' x='873' y='337'>lon</text><text x='990' y='337' text-anchor='end' class='colType'>float</text><title>lon
+float</title></a>
+  <a xlink:href='#WaterStation.country'><use id='idx' x='857' y='341' xlink:href='#idx'/><title>idx_WaterStation_cll ( country, lat, lon ) </title></a>
+<a xlink:href='#WaterStation.country'><text id='dbo.WaterStation.country' x='873' y='352'>country</text><text x='990' y='352' text-anchor='end' class='colType'>char</text><title>country
+char</title></a>
+  <a xlink:href='#WaterStation.locDesc'><text id='dbo.WaterStation.locDesc' x='873' y='367'>locDesc</text><text x='990' y='367' text-anchor='end' class='colType'>varchar</text><title>locDesc
+varchar</title></a>
+  <a xlink:href='#WaterStation.processed'><text id='dbo.WaterStation.processed' x='873' y='382'>processed</text><text x='990' y='382' text-anchor='end' class='colType'>datetime</text><title>processed
+datetime</title></a>
+  <use id='nn' x='857' y='387' xlink:href='#nn'/><a xlink:href='#WaterStation.locType'><text id='dbo.WaterStation.locType' x='873' y='397'>locType</text><text x='990' y='397' text-anchor='end' class='colType'>int</text><title>locType
+* int default ((0))</title></a>
+  <a xlink:href='#WaterStation.condition'><text id='dbo.WaterStation.condition' x='873' y='412'>condition</text><text x='990' y='412' text-anchor='end' class='colType'>varchar</text><title>condition
+varchar</title></a>
+  <a xlink:href='#WaterStation.wheatherStamp'><text id='dbo.WaterStation.wheatherStamp' x='873' y='427'>wheatherStamp</text><text x='990' y='427' text-anchor='end' class='colType'>datetime</text><title>wheatherStamp
+datetime</title></a>
+  <a xlink:href='#WaterStation.agency'><text id='dbo.WaterStation.agency' x='873' y='442'>agency</text><text x='990' y='442' text-anchor='end' class='colType'>varchar</text><title>agency
+varchar</title></a>
+  <a xlink:href='#WaterStation.county'><text id='dbo.WaterStation.county' x='873' y='457'>county</text><text x='990' y='457' text-anchor='end' class='colType'>varchar</text><title>county
+varchar</title></a>
+  <a xlink:href='#WaterStation.locName'><text id='dbo.WaterStation.locName' x='873' y='472'>locName</text><text x='990' y='472' text-anchor='end' class='colType'>varchar</text><title>locName
+varchar</title></a>
+  <a xlink:href='#WaterStation.OldId'><text id='dbo.WaterStation.OldId' x='873' y='487'>OldId</text><text x='990' y='487' text-anchor='end' class='colType'>int</text><title>OldId
+int</title></a>
+  <use id='nn' x='857' y='492' xlink:href='#nn'/><a xlink:href='#WaterStation.sid'><use id='idx' x='857' y='491' xlink:href='#idx'/><title>idx_WaterStation_sid ( sid ) </title></a>
+<a xlink:href='#WaterStation.sid'><text id='dbo.WaterStation.sid' x='873' y='502'>sid</text><text x='990' y='502' text-anchor='end' class='colType'>int identity</text><title>sid
+* int identity</title></a>
+  <a xlink:href='#WaterStation.passed'><text id='dbo.WaterStation.passed' x='873' y='517'>passed</text><text x='990' y='517' text-anchor='end' class='colType'>int</text><title>passed
+int default ((-1))</title></a>
+  <a xlink:href='#WaterStation.updData'><text id='dbo.WaterStation.updData' x='873' y='532'>updData</text><text x='990' y='532' text-anchor='end' class='colType'>datetime</text><title>updData
+datetime</title></a>
+  <a xlink:href='#WaterStation.lakeId'><use id='idx' x='857' y='536' xlink:href='#idx'/><title>idx_WaterStation_lakeid ( lakeId ) </title></a>
+<a xlink:href='#WaterStation.lakeId'><text id='dbo.WaterStation.lakeId' x='873' y='547'>lakeId</text><text x='990' y='547' text-anchor='end' class='colType'>uniqueidentifier</text><title>lakeId
+uniqueidentifier</title></a>
+  <use id='nn' x='857' y='552' xlink:href='#nn'/><a xlink:href='#WaterStation.lakeName'><text id='dbo.WaterStation.lakeName' x='873' y='562'>lakeName</text><text x='990' y='562' text-anchor='end' class='colType'>nvarchar</text><title>lakeName
+* nvarchar default ('')</title></a>
+  <a xlink:href='#WaterStation.elevation'><text id='dbo.WaterStation.elevation' x='873' y='577'>elevation</text><text x='990' y='577' text-anchor='end' class='colType'>int</text><title>elevation
+int</title></a>
+  <a xlink:href='#WaterStation.zone'><text id='dbo.WaterStation.zone' x='873' y='592'>zone</text><text x='990' y='592' text-anchor='end' class='colType'>int</text><title>zone
+int</title></a>
+  <use id='nn' x='857' y='597' xlink:href='#nn'/><a xlink:href='#WaterStation.stamp'><text id='dbo.WaterStation.stamp' x='873' y='607'>stamp</text><text x='990' y='607' text-anchor='end' class='colType'>datetime</text><title>stamp
+* datetime default (getdate())</title></a>
+  <a xlink:href='#WaterStation.city'><use id='idx' x='857' y='611' xlink:href='#idx'/><title>idx_WaterStation_city ( city ) </title></a>
+<a xlink:href='#WaterStation.city'><text id='dbo.WaterStation.city' x='873' y='622'>city</text><text x='990' y='622' text-anchor='end' class='colType'>nvarchar</text><title>city
+nvarchar</title></a>
+  <a xlink:href='#WaterStation.road'><text id='dbo.WaterStation.road' x='873' y='637'>road</text><text x='990' y='637' text-anchor='end' class='colType'>nvarchar</text><title>road
+nvarchar</title></a>
+  <a xlink:href='#WaterStation.city_id'><text id='dbo.WaterStation.city_id' x='873' y='652'>city_id</text><text x='990' y='652' text-anchor='end' class='colType'>int</text><title>city_id
+int</title></a>
+
+<!-- ============= Table 'Weather_station' ============= -->
+<rect class='table' x='570' y='608' width='210' height='135' rx='7' ry='7' />
+<line class='delim' x1='570.500000' y1='634.500000' x2='779.500000' y2='634.500000'/>
+<line class='delim' x1='585.500000' y1='634.500000' x2='585.500000' y2='742.500000'/>
+<line class='delim' x1='768.500000' y1='634.500000' x2='768.500000' y2='742.500000'/>
+<path d='M 570.50 634.50 L 570.50 615.50 Q 570.50 608.50 577.50 608.50 L 772.50 608.50 Q 779.50 608.50 779.50 615.50 L 779.50 634.50 L570.50 634.50 ' style='fill:url(#tableHeaderGradient0); stroke:none;' />
+<a xlink:href='#Weather_station'><text x='632' y='626'>Weather_station</text><title>Table dbo.Weather_station</title></a>
+  <use id='nn' x='572' y='642' xlink:href='#nn'/><a xlink:href='#Weather_station.weather_station_id'><use id='pk' x='572' y='641' xlink:href='#pk'/><title>Pk PK__Weather___FA83DA514103914D ( weather_station_id ) </title></a>
+<a xlink:href='#Weather_station.weather_station_id'><text id='dbo.Weather_station.weather_station_id' x='588' y='652' onmouseover="hghl(['Weather_station_FK_Weather_station_wsi'])" onmouseout="uhghl(['Weather_station_FK_Weather_station_wsi'])">weather_station_id</text><text x='765' y='652' text-anchor='end' class='colType'>uniqueidentifier</text><title>weather_station_id
+* uniqueidentifier</title></a>
+<a xlink:href='#Weather_station.weather_station_id'><use id='fk' x='768' y='641' xlink:href='#fk'/><title>References WaterStation ( weather_station_id -&gt; id ) </title></a>
+  <use id='nn' x='572' y='657' xlink:href='#nn'/><a xlink:href='#Weather_station.weather_station_name'><use id='unq' x='572' y='656' xlink:href='#unq'/><title>Unq UQ__Weather___628C42124287673C ( weather_station_name ) </title></a>
+<a xlink:href='#Weather_station.weather_station_name'><text id='dbo.Weather_station.weather_station_name' x='588' y='667'>weather_station_name</text><text x='765' y='667' text-anchor='end' class='colType'>sysname</text><title>weather_station_name
+* sysname</title></a>
+  <a xlink:href='#Weather_station.weather_station_type'><text id='dbo.Weather_station.weather_station_type' x='588' y='682'>weather_station_type</text><text x='765' y='682' text-anchor='end' class='colType'>int</text><title>weather_station_type
+int</title></a>
+  <a xlink:href='#Weather_station.weather_station_status'><text id='dbo.Weather_station.weather_station_status' x='588' y='697'>weather_station_status</text><text x='765' y='697' text-anchor='end' class='colType'>int</text><title>weather_station_status
+int</title></a>
+  <a xlink:href='#Weather_station.weather_station_lat'><text id='dbo.Weather_station.weather_station_lat' x='588' y='712'>weather_station_lat</text><text x='765' y='712' text-anchor='end' class='colType'>float</text><title>weather_station_lat
+float</title></a>
+  <a xlink:href='#Weather_station.weather_station_lon'><text id='dbo.Weather_station.weather_station_lon' x='588' y='727'>weather_station_lon</text><text x='765' y='727' text-anchor='end' class='colType'>float</text><title>weather_station_lon
+float</title></a>
+
+</g></svg>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='ImportWaterData'>Table ImportWaterData</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.mli'>mli</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.stamp'>stamp</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.dt'>dt</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.hr'>hr</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.data'>data</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='ImportWaterData.elev'>elev</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish'>Table fish</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish.fish_id'>fish&#95;id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish.fish_name'>fish&#95;name</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish.fish_latin'>fish&#95;latin</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.descrip'>descrip</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish.family_Id'>family&#95;Id</a></td>
+		<td> uniqueidentifier   DEFO ('00000000-0000-0000-0000-000000000000') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.length'>length</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.water_type'>water&#95;type</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.img'>img</a></td>
+		<td> image   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.fish_type'>fish&#95;type</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.food_type'>food&#95;type</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.react_color'>react&#95;color</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.natural_color'>natural&#95;color</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.food_habitat'>food&#95;habitat</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.terrestrial_insects'>terrestrial&#95;insects</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.crustaceans'>crustaceans</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.terrestrial_animals'>terrestrial&#95;animals</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.locked'>locked</a></td>
+		<td> bit   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.editor'>editor</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.node_food_habitat'>node&#95;food&#95;habitat</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish.alt_Name'>alt&#95;Name</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;Species&#95;&#95;3213E83F7FD5EEA5</td>
+		<td> ON fish&#95;id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>U</td><td>UK&#95;Species&#95;Latin</td>
+		<td> ON fish&#95;latin</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;fishtype</td>
+		<td> ON fish&#95;type</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;len</td>
+		<td> ON length</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;fish&#95;name</td>
+		<td> ON fish&#95;name</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_Species_Family</td>
+		<td > ( family&#95;Id ) ref <a href='#fish&#95;family'>fish&#95;family</a> (Family&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='SessionHandler'>Table SessionHandler</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.id'>id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.ipAddr'>ipAddr</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.startSess'>startSess</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='SessionHandler.endSess'>endSess</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.userAgent'>userAgent</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.addr'>addr</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.host'>host</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='SessionHandler.startPage'>startPage</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='SessionHandler.endPage'>endPage</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='SessionHandler.userId'>userId</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.visitedPages'>visitedPages</a></td>
+		<td> int   DEFO ((1)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='SessionHandler.sid'>sid</a></td>
+		<td> bigint identity   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='SessionHandler.cookie'>cookie</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;SessionHandler</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Users'>Table Users</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.id'>id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.userName'>userName</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.psw'>psw</a></td>
+		<td> binary   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Users.titul'>titul</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.firstName'>firstName</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.lastName'>lastName</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.email'>email</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.lastVisit'>lastVisit</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Users.postal'>postal</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Users.subs'>subs</a></td>
+		<td> bit   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.question'>question</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.answer'>answer</a></td>
+		<td> binary   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Users.cell'>cell</a></td>
+		<td> bigint   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Users.access'>access</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Users.suspended'>suspended</a></td>
+		<td> bit   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;Users</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>U</td><td>UK&#95;Users&#95;Email</td>
+		<td> ON email</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='access_point'>Table access_point</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.OFGID'>OFGID</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.pointType'>pointType</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.lastVerif'>lastVerif</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.verifSrc'>verifSrc</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.Parking'>Parking</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.ownerType'>ownerType</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.matType'>matType</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.accessType'>accessType</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.userFee'>userFee</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.visibility'>visibility</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.siteName'>siteName</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.photoUrl'>photoUrl</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='access_point.state'>state</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='weather_Forecast'>Table weather_Forecast</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='weather_Forecast.tmHigh'>tmHigh</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='weather_Forecast.tmLow'>tmLow</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.humidity'>humidity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.maxWin'>maxWin</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.degree'>degree</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.direction'>direction</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.shortText'>shortText</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.longText'>longText</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.icon'>icon</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='weather_Forecast.dt'>dt</a></td>
+		<td> date   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.tm'>tm</a></td>
+		<td> time   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.pressure'>pressure</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.rain_today'>rain&#95;today</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.tmDay'>tmDay</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.city_id'>city&#95;id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.mli'>mli</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.temperature'>temperature</a></td>
+		<td> tinyint   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='weather_Forecast.weather_temperature'>weather&#95;temperature</a></td>
+		<td> smallint   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;weather&#95;Forecast</td>
+		<td> ON mli&#44; dt</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;weather&#95;Forecast&#95;dt</td>
+		<td> ON dt</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK__weather_For__mli__3CF5A22C</td>
+		<td > ( mli ) ref <a href='#WaterStation'>WaterStation</a> (mli) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='County'>Table County</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='County.county'>county</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='County.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='County.state_id'>state&#95;id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='County.county_Id'>county&#95;Id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='County.state'>state</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Country'>Table Country</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Country.Country_id'>Country&#95;id</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Country.Country_name'>Country&#95;name</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Country.picture'>picture</a></td>
+		<td> image   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;Country&#95;&#95;3213E83F0CBAE877</td>
+		<td> ON Country&#95;id</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='States'>Table States</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='States.state'>state</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='States.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='States.shift'>shift</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;States</td>
+		<td> ON state&#44; country</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='City'>Table City</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='City.place'>place</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.state'>state</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.lat'>lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.lon'>lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.stamp'>stamp</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='City.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='City.county'>county</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.region'>region</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='City.city_id'>city&#95;id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='City.population'>population</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;City&#95;Place&#95;Country</td>
+		<td> ON place&#44; country</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='USPost'>Table USPost</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='USPost.zip'>zip</a></td>
+		<td> int   DEFO ((-1)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='USPost.lon'>lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='USPost.lat'>lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='USPost.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='USPost.place'>place</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='USPost.county'>county</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='USPost.state'>state</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;USPost</td>
+		<td> ON zip</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='CurrentWaterState'>Table CurrentWaterState</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='CurrentWaterState.mli'>mli</a></td>
+		<td> varchar   DEFO ('') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.temperature'>temperature</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.conductance'>conductance</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.discharge'>discharge</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.turbidity'>turbidity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.oxygen'>oxygen</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.ph'>ph</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.elevation'>elevation</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='CurrentWaterState.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='CurrentWaterState.iterstamp'>iterstamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CurrentWaterState.velocity'>velocity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='CurrentWaterState.sid'>sid</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;CurrentWaterState</td>
+		<td> ON mli</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;CurrentWaterState&#95;ox</td>
+		<td> ON oxygen</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;CurrentWaterState&#95;ph</td>
+		<td> ON ph</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;CurrentWaterState&#95;tm</td>
+		<td> ON temperature</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;CurrentWaterState&#95;ve</td>
+		<td> ON velocity</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Lake'>Table Lake</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.lake_id'>lake&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.Country'>Country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.State'>State</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.stamp'>stamp</a></td>
+		<td> smalldatetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.locType'>locType</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.lake_name'>lake&#95;name</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.source'>source</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.mouth'>mouth</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.sourceElevation'>sourceElevation</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.mouthElevation'>mouthElevation</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.link'>link</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.sourceLat'>sourceLat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.sourceLon'>sourceLon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.mouthLat'>mouthLat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.mouthLon'>mouthLon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.length'>length</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.depth'>depth</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.elevation'>elevation</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.area'>area</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.county'>county</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.width'>width</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.pic'>pic</a></td>
+		<td> image   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.phosphorus'>phosphorus</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.location'>location</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.map'>map</a></td>
+		<td> image   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.region'>region</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.locked'>locked</a></td>
+		<td> bit   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.old_id'>old&#95;id</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.editor'>editor</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.basin'>basin</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.descript'>descript</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Lake.sid'>sid</a></td>
+		<td> int identity   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.city'>city</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.alt_Name'>alt&#95;Name</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.PH'>PH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.surfaceHA'>surfaceHA</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Lake.IsFish'>IsFish</a></td>
+		<td> bit   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;Lake</td>
+		<td> ON lake&#95;id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>U</td><td>UK&#95;Lake</td>
+		<td> ON lake&#95;name&#44; Country&#44; State&#44; county</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;Lake&#95;mouth</td>
+		<td> ON mouth</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;Lake&#95;sid</td>
+		<td> ON sid</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;Lake&#95;source</td>
+		<td> ON source</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>iDX&#95;WaterStation&#95;LK</td>
+		<td> ON State</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_location'>Table fish_location</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_location.station_Id'>station&#95;Id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_location.fish_Id'>fish&#95;Id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_location.today'>today</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_location.stamp'>stamp</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_location.probability'>probability</a></td>
+		<td> int   DEFO ((100)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_location.id'>id</a></td>
+		<td> int identity   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;location&#95;fish</td>
+		<td> ON fish&#95;Id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;location&#95;id</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;location&#95;st</td>
+		<td> ON station&#95;Id</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_fish_location_station</td>
+		<td > ( station&#95;Id ) ref <a href='#WaterStation'>WaterStation</a> (id) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_fish_location_fish</td>
+		<td > ( fish&#95;Id ) ref <a href='#fish'>fish</a> (fish&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_Rule'>Table fish_Rule</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_Rule.id'>id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_Rule.fish_Id'>fish&#95;Id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_Rule.periodStart'>periodStart</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_Rule.periodEnd'>periodEnd</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.depthMin'>depthMin</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.depthMax'>depthMax</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.phL'>phL</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.phH'>phH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tmL'>tmL</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tmH'>tmH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tuL'>tuL</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tuH'>tuH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.oxL'>oxL</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.oxH'>oxH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.veL'>veL</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.veH'>veH</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.habitat'>habitat</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.feedsOver'>feedsOver</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.react_color'>react&#95;color</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.natural_color'>natural&#95;color</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.spawnsOver'>spawnsOver</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.spawnsIn'>spawnsIn</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_Rule.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.locked'>locked</a></td>
+		<td> bit   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.editor'>editor</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tmC'>tmC</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tmLD'>tmLD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tmHD'>tmHD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.phHD'>phHD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.phLD'>phLD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.phC'>phC</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.oxC'>oxC</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.oxLD'>oxLD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.oxHD'>oxHD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.parent_id'>parent&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.lake_id'>lake&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tuC'>tuC</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tuLD'>tuLD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_Rule.tuHD'>tuHD</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;fish&#95;Rul&#95;&#95;3213E83F4BADD5D7</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>U</td><td>UK&#95;fish&#95;Rule</td>
+		<td> ON fish&#95;Id&#44; periodStart&#44; periodEnd</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;fish&#95;Rule&#95;tm</td>
+		<td> ON tmL&#44; tmH</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_fish_Rule_fish</td>
+		<td > ( fish&#95;Id ) ref <a href='#fish'>fish</a> (fish&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_spot'>Table fish_spot</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_spot.spot_ID'>spot&#95;ID</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_spot.fish_ID'>fish&#95;ID</a></td>
+		<td> uniqueidentifier   DEFO ('00000000-0000-0000-0000-000000000000') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_spot.comment'>comment</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;SpotFish</td>
+		<td> ON spot&#95;ID&#44; fish&#95;ID</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_record'>Table fish_record</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_record.fish_id'>fish&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_record.lake_id'>lake&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_record.stamp'>stamp</a></td>
+		<td> date   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.angler'>angler</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.weight'>weight</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.length'>length</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.Girth'>Girth</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.lure'>lure</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_record.link'>link</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>U</td><td>UK&#95;fish&#95;record</td>
+		<td> ON fish&#95;id&#44; lake&#95;id&#44; stamp</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_fish_rec_lake</td>
+		<td > ( lake&#95;id ) ref <a href='#Lake'>Lake</a> (lake&#95;id) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_fish_rec_fish</td>
+		<td > ( fish&#95;id ) ref <a href='#fish'>fish</a> (fish&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='lake_fish'>Table lake_fish</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.lake_Id'>lake&#95;Id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.fish_id'>fish&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.probability'>probability</a></td>
+		<td> tinyint   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.created'>created</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='lake_fish.link'>link</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.probability_source_type'>probability&#95;source&#95;type</a></td>
+		<td> tinyint   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='lake_fish.spawn'>spawn</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='lake_fish.sid'>sid</a></td>
+		<td> int identity   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='lake_fish.tributaries'>tributaries</a></td>
+		<td> bit   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;lake&#95;fis&#95;&#95;142F02A2239FE47D</td>
+		<td> ON lake&#95;Id&#44; fish&#95;id&#44; probability</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_lake_fish_Lake</td>
+		<td > ( lake&#95;Id ) ref <a href='#Lake'>Lake</a> (lake&#95;id) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_lake_fish_fish</td>
+		<td > ( fish&#95;id ) ref <a href='#fish'>fish</a> (fish&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_general'>Table fish_general</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_general.fish_id'>fish&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.fin'>fin</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.body'>body</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.habitat'>habitat</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.feeding'>feeding</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.link'>link</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_general.note'>note</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_general.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getutcdate()) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;fish&#95;gen&#95;&#95;231D11A43805392F</td>
+		<td> ON fish&#95;id</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK__fish_gene__fish___462A06AB</td>
+		<td > ( fish&#95;id ) ref <a href='#fish'>fish</a> (fish&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='fish_family'>Table fish_family</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_family.Family_id'>Family&#95;id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_family.Family_name'>Family&#95;name</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_family.link'>link</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_family.fid'>fid</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='fish_family.descr'>descr</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='fish_family.created'>created</a></td>
+		<td> datetime   DEFO (getdate()) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;Family</td>
+		<td> ON Family&#95;id</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Spot'>Table Spot</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Spot.spot_id'>spot&#95;id</a></td>
+		<td> uniqueidentifier   DEFO (newid()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Spot.spot_lat'>spot&#95;lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Spot.spot_lon'>spot&#95;lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Spot.lake_Id'>lake&#95;Id</a></td>
+		<td> uniqueidentifier   DEFO ('00000000-0000-0000-0000-000000000000') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Spot.spot_created'>spot&#95;created</a></td>
+		<td> datetime   DEFO (getdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Spot.spot_sid'>spot&#95;sid</a></td>
+		<td> int identity   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;sportfis&#95;&#95;3213E83F2B4A5C8F</td>
+		<td> ON spot&#95;id</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Parking_Spot'>Table Parking_Spot</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Parking_Spot.ID'>ID</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.fish_name'>fish&#95;name</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot."TROUT_SP"'>&quot;TROUT&#95;SP&quot;</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.lake_name'>lake&#95;name</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.municipality'>municipality</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.county'>county</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.region'>region</a></td>
+		<td> tinyint   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.road'>road</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.reglation_link'>reglation&#95;link</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.map_link'>map&#95;link</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.parking_num'>parking&#95;num</a></td>
+		<td> tinyint   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.state'>state</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.lat'>lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.lon'>lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Parking_Spot.lake_id'>lake&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_Parking_Spot</td>
+		<td > ( lake&#95;id ) ref <a href='#Lake'>Lake</a> (lake&#95;id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='WaterData'>Table WaterData</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterData.id'>id</a></td>
+		<td> bigint identity   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterData.stamp'>stamp</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.temperature'>temperature</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.conductance'>conductance</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.discharge'>discharge</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.turbidity'>turbidity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.oxygen'>oxygen</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.ph'>ph</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.elevation'>elevation</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.precipitation'>precipitation</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.wind'>wind</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.winddir'>winddir</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.humidity'>humidity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.air'>air</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.velocity'>velocity</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterData.pressure'>pressure</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterData.mli'>mli</a></td>
+		<td> varchar   DEFO ('') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterData.sid'>sid</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;WaterDat&#95;&#95;3213E83F04273924</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;WaterData&#95;dt</td>
+		<td> ON stamp</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;WaterData&#95;MLI</td>
+		<td> ON mli</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterData&#95;sid</td>
+		<td> ON sid</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='CanPostLatLon'>Table CanPostLatLon</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='CanPostLatLon.postal'>postal</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CanPostLatLon.lat'>lat</a></td>
+		<td> real   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='CanPostLatLon.lon'>lon</a></td>
+		<td> real   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;CanPostLatLon</td>
+		<td> ON postal</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>IDX&#95;CanPostLatLon</td>
+		<td> ON lat&#44; lon</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='GeoIP'>Table GeoIP</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='GeoIP.id'>id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='GeoIP.latitude'>latitude</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='GeoIP.longitude'>longitude</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='GeoIP.ip4'>ip4</a></td>
+		<td> binary   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;GeoIP</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;GeoIP&#95;ip4</td>
+		<td> ON ip4</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;GeoIP&#95;lat</td>
+		<td> ON latitude</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;GeoIP&#95;lon</td>
+		<td> ON longitude</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='WaterStation'>Table WaterStation</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.id'>id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.mli'>mli</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.state'>state</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.lat'>lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.lon'>lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.country'>country</a></td>
+		<td> char   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.locDesc'>locDesc</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.processed'>processed</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.locType'>locType</a></td>
+		<td> int   DEFO ((0)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.condition'>condition</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.wheatherStamp'>wheatherStamp</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.agency'>agency</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.county'>county</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.locName'>locName</a></td>
+		<td> varchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.OldId'>OldId</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.sid'>sid</a></td>
+		<td> int identity   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.passed'>passed</a></td>
+		<td> int   DEFO ((-1)) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.updData'>updData</a></td>
+		<td> datetime   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.lakeId'>lakeId</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.lakeName'>lakeName</a></td>
+		<td> nvarchar   DEFO ('') </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.elevation'>elevation</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.zone'>zone</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='WaterStation.stamp'>stamp</a></td>
+		<td> datetime   DEFO (getdate()) </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.city'>city</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.road'>road</a></td>
+		<td> nvarchar   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='WaterStation.city_id'>city&#95;id</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;WaterStationId</td>
+		<td> ON id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;city</td>
+		<td> ON city</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;cll</td>
+		<td> ON country&#44; lat&#44; lon</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;lakeid</td>
+		<td> ON lakeId</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;lat</td>
+		<td> ON lat</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;latlon</td>
+		<td> ON lat&#44; lon</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;lon</td>
+		<td> ON lon</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;mli</td>
+		<td> ON mli</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;sid</td>
+		<td> ON sid</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>&nbsp;</td><td>idx&#95;WaterStation&#95;state</td>
+		<td> ON state</td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+<br/><br/>
+<table class='bordered'>
+<thead>
+<tr><th colspan='4'><a name='Weather_station'>Table Weather_station</a></th></tr>
+</thead>
+<tbody>
+	<tr>
+		<td>*</td>
+		<td><a name='Weather_station.weather_station_id'>weather&#95;station&#95;id</a></td>
+		<td> uniqueidentifier   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>*</td>
+		<td><a name='Weather_station.weather_station_name'>weather&#95;station&#95;name</a></td>
+		<td> sysname   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Weather_station.weather_station_type'>weather&#95;station&#95;type</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Weather_station.weather_station_status'>weather&#95;station&#95;status</a></td>
+		<td> int   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Weather_station.weather_station_lat'>weather&#95;station&#95;lat</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td>&nbsp;</td>
+		<td><a name='Weather_station.weather_station_lon'>weather&#95;station&#95;lon</a></td>
+		<td> float   </td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Indexes</b></th></tr>
+	<tr>		<td>Pk</td><td>PK&#95;&#95;Weather&#95;&#95;&#95;FA83DA514103914D</td>
+		<td> ON weather&#95;station&#95;id</td>
+		<td>  </td>
+	</tr>
+	<tr>		<td>U</td><td>UQ&#95;&#95;Weather&#95;&#95;&#95;628C42124287673C</td>
+		<td> ON weather&#95;station&#95;name</td>
+		<td>  </td>
+	</tr>
+<tr><th colspan='4'><b>Foreign Keys</b></th></tr>
+	<tr>
+		<td>&nbsp;</td><td>FK_Weather_station_wsi</td>
+		<td > ( weather&#95;station&#95;id ) ref <a href='#WaterStation'>WaterStation</a> (id) </td>
+		<td>  </td>
+	</tr>
+</tbody>
+</table>
+
+</body></html>

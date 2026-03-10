@@ -1,0 +1,25 @@
+unit_test@CloseBy.sql 
+Unit tests for Close By
+unit_test@CvtHexToGuid.sql 
+Unit tests for search functions
+unit_test@GetWaterType.sql 
+Unit tests for search functions
+unit_test@InlineSearch.sql 
+Unit tests for search functions
+unit_test@lake.sql 
+Unit tests for lake table
+unit_test@NormalizeSearch.sql 
+Unit tests for search functions
+unit_test@ProduceSearchVariant.sql 
+Unit tests for search functions
+unit_test@ProduceWBVariant.sql 
+Unit tests for search functions
+unit_test@RiverView.sql 
+Unit tests for resource functions
+Unit tests for ffi
+unit_test@Search.sql 
+Unit tests for search functions
+unit_test@SearchFish.sql 
+Unit tests for search functions
+unit_test@Tributary.sql 
+Unit tests for news
