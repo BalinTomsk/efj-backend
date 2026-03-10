@@ -52,10 +52,10 @@ namespace OWMService.Workers
                     m_logger.LogInfo($"Get {stations.Count} OWS stations.");
 
                     await ProcessEnvDataAsync(stations, settings, cnn);
-                    m_logger.LogInfo("Read all OWS stations.");
+                    m_logger.LogInfo("Read all {stations.Count} OWS stations.");
 
                     ProcessFishState(cnn);
-                    m_logger.LogInfo("Updated all OWS/Fish related data.");
+                    m_logger.LogInfo("Updated all {stations.Count} OWS/Fish related data.");
 
                     return true;
                 }
