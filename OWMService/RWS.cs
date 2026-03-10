@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Diagnostics;
 using System.ServiceProcess;
-using System.Threading;
 using System.Timers;
 
 namespace OWMService
@@ -36,63 +35,52 @@ namespace OWMService
 
         private bool ReadSettings()
         {
-            const string path = @"HKEY_LOCAL_MACHINE\SOFTWARE\FishFind\OWMService\";
+            const string subKey = @"SOFTWARE\FishFind\OWMService";
 
             try
             {
-                m_serverName = (string)Registry.GetValue(path, "Server", null);
-                if (string.IsNullOrEmpty(m_serverName))
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(subKey);
+
+                if (key == null)
                 {
-                    eventLogRN.WriteEntry("Cannot read MSSQL Server Name", EventLogEntryType.Error);
+                    Log("Cannot open registry key: HKLM\\" + subKey, EventLogEntryType.Error);
+                    return false;
+                }
+
+                m_serverName = key.GetValue("Server") as string;
+                if (string.IsNullOrWhiteSpace(m_serverName))
+                {
+                    Log("Cannot read MSSQL Server Name", EventLogEntryType.Error);
                     m_servicePollInterval = 100;
                     return false;
                 }
 
-                m_dbName = (string)Registry.GetValue(path, "dbName", null);
-                if (string.IsNullOrEmpty(m_dbName))
+                m_dbName = key.GetValue("dbName") as string;
+                if (string.IsNullOrWhiteSpace(m_dbName))
                 {
-                    eventLogRN.WriteEntry("Cannot read MSSQL Server Db Name", EventLogEntryType.Error);
+                    Log("Cannot read MSSQL Server Db Name", EventLogEntryType.Error);
                     return false;
                 }
 
-                m_userName = (string)Registry.GetValue(path, "userName", null);
-                if (string.IsNullOrEmpty(m_userName))
-                {
-                    eventLogRN.WriteEntry("Cannot read MSSQL Server user name", EventLogEntryType.Error);
-                    return false;
-                }
+                m_userName = key.GetValue("userName") as string;
+                m_userPassword = key.GetValue("userPassword") as string;
+                m_wunderground = key.GetValue("wunderground") as string;
 
-                m_userPassword = (string)Registry.GetValue(path, "userPassword", null);
-                if (string.IsNullOrEmpty(m_userPassword))
-                {
-                    eventLogRN.WriteEntry("Cannot read MSSQL Server user password", EventLogEntryType.Error);
-                    return false;
-                }
-
-                m_wunderground = (string)Registry.GetValue(path, "wunderground", null);
-                if (string.IsNullOrEmpty(m_wunderground))
-                {
-                    eventLogRN.WriteEntry("Cannot read wunderground API key", EventLogEntryType.Error);
-                    return false;
-                }
-
-                object intervalValue = Registry.GetValue(path, "Interval", null);
+                object intervalValue = key.GetValue("Interval");
                 if (intervalValue != null)
                 {
                     m_servicePollInterval = Convert.ToInt32(intervalValue);
                 }
 
-                eventLogRN.WriteEntry($"Connect to: {m_serverName} every {m_servicePollInterval} minutes");
-                m_bFlagProcessing = false;
                 return true;
             }
             catch (Exception ex)
             {
-                eventLogRN.WriteEntry("ReadSettings: " + ex.Message, EventLogEntryType.Error);
+                Log("ReadSettings failed: " + ex.Message, EventLogEntryType.Error);
                 return false;
             }
         }
-
         private void InitializeEventLog()
         {
             try
@@ -168,7 +156,7 @@ namespace OWMService
             try
             {
                 Log("OWMService running at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                Process();
+                Process(false);
             }
             finally
             {
@@ -185,7 +173,7 @@ namespace OWMService
                 m_userPassword);
         }
 
-        private bool Process()
+        private bool Process(bool isDebug)
         {
             string conStr = GetConnectionString();
             if (string.IsNullOrEmpty(conStr))
@@ -201,7 +189,7 @@ namespace OWMService
 
                     List<Tuple<string, float, float, string>> stations = GetListOwsMeteo(cnn);
 
-                    ProcessEnvData(stations, cnn);
+                    ProcessEnvData(stations, isDebug, cnn);
                     ProcessFishState(cnn);
 
                     m_timer.Interval = 1000 * 60 * 2;
@@ -214,7 +202,7 @@ namespace OWMService
                 return false;
             }
         }
-        private void ProcessEnvData(List<Tuple<string, float, float, string>> stations, SqlConnection cnn)
+        private void ProcessEnvData(List<Tuple<string, float, float, string>> stations, bool isDebug, SqlConnection cnn)
         {
             try
             {
@@ -283,6 +271,7 @@ namespace OWMService
         public void StartDebug(string[] args)
         {
             OnStart(args);
+            Process(true);
         }
 
         public void StopDebug()

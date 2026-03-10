@@ -19,6 +19,7 @@ target/
 OWMService/bin/*
 OWMService/obj/*
 OWMService/packages
+OWMService\Res\OWMService.reg 
 .vs
 
 ### Mac OS ###

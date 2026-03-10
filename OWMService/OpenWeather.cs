@@ -1,22 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
-using System.Linq;
 using System.ServiceProcess;
 using System.Text;
-using System.IO;
-using System.Xml;
-using System.Threading.Tasks;
-using System.Timers;
 using System.Data.SqlClient;
-using System.Net.Mail;
-using Microsoft.Win32;
 using System.Net;
-using System.Web;
-using System.Net.Http;
-using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace OWMService
 {
