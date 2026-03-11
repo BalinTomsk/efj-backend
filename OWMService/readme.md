@@ -1,6 +1,20 @@
 # OWMService
 
-OWMService is a Windows Service that periodically retrieves weather data and updates the FishFind database.
+I. OWMService is a Windows Service that periodically retrieves weather data and updates the FishFind database.
+
+
+1.  OWMService  service read list of water state station from:  select top 100 mli, lat, lon, state from [WaterStation] w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)
+2.  Read from wheater as json for this  WaterStation cloest weather:  "https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={settings.Wunderground}";
+3.  save this json into UPDATE [ows_meteo] SET ows = @js WHERE mli = @mli"
+4.  trigger [ows_meteo] on TR_ows_meteo  run EXEC sp_ows_meteo @json, @mli, @WaterStation_id
+5.  sp_ows_meteo parses passed json and update/merge data into [weather_Forecast] 
+6.  execute spPushSpeciesFromLakeToStation -> push fishes from lakes to station place    insert dbo.fish_location (station_Id, fish_Id, probability, today ) 
+7.  execute spTotalUpdateProbability    -> update fish probability
+
+
+II. Water Data State
+ 1. 
+ 2. 
 
 ---
 
@@ -9,7 +23,7 @@ OWMService is a Windows Service that periodically retrieves weather data and upd
 * Windows 10 / Windows 11 / Windows Server
 * .NET Framework (version used by the project, typically **4.7.2 or 4.8**)
 * Administrator privileges to install the service
-* SQL Server access configured in the registry
+* SQL Server access configured in the registry in \fishfind-backend\OWMService\Res\OWMService.reg 
 
 ---
 
