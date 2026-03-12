@@ -1,0 +1,321 @@
+{
+  "info": {
+    "_postman_id": "514e8b5e-7a19-472e-9ac8-fda5e0ba0212",
+    "name": "envionx",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "13513696",
+    "_collection_link": "https://go.postman.co/collection/13513696-514e8b5e-7a19-472e-9ac8-fda5e0ba0212?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Health test",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/health",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"username\": \"Bond5\",\r\n  \"email\": \"envionx@gmail.com\",\r\n  \"password\": \"Test1d234!\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/auth/register",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "activate",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/auth/activate/5c5e49af-2f36-44a5-a98e-0a9a2155f6f7",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "activate",
+                "5c5e49af-2f36-44a5-a98e-0a9a2155f6f7"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"login\": \"envionx@gmail.com\",\r\n  \"password\": \"Test1d234!\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/auth/login",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "validate",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzM4NCJ9.eyJ1c2VybmFtZSI6IkJvbmQ1IiwiaWQiOjEsImVtYWlsIjoiZW52aW9ueEBnbWFpbC5jb20iLCJzdWIiOiIxIiwiaWF0IjoxNzczMjgxNDc4LCJleHAiOjE3NzMzNjc4Nzh9.3Ch6BOZXmXjON9Bc7Auq883RwnNekb9ftIwhjGKWSZ8sbS89hx8sIg1KhUZGZCLp",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/auth/validate",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "validate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzM4NCJ9.eyJ1c2VybmFtZSI6IkJvbmQ1IiwiaWQiOjEsImVtYWlsIjoiZW52aW9ueEBnbWFpbC5jb20iLCJzdWIiOiIxIiwiaWF0IjoxNzczMjgxNDc4LCJleHAiOjE3NzMzNjc4Nzh9.3Ch6BOZXmXjON9Bc7Auq883RwnNekb9ftIwhjGKWSZ8sbS89hx8sIg1KhUZGZCLp",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3000/api/auth/profile",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "change-password",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzM4NCJ9.eyJ1c2VybmFtZSI6IkJvbmQ1IiwiaWQiOjEsImVtYWlsIjoiZW52aW9ueEBnbWFpbC5jb20iLCJzdWIiOiIxIiwiaWF0IjoxNzczMjgxNDc4LCJleHAiOjE3NzMzNjc4Nzh9.3Ch6BOZXmXjON9Bc7Auq883RwnNekb9ftIwhjGKWSZ8sbS89hx8sIg1KhUZGZCLp",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"currentPassword\": \"Test1d234!\",\r\n  \"newPassword\": \"NewPassword123!\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/auth/change-password",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "change-password"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "account",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzM4NCJ9.eyJ1c2VybmFtZSI6IkJvbmQ1IiwiaWQiOjEsImVtYWlsIjoiZW52aW9ueEBnbWFpbC5jb20iLCJzdWIiOiIxIiwiaWF0IjoxNzczMjgxNDc4LCJleHAiOjE3NzMzNjc4Nzh9.3Ch6BOZXmXjON9Bc7Auq883RwnNekb9ftIwhjGKWSZ8sbS89hx8sIg1KhUZGZCLp",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/api/auth/account",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "account"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "update profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzM4NCJ9.eyJ1c2VybmFtZSI6IkJvbmQ1IiwiaWQiOjEsImVtYWlsIjoiZW52aW9ueEBnbWFpbC5jb20iLCJzdWIiOiIxIiwiaWF0IjoxNzczMjgxNDc4LCJleHAiOjE3NzMzNjc4Nzh9.3Ch6BOZXmXjON9Bc7Auq883RwnNekb9ftIwhjGKWSZ8sbS89hx8sIg1KhUZGZCLp",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"username\": \"Bond5\",\r\n  \"email\": \"envionx@gmail.com\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/auth/profile",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "auth",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
