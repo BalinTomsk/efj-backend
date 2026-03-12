@@ -7,6 +7,9 @@ import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 
 public final class AuthDtos {
+    /**
+     * Prevents instantiation of the DTO container.
+     */
     private AuthDtos() {
     }
 

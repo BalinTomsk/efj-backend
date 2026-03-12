@@ -1,6 +1,9 @@
 package info.fishfind.auth.api;
 
 public final class AuthPaths {
+    /**
+     * Prevents instantiation of the path constants holder.
+     */
     private AuthPaths() {
     }
 

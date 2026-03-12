@@ -13,6 +13,11 @@ import java.util.List;
 @Configuration
 public class WebConfig {
 
+    /**
+     * Configures permissive CORS rules for the auth service endpoints.
+     *
+     * @return CORS configuration source
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         var configuration = new CorsConfiguration();
@@ -26,6 +31,12 @@ public class WebConfig {
         return source;
     }
 
+    /**
+     * Registers the rate limit filter for incoming requests.
+     *
+     * @param rateLimitFilter rate limiting filter bean
+     * @return filter registration bean
+     */
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter rateLimitFilter) {
         var bean = new FilterRegistrationBean<>(rateLimitFilter);

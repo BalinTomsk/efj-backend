@@ -18,10 +18,21 @@ import java.util.Map;
 public class JwtService {
     private final AppProperties appProperties;
 
+    /**
+     * Creates the JWT service using application security properties.
+     *
+     * @param appProperties application properties
+     */
     public JwtService(AppProperties appProperties) {
         this.appProperties = appProperties;
     }
 
+    /**
+     * Generates a signed JWT for the supplied authenticated user.
+     *
+     * @param user authenticated user payload
+     * @return signed JWT string
+     */
     public String generateToken(AuthUser user) {
         Instant now = Instant.now();
         Instant expiry = now.plus(appProperties.jwt().expirationHours(), ChronoUnit.HOURS);
@@ -38,6 +49,12 @@ public class JwtService {
                 .compact();
     }
 
+    /**
+     * Parses a signed JWT and converts its claims into an {@link AuthUser}.
+     *
+     * @param token signed JWT string
+     * @return authenticated user payload
+     */
     public AuthUser parseToken(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(secretKey())
@@ -52,6 +69,11 @@ public class JwtService {
         );
     }
 
+    /**
+     * Resolves the HMAC secret key used for signing and verifying JWTs.
+     *
+     * @return JWT secret key
+     */
     private SecretKey secretKey() {
         return Keys.hmacShaKeyFor(Decoders.BASE64.decode(appProperties.jwt().secret()));
     }

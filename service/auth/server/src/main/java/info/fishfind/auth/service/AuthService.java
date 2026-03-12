@@ -21,6 +21,14 @@ public class AuthService {
     private final JwtService jwtService;
     private final EmailService emailService;
 
+    /**
+     * Creates the auth service with its persistence, security, and email collaborators.
+     *
+     * @param userRepository user repository
+     * @param passwordEncoder password encoder
+     * @param jwtService JWT service
+     * @param emailService email delivery service
+     */
     public AuthService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
@@ -31,6 +39,12 @@ public class AuthService {
         this.emailService = emailService;
     }
 
+    /**
+     * Registers a new account and sends an activation email.
+     *
+     * @param request registration payload
+     * @return result message
+     */
     public AuthDtos.MessageResponse register(AuthDtos.RegisterRequest request) {
         String hashedPassword = passwordEncoder.encode(request.password());
         String activationToken = UUID.randomUUID().toString();
@@ -51,6 +65,12 @@ public class AuthService {
         return new AuthDtos.MessageResponse("Account created. Please check your email and activate your account.");
     }
 
+    /**
+     * Activates a user account by confirmation token.
+     *
+     * @param activationToken activation token from the email link
+     * @return result message
+     */
     public AuthDtos.MessageResponse activate(String activationToken) {
         if (activationToken == null || activationToken.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Activation token is required");
@@ -67,6 +87,12 @@ public class AuthService {
         return new AuthDtos.MessageResponse("Account activated successfully. You can now log in.");
     }
 
+    /**
+     * Authenticates a user and issues a JWT.
+     *
+     * @param request login payload
+     * @return login result containing the token and user profile
+     */
     public AuthDtos.LoginResponse login(AuthDtos.LoginRequest request) {
         User user = userRepository.findByEmailOrUsername(request.login())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
@@ -83,14 +109,33 @@ public class AuthService {
         return new AuthDtos.LoginResponse("Login successful", token, toResponse(user));
     }
 
+    /**
+     * Returns the authenticated user represented by the provided authentication object.
+     *
+     * @param authentication Spring Security authentication
+     * @return wrapped authenticated user
+     */
     public AuthDtos.UserWrapper validate(Authentication authentication) {
         return new AuthDtos.UserWrapper(getCurrentUser(authentication));
     }
 
+    /**
+     * Returns the current authenticated user's profile.
+     *
+     * @param authentication Spring Security authentication
+     * @return wrapped user profile
+     */
     public AuthDtos.UserWrapper profile(Authentication authentication) {
         return new AuthDtos.UserWrapper(getCurrentUser(authentication));
     }
 
+    /**
+     * Updates the current authenticated user's profile fields.
+     *
+     * @param authentication Spring Security authentication
+     * @param request profile update payload
+     * @return wrapped updated user profile
+     */
     public AuthDtos.UserWrapper updateProfile(Authentication authentication, AuthDtos.UpdateProfileRequest request) {
         AuthUser authUser = requireAuthUser(authentication);
         try {
@@ -106,6 +151,13 @@ public class AuthService {
         return new AuthDtos.UserWrapper(toResponse(updated));
     }
 
+    /**
+     * Changes the current authenticated user's password.
+     *
+     * @param authentication Spring Security authentication
+     * @param request password change payload
+     * @return result message
+     */
     public AuthDtos.MessageResponse changePassword(Authentication authentication,
                                                    AuthDtos.ChangePasswordRequest request) {
         AuthUser authUser = requireAuthUser(authentication);
@@ -120,6 +172,12 @@ public class AuthService {
         return new AuthDtos.MessageResponse("Password changed successfully");
     }
 
+    /**
+     * Deletes the current authenticated user's account.
+     *
+     * @param authentication Spring Security authentication
+     * @return result message
+     */
     public AuthDtos.MessageResponse deleteAccount(Authentication authentication) {
         AuthUser authUser = requireAuthUser(authentication);
         int changed = userRepository.deleteById(authUser.id());
@@ -129,6 +187,12 @@ public class AuthService {
         return new AuthDtos.MessageResponse("Account deleted successfully");
     }
 
+    /**
+     * Extracts the authenticated user principal or raises an unauthorized error.
+     *
+     * @param authentication Spring Security authentication
+     * @return authenticated user principal
+     */
     private AuthUser requireAuthUser(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof AuthUser authUser)) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Access token required");
@@ -136,6 +200,12 @@ public class AuthService {
         return authUser;
     }
 
+    /**
+     * Loads the current authenticated user from persistent storage.
+     *
+     * @param authentication Spring Security authentication
+     * @return current user response payload
+     */
     private AuthDtos.UserResponse getCurrentUser(Authentication authentication) {
         AuthUser authUser = requireAuthUser(authentication);
         User user = userRepository.findById(authUser.id())
@@ -143,6 +213,12 @@ public class AuthService {
         return toResponse(user);
     }
 
+    /**
+     * Maps a domain user into the outward-facing API response model.
+     *
+     * @param user persisted user
+     * @return API response payload
+     */
     private AuthDtos.UserResponse toResponse(User user) {
         return new AuthDtos.UserResponse(
                 user.id(),

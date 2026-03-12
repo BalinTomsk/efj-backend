@@ -18,11 +18,24 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final AppProperties appProperties;
 
+    /**
+     * Creates the email service used for transactional auth emails.
+     *
+     * @param mailSender JavaMail sender
+     * @param appProperties application properties
+     */
     public EmailService(JavaMailSender mailSender, AppProperties appProperties) {
         this.mailSender = mailSender;
         this.appProperties = appProperties;
     }
 
+    /**
+     * Sends the account activation email to a newly registered user.
+     *
+     * @param email recipient email address
+     * @param username recipient username
+     * @param activationToken account activation token
+     */
     public void sendActivationEmail(String email, String username, String activationToken) {
         String activationUrl = appProperties.frontendBaseUrl() + "/activate/" + activationToken;
 

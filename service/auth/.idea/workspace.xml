@@ -5,32 +5,25 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d5b908e7-b055-409c-a59e-13e0473ac5fc" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/compiler.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/compiler.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/encodings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/encodings.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/sqldialects.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/FishFindAuthApplication.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/config/AppProperties.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/config/PropertiesConfig.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/config/SecurityConfig.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/config/WebConfig.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/domain/User.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/dto/AuthDtos.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/exception/ApiException.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/exception/GlobalExceptionHandler.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/repository/UserRepository.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/security/AuthUser.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/security/JwtAuthenticationFilter.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/security/JwtService.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/service/AuthService.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/service/EmailService.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/web/AuthController.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/web/HealthController.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/info/fishfind/auth/web/RateLimitFilter.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/AuthClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/AuthClient.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/config/AuthClientConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/config/AuthClientConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/AuthApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/AuthApplication.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/ApiException.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/ApiException.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/GlobalExceptionHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/GlobalExceptionHandler.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtAuthenticationFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtAuthenticationFilter.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/EmailService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/EmailService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/RateLimitFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/RateLimitFilter.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,7 +31,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="36" />
+    <option name="cachedIndexableFilesCount" value="37" />
   </component>
   <component name="ExportToHTMLSettings">
     <option name="OUTPUT_DIRECTORY" value="$PROJECT_DIR$/../auth\exportToHTML" />
@@ -71,19 +64,19 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Application.Run Debug.executor": "Debug",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "ignore.virus.scanning.warn.message": "true",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/envoinx/fishfind/fishfind-backend/service/auth"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Application.Run Debug.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/envoinx/fishfind/fishfind-backend/service/auth&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager">
     <configuration name="Run Debug" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.AuthApplication" />

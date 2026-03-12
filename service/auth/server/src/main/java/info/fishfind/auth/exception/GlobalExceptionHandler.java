@@ -13,11 +13,23 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /**
+     * Converts domain-level API exceptions into JSON error responses.
+     *
+     * @param ex application exception
+     * @return error response entity
+     */
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<AuthDtos.ErrorResponse> handleApiException(ApiException ex) {
         return ResponseEntity.status(ex.getStatus()).body(new AuthDtos.ErrorResponse(ex.getMessage()));
     }
 
+    /**
+     * Flattens validation errors into a single bad-request payload.
+     *
+     * @param ex validation exception raised by Spring
+     * @return error response entity
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<AuthDtos.ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
         var message = ex.getBindingResult().getFieldErrors().stream()
@@ -26,6 +38,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(new AuthDtos.ErrorResponse(message));
     }
 
+    /**
+     * Returns a generic internal-server-error payload for unhandled exceptions.
+     *
+     * @param ex unexpected exception
+     * @return error response entity
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<AuthDtos.ErrorResponse> handleUnexpected(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

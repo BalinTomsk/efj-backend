@@ -19,6 +19,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 public class SecurityConfig {
 
+    /**
+     * Configures stateless JWT-based security for the auth service.
+     *
+     * @param http Spring Security HTTP builder
+     * @param jwtAuthenticationFilter JWT authentication filter
+     * @return configured security filter chain
+     * @throws Exception when security configuration fails
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
@@ -45,11 +53,23 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Provides the password encoder used for hashing user passwords.
+     *
+     * @return bcrypt password encoder
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Exposes the Spring authentication manager.
+     *
+     * @param configuration authentication configuration source
+     * @return resolved authentication manager
+     * @throws Exception when the manager cannot be created
+     */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();

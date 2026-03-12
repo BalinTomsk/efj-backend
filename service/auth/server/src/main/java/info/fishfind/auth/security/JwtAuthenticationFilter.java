@@ -17,10 +17,24 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
 
+    /**
+     * Creates the filter responsible for JWT authentication.
+     *
+     * @param jwtService JWT parsing and generation service
+     */
     public JwtAuthenticationFilter(JwtService jwtService) {
         this.jwtService = jwtService;
     }
 
+    /**
+     * Extracts a bearer token, populates the security context, and rejects invalid tokens.
+     *
+     * @param request incoming HTTP request
+     * @param response outgoing HTTP response
+     * @param filterChain remaining filter chain
+     * @throws ServletException when the servlet pipeline fails
+     * @throws IOException when response writing fails
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,

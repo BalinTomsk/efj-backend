@@ -7,6 +7,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 public class UserRowMapper implements RowMapper<User> {
+    /**
+     * Maps a JDBC result row into a {@link User} record.
+     *
+     * @param rs current result set
+     * @param rowNum current row number
+     * @return mapped user
+     * @throws SQLException when column access fails
+     */
     @Override
     public User mapRow(ResultSet rs, int rowNum) throws SQLException {
         return new User(

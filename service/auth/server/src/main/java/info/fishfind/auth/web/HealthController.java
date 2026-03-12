@@ -9,6 +9,11 @@ import java.time.OffsetDateTime;
 
 @RestController
 public class HealthController {
+    /**
+     * Returns the current service health status and timestamp.
+     *
+     * @return health response payload
+     */
     @GetMapping(AuthPaths.HEALTH)
     public AuthDtos.HealthResponse health() {
         return new AuthDtos.HealthResponse("OK", OffsetDateTime.now());

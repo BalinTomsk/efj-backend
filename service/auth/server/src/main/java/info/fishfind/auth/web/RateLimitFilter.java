@@ -21,10 +21,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final AppProperties appProperties;
     private final Map<String, WindowCounter> counters = new ConcurrentHashMap<>();
 
+    /**
+     * Creates the rate limiting filter using application rate limit settings.
+     *
+     * @param appProperties application properties
+     */
     public RateLimitFilter(AppProperties appProperties) {
         this.appProperties = appProperties;
     }
 
+    /**
+     * Applies per-client request rate limiting based on the remote address.
+     *
+     * @param request incoming HTTP request
+     * @param response outgoing HTTP response
+     * @param filterChain remaining filter chain
+     * @throws ServletException when the servlet pipeline fails
+     * @throws IOException when response writing fails
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
