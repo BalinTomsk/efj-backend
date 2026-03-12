@@ -5,25 +5,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d5b908e7-b055-409c-a59e-13e0473ac5fc" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/AuthApplicationTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/config/WebConfigTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/security/JwtServiceTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/service/AuthServiceTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/service/EmailServiceTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/web/AuthControllerTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/web/RateLimitFilterTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/AuthClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/AuthClient.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/config/AuthClientConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main/java/info/fishfind/auth/client/config/AuthClientConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/AuthApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/AuthApplication.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/ApiException.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/ApiException.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/GlobalExceptionHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/exception/GlobalExceptionHandler.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtAuthenticationFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtAuthenticationFilter.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/security/JwtService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/EmailService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/EmailService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/RateLimitFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/RateLimitFilter.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,7 +20,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="37" />
+    <option name="cachedIndexableFilesCount" value="38" />
   </component>
   <component name="ExportToHTMLSettings">
     <option name="OUTPUT_DIRECTORY" value="$PROJECT_DIR$/../auth\exportToHTML" />
@@ -64,20 +53,30 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Application.Run Debug.executor&quot;: &quot;Debug&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/envoinx/fishfind/fishfind-backend/service/auth&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.Run Debug.executor": "Debug",
+    "JUnit.All in server.executor": "Run",
+    "JUnit.AuthApplicationTest.executor": "Run",
+    "JUnit.AuthApplicationTest.mainInvokesSpringApplicationRun.executor": "Run",
+    "JUnit.AuthControllerTest.executor": "Run",
+    "JUnit.AuthServiceTest.executor": "Run",
+    "JUnit.EmailServiceTest.executor": "Run",
+    "JUnit.JwtServiceTest.executor": "Run",
+    "JUnit.RateLimitFilterTest.executor": "Run",
+    "JUnit.UserRepositoryTest.executor": "Run",
+    "JUnit.UserRowMapperTest.executor": "Run",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/envoinx/fishfind/fishfind-backend/service/auth"
   }
-}</component>
-  <component name="RunManager">
+}]]></component>
+  <component name="RunManager" selected="JUnit.All in server">
     <configuration name="Run Debug" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.AuthApplication" />
       <module name="server" />
@@ -86,6 +85,84 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
+    <configuration name="All in server" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <option name="PACKAGE_NAME" value="" />
+      <option name="TEST_OBJECT" value="package" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="AuthApplicationTest" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="info.fishfind.auth.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="info.fishfind.auth" />
+      <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.AuthApplicationTest" />
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="AuthApplicationTest.mainInvokesSpringApplicationRun" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="info.fishfind.auth.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="info.fishfind.auth" />
+      <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.AuthApplicationTest" />
+      <option name="METHOD_NAME" value="mainInvokesSpringApplicationRun" />
+      <option name="TEST_OBJECT" value="method" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="AuthControllerTest" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="info.fishfind.auth.web.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="info.fishfind.auth.web" />
+      <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.web.AuthControllerTest" />
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="RateLimitFilterTest" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="info.fishfind.auth.web.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="info.fishfind.auth.web" />
+      <option name="MAIN_CLASS_NAME" value="info.fishfind.auth.web.RateLimitFilterTest" />
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="JUnit.All in server" />
+        <item itemvalue="JUnit.AuthApplicationTest" />
+        <item itemvalue="JUnit.AuthApplicationTest.mainInvokesSpringApplicationRun" />
+        <item itemvalue="JUnit.RateLimitFilterTest" />
+        <item itemvalue="JUnit.AuthControllerTest" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
