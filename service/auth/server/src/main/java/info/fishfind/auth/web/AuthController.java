@@ -3,6 +3,7 @@ package info.fishfind.auth.web;
 import info.fishfind.auth.api.AuthPaths;
 import info.fishfind.auth.api.dto.AuthDtos;
 import info.fishfind.auth.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -11,14 +12,16 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping(AuthPaths.AUTH)
 public class AuthController {
     private final AuthService authService;
+    private final RequestMetadataResolver requestMetadataResolver;
 
     /**
      * Creates the REST controller for auth endpoints.
      *
      * @param authService auth business service
      */
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RequestMetadataResolver requestMetadataResolver) {
         this.authService = authService;
+        this.requestMetadataResolver = requestMetadataResolver;
     }
 
     /**
@@ -28,8 +31,9 @@ public class AuthController {
      * @return result message
      */
     @PostMapping("/register")
-    public AuthDtos.MessageResponse register(@Valid @RequestBody AuthDtos.RegisterRequest request) {
-        return authService.register(request);
+    public AuthDtos.MessageResponse register(@Valid @RequestBody AuthDtos.RegisterRequest request,
+                                             HttpServletRequest httpServletRequest) {
+        return authService.register(request, requestMetadataResolver.resolve(httpServletRequest));
     }
 
     /**

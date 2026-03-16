@@ -6,9 +6,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,6 +27,7 @@ public class UserRepository {
      */
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        initializeSchema();
     }
 
     /**
@@ -34,9 +37,7 @@ public class UserRepository {
      * @return matching user when present
      */
     public Optional<User> findByEmailOrUsername(String login) {
-        var sql = """
-                SELECT id, username, email, password, confirmed, confirmation_token, created_at, updated_at
-                FROM users
+        var sql = baseSelect() + """
                 WHERE email = ? OR username = ?
                 """;
         List<User> users = jdbcTemplate.query(sql, USER_ROW_MAPPER, login, login);
@@ -51,9 +52,7 @@ public class UserRepository {
      */
     public Optional<User> findById(Long id) {
         try {
-            var sql = """
-                    SELECT id, username, email, password, confirmed, confirmation_token, created_at, updated_at
-                    FROM users
+            var sql = baseSelect() + """
                     WHERE id = ?
                     """;
             return Optional.ofNullable(jdbcTemplate.queryForObject(sql, USER_ROW_MAPPER, id));
@@ -69,9 +68,7 @@ public class UserRepository {
      * @return matching user when present
      */
     public Optional<User> findByConfirmationToken(String token) {
-        var sql = """
-                SELECT id, username, email, password, confirmed, confirmation_token, created_at, updated_at
-                FROM users
+        var sql = baseSelect() + """
                 WHERE confirmation_token = ?
                 """;
         List<User> users = jdbcTemplate.query(sql, USER_ROW_MAPPER, token);
@@ -87,10 +84,22 @@ public class UserRepository {
      * @param confirmationToken account activation token
      * @return generated user identifier
      */
-    public long insert(String username, String email, String encodedPassword, String confirmationToken) {
+    public long insert(String username,
+                       String email,
+                       String encodedPassword,
+                       String ip4,
+                       String ip6,
+                       String titul,
+                       String question,
+                       String answer,
+                       String cell,
+                       String agent,
+                       String confirmationToken) {
         var sql = """
-                INSERT INTO users (username, email, password, confirmation_token, confirmed)
-                VALUES (?, ?, ?, ?, 0)
+                INSERT INTO users (
+                    username, email, password, ip4, ip6, titul, question, answer, cell, agent, confirmation_token, confirmed
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """;
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
@@ -98,10 +107,35 @@ public class UserRepository {
             statement.setString(1, username);
             statement.setString(2, email);
             statement.setString(3, encodedPassword);
-            statement.setString(4, confirmationToken);
+            statement.setString(4, ip4);
+            statement.setString(5, ip6);
+            statement.setString(6, titul);
+            statement.setString(7, question);
+            statement.setString(8, answer);
+            statement.setString(9, cell);
+            statement.setString(10, agent);
+            statement.setString(11, confirmationToken);
             return statement;
         }, keyHolder);
         return keyHolder.getKey().longValue();
+    }
+
+    public Optional<User> findSuspendedByNetwork(String ip4, String ip6) {
+        var sql = baseSelect() + """
+                WHERE suspended = 1
+                  AND ((? <> '' AND ip4 = ?) OR (? <> '' AND ip6 = ?))
+                """;
+        List<User> users = jdbcTemplate.query(sql, USER_ROW_MAPPER, ip4, ip4, ip6, ip6);
+        return users.stream().findFirst();
+    }
+
+    public Optional<User> findByNetwork(String ip4, String ip6) {
+        var sql = baseSelect() + """
+                WHERE (? <> '' AND ip4 = ?)
+                   OR (? <> '' AND ip6 = ?)
+                """;
+        List<User> users = jdbcTemplate.query(sql, USER_ROW_MAPPER, ip4, ip4, ip6, ip6);
+        return users.stream().findFirst();
     }
 
     /**
@@ -140,6 +174,16 @@ public class UserRepository {
         return jdbcTemplate.update(sql, username, email, id);
     }
 
+    public int updateLastVisit(long id, OffsetDateTime lastVisit) {
+        var sql = """
+                UPDATE users
+                SET last_visit = ?,
+                    updated_at = SYSDATETIMEOFFSET()
+                WHERE id = ?
+                """;
+        return jdbcTemplate.update(sql, lastVisit, id);
+    }
+
     /**
      * Updates a user's stored password hash.
      *
@@ -165,5 +209,123 @@ public class UserRepository {
      */
     public int deleteById(long id) {
         return jdbcTemplate.update("DELETE FROM users WHERE id = ?", id);
+    }
+
+    @Transactional
+    void initializeSchema() {
+        jdbcTemplate.execute("""
+                IF OBJECT_ID('users', 'U') IS NULL
+                BEGIN
+                    CREATE TABLE users (
+                        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+                        username NVARCHAR(255) NOT NULL UNIQUE,
+                        email NVARCHAR(255) NOT NULL UNIQUE,
+                        password NVARCHAR(255) NOT NULL,
+                        ip4 NVARCHAR(64) NULL,
+                        ip6 NVARCHAR(128) NULL,
+                        titul NVARCHAR(255) NULL,
+                        last_visit DATETIMEOFFSET NULL,
+                        question NVARCHAR(255) NULL,
+                        answer NVARCHAR(255) NULL,
+                        cell NVARCHAR(255) NULL,
+                        suspended BIT NOT NULL CONSTRAINT DF_users_suspended DEFAULT 0,
+                        agent NVARCHAR(1024) NULL,
+                        confirmed BIT NOT NULL CONSTRAINT DF_users_confirmed DEFAULT 0,
+                        confirmation_token NVARCHAR(255) NULL,
+                        created_at DATETIMEOFFSET NOT NULL CONSTRAINT DF_users_created_at DEFAULT SYSDATETIMEOFFSET(),
+                        updated_at DATETIMEOFFSET NOT NULL CONSTRAINT DF_users_updated_at DEFAULT SYSDATETIMEOFFSET()
+                    )
+                END
+                """);
+
+        addColumnIfMissing("ip4", "NVARCHAR(64) NULL");
+        addColumnIfMissing("ip6", "NVARCHAR(128) NULL");
+        addColumnIfMissing("titul", "NVARCHAR(255) NULL");
+        addColumnIfMissing("last_visit", "DATETIMEOFFSET NULL");
+        addColumnIfMissing("question", "NVARCHAR(255) NULL");
+        addColumnIfMissing("answer", "NVARCHAR(255) NULL");
+        addColumnIfMissing("cell", "NVARCHAR(255) NULL");
+        addColumnIfMissing("suspended", "BIT NOT NULL CONSTRAINT DF_users_suspended_backfill DEFAULT 0");
+        addColumnIfMissing("agent", "NVARCHAR(1024) NULL");
+        addColumnIfMissing("confirmed", "BIT NOT NULL CONSTRAINT DF_users_confirmed_backfill DEFAULT 0");
+        addColumnIfMissing("confirmation_token", "NVARCHAR(255) NULL");
+        addColumnIfMissing("created_at", "DATETIMEOFFSET NOT NULL CONSTRAINT DF_users_created_at_backfill DEFAULT SYSDATETIMEOFFSET()");
+        addColumnIfMissing("updated_at", "DATETIMEOFFSET NOT NULL CONSTRAINT DF_users_updated_at_backfill DEFAULT SYSDATETIMEOFFSET()");
+        backfillLegacyNetworkColumns();
+    }
+
+    private void addColumnIfMissing(String columnName, String definition) {
+        jdbcTemplate.execute("""
+                IF COL_LENGTH('users', '%s') IS NULL
+                BEGIN
+                    EXEC('ALTER TABLE users ADD %s %s')
+                END
+                """.formatted(columnName, columnName, definition));
+    }
+
+    private void backfillLegacyNetworkColumns() {
+        Integer legacyColumnCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'registration_ip'
+                """, Integer.class);
+        if (legacyColumnCount == null || legacyColumnCount == 0) {
+            return;
+        }
+
+        jdbcTemplate.query("""
+                SELECT id, registration_ip
+                FROM users
+                WHERE (ip4 IS NULL OR ip4 = '')
+                  AND (ip6 IS NULL OR ip6 = '')
+                  AND registration_ip IS NOT NULL
+                  AND registration_ip <> ''
+                """, rs -> {
+            long id = rs.getLong("id");
+            String registrationIp = rs.getString("registration_ip");
+            StoredIp storedIp = getStoredIpColumns(registrationIp);
+            if (!storedIp.hasValue()) {
+                return;
+            }
+            jdbcTemplate.update("UPDATE users SET ip4 = ?, ip6 = ? WHERE id = ?", storedIp.ip4(), storedIp.ip6(), id);
+        });
+    }
+
+    private StoredIp getStoredIpColumns(String ipValue) {
+        if (ipValue == null || ipValue.isBlank()) {
+            return new StoredIp("", "");
+        }
+
+        String trimmedIp = ipValue.trim();
+        if (trimmedIp.startsWith("::ffff:")) {
+            String extractedIpv4 = trimmedIp.substring(7);
+            if (extractedIpv4.matches("^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$")) {
+                return new StoredIp(extractedIpv4, trimmedIp.toLowerCase());
+            }
+        }
+
+        if (trimmedIp.matches("^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$")) {
+            return new StoredIp(trimmedIp, "");
+        }
+
+        if (trimmedIp.contains(":")) {
+            return new StoredIp("", trimmedIp.toLowerCase());
+        }
+
+        return new StoredIp("", "");
+    }
+
+    private String baseSelect() {
+        return """
+                SELECT id, username, email, password, ip4, ip6, titul, last_visit, question, answer, cell, suspended, agent,
+                       confirmed, confirmation_token, created_at, updated_at
+                FROM users
+                """;
+    }
+
+    private record StoredIp(String ip4, String ip6) {
+        boolean hasValue() {
+            return (ip4 != null && !ip4.isBlank()) || (ip6 != null && !ip6.isBlank());
+        }
     }
 }

@@ -1,6 +1,7 @@
 package info.fishfind.auth.config;
 
 import info.fishfind.auth.web.RateLimitFilter;
+import info.fishfind.auth.web.SuspendedNetworkFilter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +43,15 @@ public class WebConfig {
         var bean = new FilterRegistrationBean<>(rateLimitFilter);
         bean.addUrlPatterns("/*");
         bean.setOrder(1);
+        return bean;
+    }
+
+    @Bean
+    public FilterRegistrationBean<SuspendedNetworkFilter> suspendedNetworkFilterRegistration(
+            SuspendedNetworkFilter suspendedNetworkFilter) {
+        var bean = new FilterRegistrationBean<>(suspendedNetworkFilter);
+        bean.addUrlPatterns("/*");
+        bean.setOrder(2);
         return bean;
     }
 }

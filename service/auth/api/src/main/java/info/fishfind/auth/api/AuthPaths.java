@@ -10,6 +10,7 @@ public final class AuthPaths {
     public static final String API = "/api";
     public static final String AUTH = API + "/auth";
     public static final String HEALTH = API + "/health";
+    public static final String ACCESS_CHECK = "/access-check";
 
     public static final String REGISTER = AUTH + "/register";
     public static final String ACTIVATE = AUTH + "/activate/{activationToken}";

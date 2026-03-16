@@ -33,6 +33,7 @@ class UserRepositoryTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(0);
         userRepository = new UserRepository(jdbcTemplate);
     }
 
@@ -99,14 +100,33 @@ class UserRepositoryTest {
         when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS)))
                 .thenReturn(statement);
 
-        long id = userRepository.insert("alice", "alice@example.com", "encoded", "token-123");
+        long id = userRepository.insert(
+                "alice",
+                "alice@example.com",
+                "encoded",
+                "127.0.0.1",
+                "",
+                "Captain",
+                "River?",
+                "Salmon",
+                "555-0100",
+                "JUnit",
+                "token-123"
+        );
 
         assertThat(id).isEqualTo(42L);
         verify(connection).prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS));
         verify(statement).setString(1, "alice");
         verify(statement).setString(2, "alice@example.com");
         verify(statement).setString(3, "encoded");
-        verify(statement).setString(4, "token-123");
+        verify(statement).setString(4, "127.0.0.1");
+        verify(statement).setString(5, "");
+        verify(statement).setString(6, "Captain");
+        verify(statement).setString(7, "River?");
+        verify(statement).setString(8, "Salmon");
+        verify(statement).setString(9, "555-0100");
+        verify(statement).setString(10, "JUnit");
+        verify(statement).setString(11, "token-123");
     }
 
     @Test
@@ -140,6 +160,24 @@ class UserRepositoryTest {
 
     private static User sampleUser() {
         OffsetDateTime now = OffsetDateTime.now();
-        return new User(7L, "alice", "alice@example.com", "encoded", false, "token-123", now, now);
+        return new User(
+                7L,
+                "alice",
+                "alice@example.com",
+                "encoded",
+                "127.0.0.1",
+                "",
+                "Captain",
+                now,
+                "River?",
+                "Salmon",
+                "555-0100",
+                false,
+                "JUnit",
+                false,
+                "token-123",
+                now,
+                now
+        );
     }
 }

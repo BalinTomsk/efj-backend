@@ -1,5 +1,6 @@
 package info.fishfind.auth.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -16,11 +17,16 @@ public final class AuthDtos {
     public record RegisterRequest(
             @NotBlank String username,
             @NotBlank @Email String email,
-            @NotBlank @Size(min = 6) String password
+            @NotBlank @Size(min = 6) String password,
+            String titul,
+            String question,
+            String answer,
+            String cell
     ) {
     }
 
     public record LoginRequest(
+            @JsonAlias({"email", "username"})
             @NotBlank String login,
             @NotBlank String password
     ) {
@@ -42,6 +48,12 @@ public final class AuthDtos {
             Long id,
             String username,
             String email,
+            String titul,
+            String cell,
+            String question,
+            String answer,
+            OffsetDateTime lastVisit,
+            boolean suspended,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt
     ) {

@@ -47,7 +47,7 @@ public class SecurityConfig {
                         }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, AuthPaths.REGISTER, AuthPaths.LOGIN).permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/activate/**", AuthPaths.HEALTH).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/activate/**", AuthPaths.HEALTH, AuthPaths.ACCESS_CHECK).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();

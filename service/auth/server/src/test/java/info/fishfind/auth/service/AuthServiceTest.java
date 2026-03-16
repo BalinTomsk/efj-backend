@@ -6,6 +6,7 @@ import info.fishfind.auth.domain.User;
 import info.fishfind.auth.exception.ApiException;
 import info.fishfind.auth.repository.UserRepository;
 import info.fishfind.auth.security.JwtService;
+import info.fishfind.auth.web.RequestMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -35,6 +37,7 @@ class AuthServiceTest {
     private JwtService jwtService;
     private EmailService emailService;
     private AuthService authService;
+    private RequestMetadata requestMetadata;
 
     @BeforeEach
     void setUp() {
@@ -43,31 +46,47 @@ class AuthServiceTest {
         jwtService = mock(JwtService.class);
         emailService = mock(EmailService.class);
         authService = new AuthService(userRepository, passwordEncoder, jwtService, emailService);
+        requestMetadata = new RequestMetadata("127.0.0.1", "127.0.0.1", "", "JUnit");
     }
 
     @Test
     void registerCreatesAccountAndSendsActivationEmail() {
-        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password");
+        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest(
+                "alice", "alice@example.com", "password", "Captain", "River?", "Salmon", "555-0100");
 
         when(passwordEncoder.encode("password")).thenReturn("encoded-password");
 
-        AuthDtos.MessageResponse response = authService.register(request);
+        AuthDtos.MessageResponse response = authService.register(request, requestMetadata);
 
         assertThat(response.message()).isEqualTo("Account created. Please check your email and activate your account.");
-        verify(userRepository).insert(eq("alice"), eq("alice@example.com"), eq("encoded-password"), anyString());
+        verify(userRepository).insert(
+                eq("alice"),
+                eq("alice@example.com"),
+                eq("encoded-password"),
+                eq("127.0.0.1"),
+                eq(""),
+                eq("Captain"),
+                eq("River?"),
+                eq("Salmon"),
+                eq("555-0100"),
+                eq("JUnit"),
+                anyString()
+        );
         verify(emailService).sendActivationEmail(eq("alice@example.com"), eq("alice"), anyString());
     }
 
     @Test
     void registerReturnsConflictWhenInsertViolatesUniqueness() {
-        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password");
+        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password", null, null, null, null);
 
         when(passwordEncoder.encode("password")).thenReturn("encoded-password");
         doThrow(new DataIntegrityViolationException("duplicate"))
-                .when(userRepository).insert(eq("alice"), eq("alice@example.com"), eq("encoded-password"), anyString());
+                .when(userRepository).insert(
+                        eq("alice"), eq("alice@example.com"), eq("encoded-password"),
+                        eq("127.0.0.1"), eq(""), eq(""), eq(""), eq(""), eq(""), eq("JUnit"), anyString());
 
         assertApiException(
-                () -> authService.register(request),
+                () -> authService.register(request, requestMetadata),
                 HttpStatus.CONFLICT,
                 "Username or email already exists"
         );
@@ -77,17 +96,31 @@ class AuthServiceTest {
 
     @Test
     void registerReturnsServerErrorWhenActivationEmailFails() {
-        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password");
+        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password", null, null, null, null);
 
         when(passwordEncoder.encode("password")).thenReturn("encoded-password");
         doThrow(new IllegalStateException("mail down"))
                 .when(emailService).sendActivationEmail(eq("alice@example.com"), eq("alice"), anyString());
 
         assertApiException(
-                () -> authService.register(request),
+                () -> authService.register(request, requestMetadata),
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "Account created in database, but sending activation email failed"
         );
+    }
+
+    @Test
+    void registerRejectsDuplicateNetwork() {
+        AuthDtos.RegisterRequest request = new AuthDtos.RegisterRequest("alice", "alice@example.com", "password", null, null, null, null);
+        when(userRepository.findByNetwork("127.0.0.1", "")).thenReturn(Optional.of(sampleUser(true)));
+
+        assertApiException(
+                () -> authService.register(request, requestMetadata),
+                HttpStatus.FORBIDDEN,
+                "registration ignored due to network issues, please write a letter for manual registration"
+        );
+
+        verifyNoInteractions(passwordEncoder, emailService);
     }
 
     @Test
@@ -152,6 +185,17 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginRejectsSuspendedUser() {
+        when(userRepository.findByEmailOrUsername("alice")).thenReturn(Optional.of(suspendedUser()));
+
+        assertApiException(
+                () -> authService.login(new AuthDtos.LoginRequest("alice", "password")),
+                HttpStatus.NOT_FOUND,
+                "Endpoint not found"
+        );
+    }
+
+    @Test
     void loginRejectsWrongPassword() {
         User user = sampleUser(true);
         when(userRepository.findByEmailOrUsername("alice")).thenReturn(Optional.of(user));
@@ -169,6 +213,7 @@ class AuthServiceTest {
         User user = sampleUser(true);
         when(userRepository.findByEmailOrUsername("alice")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password", "stored-password")).thenReturn(true);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(sampleUserWithLastVisit()));
         when(jwtService.generateToken(new AuthUser(7L, "alice", "alice@example.com"))).thenReturn("jwt-token");
 
         AuthDtos.LoginResponse response = authService.login(new AuthDtos.LoginRequest("alice", "password"));
@@ -178,6 +223,8 @@ class AuthServiceTest {
         assertThat(response.user().id()).isEqualTo(7L);
         assertThat(response.user().username()).isEqualTo("alice");
         assertThat(response.user().email()).isEqualTo("alice@example.com");
+        assertThat(response.user().lastVisit()).isEqualTo(OffsetDateTime.parse("2026-03-12T03:00:00Z"));
+        verify(userRepository).updateLastVisit(eq(7L), any());
     }
 
     @Test
@@ -215,6 +262,7 @@ class AuthServiceTest {
 
     @Test
     void updateProfileReturnsConflictOnDuplicateFields() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(sampleUser(true)));
         doThrow(new DataIntegrityViolationException("duplicate"))
                 .when(userRepository).updateProfile(7L, "alice2", "alice2@example.com");
 
@@ -260,6 +308,7 @@ class AuthServiceTest {
 
     @Test
     void deleteAccountRejectsMissingUser() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(sampleUser(true)));
         when(userRepository.deleteById(7L)).thenReturn(0);
 
         assertApiException(
@@ -271,6 +320,7 @@ class AuthServiceTest {
 
     @Test
     void deleteAccountDeletesCurrentUser() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(sampleUser(true)));
         when(userRepository.deleteById(7L)).thenReturn(1);
 
         AuthDtos.MessageResponse response = authService.deleteAccount(authentication());
@@ -293,6 +343,15 @@ class AuthServiceTest {
                 "alice",
                 "alice@example.com",
                 "stored-password",
+                "127.0.0.1",
+                "",
+                "Captain",
+                null,
+                "River?",
+                "Salmon",
+                "555-0100",
+                false,
+                "JUnit",
                 confirmed,
                 "token-123",
                 createdAt,
@@ -308,6 +367,63 @@ class AuthServiceTest {
                 "alice2",
                 "alice2@example.com",
                 "stored-password",
+                "127.0.0.1",
+                "",
+                "Captain",
+                OffsetDateTime.parse("2026-03-12T03:00:00Z"),
+                "River?",
+                "Salmon",
+                "555-0100",
+                false,
+                "JUnit",
+                true,
+                null,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    private static User sampleUserWithLastVisit() {
+        OffsetDateTime createdAt = OffsetDateTime.parse("2026-03-12T00:00:00Z");
+        OffsetDateTime updatedAt = OffsetDateTime.parse("2026-03-12T03:00:00Z");
+        return new User(
+                7L,
+                "alice",
+                "alice@example.com",
+                "stored-password",
+                "127.0.0.1",
+                "",
+                "Captain",
+                OffsetDateTime.parse("2026-03-12T03:00:00Z"),
+                "River?",
+                "Salmon",
+                "555-0100",
+                false,
+                "JUnit",
+                true,
+                null,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    private static User suspendedUser() {
+        OffsetDateTime createdAt = OffsetDateTime.parse("2026-03-12T00:00:00Z");
+        OffsetDateTime updatedAt = OffsetDateTime.parse("2026-03-12T01:00:00Z");
+        return new User(
+                7L,
+                "alice",
+                "alice@example.com",
+                "stored-password",
+                "127.0.0.1",
+                "",
+                "Captain",
+                null,
+                "River?",
+                "Salmon",
+                "555-0100",
+                true,
+                "JUnit",
                 true,
                 null,
                 createdAt,

@@ -6,12 +6,14 @@ import info.fishfind.auth.domain.User;
 import info.fishfind.auth.exception.ApiException;
 import info.fishfind.auth.repository.UserRepository;
 import info.fishfind.auth.security.JwtService;
+import info.fishfind.auth.web.RequestMetadata;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Service
@@ -45,12 +47,30 @@ public class AuthService {
      * @param request registration payload
      * @return result message
      */
-    public AuthDtos.MessageResponse register(AuthDtos.RegisterRequest request) {
+    public AuthDtos.MessageResponse register(AuthDtos.RegisterRequest request, RequestMetadata metadata) {
+        if ((!metadata.ip4().isBlank() || !metadata.ip6().isBlank())
+                && userRepository.findByNetwork(metadata.ip4(), metadata.ip6()).isPresent()) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "registration ignored due to network issues, please write a letter for manual registration");
+        }
+
         String hashedPassword = passwordEncoder.encode(request.password());
         String activationToken = UUID.randomUUID().toString();
 
         try {
-            userRepository.insert(request.username(), request.email(), hashedPassword, activationToken);
+            userRepository.insert(
+                    request.username(),
+                    request.email(),
+                    hashedPassword,
+                    metadata.ip4(),
+                    metadata.ip6(),
+                    trimToEmpty(request.titul()),
+                    trimToEmpty(request.question()),
+                    trimToEmpty(request.answer()),
+                    trimToEmpty(request.cell()),
+                    metadata.agent(),
+                    activationToken
+            );
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(HttpStatus.CONFLICT, "Username or email already exists");
         }
@@ -97,6 +117,10 @@ public class AuthService {
         User user = userRepository.findByEmailOrUsername(request.login())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
 
+        if (user.suspended()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Endpoint not found");
+        }
+
         if (!user.confirmed()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Please activate your email before logging in");
         }
@@ -105,8 +129,13 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
+        OffsetDateTime loginTimestamp = OffsetDateTime.now();
+        userRepository.updateLastVisit(user.id(), loginTimestamp);
+        User updatedUser = userRepository.findById(user.id())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Endpoint not found"));
+
         String token = jwtService.generateToken(new AuthUser(user.id(), user.username(), user.email()));
-        return new AuthDtos.LoginResponse("Login successful", token, toResponse(user));
+        return new AuthDtos.LoginResponse("Login successful", token, toResponse(updatedUser));
     }
 
     /**
@@ -137,16 +166,16 @@ public class AuthService {
      * @return wrapped updated user profile
      */
     public AuthDtos.UserWrapper updateProfile(Authentication authentication, AuthDtos.UpdateProfileRequest request) {
-        AuthUser authUser = requireAuthUser(authentication);
+        User currentUser = requireActiveUser(authentication);
         try {
-            int changed = userRepository.updateProfile(authUser.id(), request.username(), request.email());
+            int changed = userRepository.updateProfile(currentUser.id(), request.username(), request.email());
             if (changed == 0) {
                 throw new ApiException(HttpStatus.NOT_FOUND, "User not found");
             }
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(HttpStatus.CONFLICT, "Username or email already exists");
         }
-        User updated = userRepository.findById(authUser.id())
+        User updated = userRepository.findById(currentUser.id())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
         return new AuthDtos.UserWrapper(toResponse(updated));
     }
@@ -160,15 +189,13 @@ public class AuthService {
      */
     public AuthDtos.MessageResponse changePassword(Authentication authentication,
                                                    AuthDtos.ChangePasswordRequest request) {
-        AuthUser authUser = requireAuthUser(authentication);
-        User user = userRepository.findById(authUser.id())
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        User user = requireActiveUser(authentication);
 
         if (!passwordEncoder.matches(request.currentPassword(), user.password())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Current password is incorrect");
         }
 
-        userRepository.updatePassword(authUser.id(), passwordEncoder.encode(request.newPassword()));
+        userRepository.updatePassword(user.id(), passwordEncoder.encode(request.newPassword()));
         return new AuthDtos.MessageResponse("Password changed successfully");
     }
 
@@ -179,8 +206,8 @@ public class AuthService {
      * @return result message
      */
     public AuthDtos.MessageResponse deleteAccount(Authentication authentication) {
-        AuthUser authUser = requireAuthUser(authentication);
-        int changed = userRepository.deleteById(authUser.id());
+        User user = requireActiveUser(authentication);
+        int changed = userRepository.deleteById(user.id());
         if (changed == 0) {
             throw new ApiException(HttpStatus.NOT_FOUND, "User not found");
         }
@@ -207,10 +234,18 @@ public class AuthService {
      * @return current user response payload
      */
     private AuthDtos.UserResponse getCurrentUser(Authentication authentication) {
+        User user = requireActiveUser(authentication);
+        return toResponse(user);
+    }
+
+    private User requireActiveUser(Authentication authentication) {
         AuthUser authUser = requireAuthUser(authentication);
         User user = userRepository.findById(authUser.id())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
-        return toResponse(user);
+        if (user.suspended()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Endpoint not found");
+        }
+        return user;
     }
 
     /**
@@ -224,8 +259,18 @@ public class AuthService {
                 user.id(),
                 user.username(),
                 user.email(),
+                user.titul(),
+                user.cell(),
+                user.question(),
+                user.answer(),
+                user.lastVisit(),
+                user.suspended(),
                 user.createdAt(),
                 user.updatedAt()
         );
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 }
