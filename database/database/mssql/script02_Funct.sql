@@ -2151,9 +2151,9 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_ViewTributary' AND xtype = 
     DROP function dbo.fn_ViewTributary
 GO
 -- get fish for station science view related or any first
---     SELECT * FROM dbo.fn_ViewTributary('a6c730df-2892-e811-9104-00155d007b12', 0);
---     SELECT * FROM dbo.fn_ViewTributary('00000000-0000-0000-0000-000000000000', 0);
---     SELECT * FROM dbo.fn_ViewTributary('0c55ba0c-849c-20c3-9b46-02ad5bdf9847', 0);
+--     SELECT * FROM dbo.fn_ViewTributary('a6c730df-2892-e811-9104-00155d007b12', 0, 256);
+--     SELECT * FROM dbo.fn_ViewTributary('00000000-0000-0000-0000-000000000000', 0, 256);
+--     SELECT * FROM dbo.fn_ViewTributary('0c55ba0c-849c-20c3-9b46-02ad5bdf9847', 0, 256);
 -- used in wfRiverViewer : LoadTributary(Guid lakeid)
 
 CREATE function dbo.fn_ViewTributary( @lake uniqueidentifier, @istrial int, @rowcount int )

@@ -16,17 +16,26 @@ AS
 GO
 
 ------------------------------------------------------------------------------
+/**
+ * @table global_configuration
+ * @brief Stores global system configuration as key–value pairs.
+ *
+ * This table contains application-wide configuration settings, including
+ * default values, user attribution, update timestamps, and system flags.
+ * It is used for both static configuration (feature flags, settings) and
+ * dynamically maintained values (e.g., counters, metrics).
+ */
 ------------------------------------------------------------------------------
 
 CREATE TABLE global_configuration
 (
-	config_attribute                varchar(50) NOT NULL,
-	config_value                    nvarchar(max) NULL,
-	global_config_default_value     nvarchar(max) NULL,
-	global_config_user_name         nvarchar(128) NULL,
-	global_config_updatedate        datetime2 NOT NULL,
-	global_config_type              varchar(16) NULL,
-	global_configuration_sysflag    bit NOT NULL,
+	config_attribute                varchar(50) NOT NULL,    -- Unique configuration key (Primary Key)
+	config_value                    nvarchar(max) NULL,      -- Current value of the configuration setting.
+	global_config_default_value     nvarchar(max) NULL,      -- Default value used when no explicit value is provided.
+	global_config_user_name         nvarchar(128) NULL,      -- Username of the last user who modified this configuration.
+	global_config_updatedate        datetime2 NOT NULL,      -- Timestamp of the last update. Defaults to GETDATE().
+	global_config_type              varchar(16) NULL,        -- Optional type classification (e.g., 'int', 'string', 'json', 'bool').
+	global_configuration_sysflag    bit NOT NULL,            -- System flag indicating internal configuration: 1 = system-managed  0 = user-managed (default)
     CONSTRAINT pk_core_configuration PRIMARY KEY CLUSTERED (config_attribute)
 )
 GO
@@ -1353,36 +1362,50 @@ WITH cte AS
 END
 GO
 --------------------------------------------------------------------------------------------
+/*
+    Table: WaterStation
+
+    Description:
+    Stores metadata for hydrometric and water-related monitoring locations used by the system
+    to ingest, track, and process station-based environmental data.
+
+    Each row represents a single external water station or location identified by MLI and
+    internal system identifiers. The table contains geographic coordinates, source/provider
+    metadata, location classification, processing state, weather snapshot fields, and mapping
+    fields used to associate the station with lakes, cities, and upstream source records.
+*/
+--------------------------------------------------------------------------------------------
 CREATE TABLE WaterStation
 (
-    MLI           varchar(64) NOT NULL,
+    MLI           varchar(64) NOT NULL,       -- External station identifier used by the source provider.
     id            uniqueidentifier default NEWSEQUENTIALID() NOT NULL ,
-    state         char(2),
-    lat           float NOT NULL,
-    lon           float NOT NULL,
-    tz            int,                         -- timezone  
-    country       char(3) NOT NULL,
-    locDesc       varchar(max) NOT NULL,
-    processed     datetime2,
+    state         char(2),                    -- Two-character province/state/region code.
+    lat           float NOT NULL,             -- Latitude of the station in decimal degrees.
+    lon           float NOT NULL,             -- Longitude of the station in decimal degrees
+    tz            int,                        -- Time zone offset or internal time zone code for the station location.  
+    country       char(3) NOT NULL,           -- Three-character country code.   CA, US
+    locDesc       varchar(max) NOT NULL,      -- Full textual description of the station location.
+    processed     datetime2,                  --  Timestamp of the last successful processing of this station by the ingestion pipeline
     locType       int NOT NULL DEFAULT(0),     --  1 - lake, 2 - river,  4 - stream, 8 - pond, 16 - marsh, 32 - backwater, 64 - creek
                                                --  128 - canal, 256 - Estuary, 512 - shore, 1024 - drain, 2048 - ditch, 4096 = Wetland,  8192 - Reservoir 
-    condition     varchar(255),                -- current wheather condition
+    condition     varchar(255),                -- Current weather condition text associated with the station location.
     wheatherStamp datetime2,                   -- last time when a wheather was saved   
-    agency        sysname default(''),
-    county        sysname,
-    locName       varchar(255) NOT NULL,
-    oldId         int,                         -- taken form original source
-    sid           int not null,
-    passed        int,                
+    agency        sysname default(''),         -- Source agency or provider name responsible for the station data.
+    county        sysname,                     -- County or regional administrative area for the station.
+    locName       varchar(255) NOT NULL,       -- Short display name of the water location or station.
+    oldId         int,                         -- Legacy numeric identifier taken from the original source system.
+    sid           int not null,                -- Internal or source-specific station numeric identifier.
+    passed        int,                         -- Processing/status counter or internal pass marker used by import logic.
     updData       datetime2,                   -- last time when a data was updated   
-    lakeId        uniqueidentifier,
-    lakeName      nvarchar(64) NOT NULL,
-    elevation     int,
-    stamp         datetime2 not null CONSTRAINT df_WaterStation_stamp DEFAULT GETUTCDATE(),
+    lakeId        uniqueidentifier,            -- Internal unique identifier of the related lake entity, if applicable.     
+    lakeName      nvarchar(64) NOT NULL,       -- Name of the associated lake or parent water body. 
+    elevation     int,                         -- Elevation of the station location, typically above sea level.
+    stamp         datetime2 not null CONSTRAINT df_WaterStation_stamp DEFAULT GETUTCDATE(),  -- Row creation timestamp in UTC.
     city          nvarchar(128),
     road          nvarchar(255),
     city_id       int,
-	pass          bit       default(1)
+	pass          bit default(1),
+    supported     bit not null default(1)       -- not supprted by https://dd.weather.gc.ca or https://waterservices.usgs.gov. WaterData service does not process it if false
 ) 
 GO
 
@@ -4764,9 +4787,9 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_ViewTributary' AND xtype = 
     DROP function dbo.fn_ViewTributary
 GO
 -- get fish for station science view related or any first
---     SELECT * FROM dbo.fn_ViewTributary('a6c730df-2892-e811-9104-00155d007b12', 0);
---     SELECT * FROM dbo.fn_ViewTributary('00000000-0000-0000-0000-000000000000', 0);
---     SELECT * FROM dbo.fn_ViewTributary('0c55ba0c-849c-20c3-9b46-02ad5bdf9847', 0);
+--     SELECT * FROM dbo.fn_ViewTributary('a6c730df-2892-e811-9104-00155d007b12', 0, 256);
+--     SELECT * FROM dbo.fn_ViewTributary('00000000-0000-0000-0000-000000000000', 0, 256);
+--     SELECT * FROM dbo.fn_ViewTributary('0c55ba0c-849c-20c3-9b46-02ad5bdf9847', 0, 256);
 -- used in wfRiverViewer : LoadTributary(Guid lakeid)
 
 CREATE function dbo.fn_ViewTributary( @lake uniqueidentifier, @istrial int, @rowcount int )
