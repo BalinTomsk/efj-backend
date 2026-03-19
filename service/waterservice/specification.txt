@@ -1,7 +1,208 @@
-1. Write Java 21 Spring Boot service 
-2. On start must read from MSSQL server [WaterStation] columns: mli string, state char(2), supported bit
-3. if supported <> 1 then ignore
-4. run thread where process this list of stations
-5. read data from endpoint: https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv Where QC is state and 02JE025 is station
-6. when list of stations is processed and  read data from endpoint for particular station is failed 3 times during the calendar day then set  supported to false and remove this station from the list
-7. use logic the from attached aspx file and sql file with database script to update/insert/delete operations with WaterData
+Recreate this project as a Java 21 Spring Boot background service named `water-station-pusher`.
+
+Goal
+- Poll supported Canadian water stations from MSSQL.
+- Download each station's hourly hydrometric CSV from Environment Canada.
+- Parse readings and upsert them into `dbo.WaterData`.
+- Disable a station after 3 fetch failures in the same calendar day.
+
+Tech stack
+- Java 21
+- Maven
+- Spring Boot 3.2.x
+- `spring-boot-starter`
+- `spring-boot-starter-jdbc`
+- `spring-boot-starter-aop`
+- MSSQL JDBC driver
+- Resilience4j Spring Boot 3 integration for SQL retry/circuit breaker
+- `commons-csv` dependency may be included, but simple CSV parsing is acceptable
+- `dotenv-java` for local credential loading
+- SLF4J + Logback
+
+Project structure
+- Maven project
+- Main class: `com.fishfind.water.WaterStationPusherApplication`
+- Packages:
+  - `com.fishfind.water.domain`
+  - `com.fishfind.water.repo`
+  - `com.fishfind.water.service`
+- Include `application.yml` and `logback-spring.xml` under `src/main/resources`
+- Do not place the real `.env` file in `src/main/resources`
+- The real `.env` file belongs in the project root
+- Keep a `.env.example` in the project root with placeholder values only
+
+Main application behavior
+- On startup, before Spring starts, load DB credentials from environment variables.
+- If env vars are missing, try loading a root-level `.env` file with `dotenv-java`.
+- Support optional `DOTENV_PATH` env var to point to a custom `.env` file.
+- Required keys:
+  - `DB_URL`
+  - `DB_USERNAME`
+  - `DB_PASSWORD`
+- If values are loaded from dotenv and missing from process env/system properties, copy them into JVM system properties so Spring datasource placeholders resolve.
+
+Datasource config
+- Configure Spring datasource from:
+  - `${DB_URL}`
+  - `${DB_USERNAME}`
+  - `${DB_PASSWORD}`
+- Driver class: `com.microsoft.sqlserver.jdbc.SQLServerDriver`
+
+Worker behavior
+- Implement a background worker started via `ApplicationRunner`.
+- If app is started with `--console`, do not launch the background thread.
+- Otherwise start a non-daemon thread named `water-station-worker`.
+- The worker loops forever:
+  - Load supported stations from DB
+  - Process stations one by one
+  - Sleep between stations
+  - Sleep between full cycles
+- Configurable properties:
+  - `water.worker.pause-between-stations-ms` default `1500`
+  - `water.worker.pause-between-cycles-ms` default `300000`
+  - `water.worker.connect-timeout-ms` default `15000`
+  - `water.worker.read-timeout-ms` default `30000`
+
+Console mode
+- Add a console/debug runner activated by `--console`
+- Optional arg: `--station=<MLI>`
+- In console mode, run exactly one processing pass
+- If `--station` is provided, process only that station from the supported station list
+
+WaterStation query rules
+- Read from table `WaterStation`
+- Select columns:
+  - `mli`
+  - `state`
+  - `tz` using `ISNULL(tz, 0)`
+- Filter:
+  - `country = 'CA'`
+  - `supported = 1`
+- Ignore unsupported stations
+- Represent each row as a simple record like `StationRef(String mli, String state, int tz)`
+
+CSV fetch rules
+- URL pattern:
+  - `https://dd.weather.gc.ca/today/hydrometric/csv/{STATE}/hourly/{STATE}_{MLI}_hourly_hydrometric.csv`
+- Example:
+  - `https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv`
+- Use `HttpURLConnection`
+- Set connect/read timeouts from config
+- Set a basic browser-like `User-Agent`
+- Non-200 response should be treated as failure
+
+CSV parse rules
+- Skip the first row as header
+- Ignore rows with fewer than 7 columns
+- Parse:
+  - column 0 -> station id
+  - column 1 -> timestamp as `OffsetDateTime`
+  - column 2 -> water level
+  - column 6 -> discharge
+- Trim string values
+- Empty numeric values should map to `null`
+- Model each reading as:
+  - `Reading(String stationId, OffsetDateTime stamp, Double waterLevel, Double discharge)`
+
+Failure handling
+- Track failures in memory per station
+- Failure counter resets when the date changes
+- On any station processing exception:
+  - increment today's failure count for that station
+  - log the failure count
+- When a station reaches 3 failures in the same calendar day:
+  - execute `UPDATE WaterStation SET supported = 0 WHERE mli = ?`
+  - remove that station from in-memory failure tracking
+
+WaterData persistence rules
+- Implement repository method `saveStationData(String mli, List<Reading> readings)`
+- Ignore blank `mli`
+- If readings list is null or empty, do nothing
+- Wrap save in one transaction
+- Apply Resilience4j retry and circuit breaker around SQL operations
+- Upsert each reading using `(mli, stamp)` as the natural key
+- Use SQL Server `MERGE`
+- Mapping:
+  - CSV water level -> `dbo.WaterData.elevation`
+  - CSV discharge -> `dbo.WaterData.discharge`
+- Store timestamp as SQL `datetime2`
+
+Expected SQL shape
+```sql
+MERGE dbo.WaterData AS trg
+USING (
+    SELECT
+        CAST(? AS varchar(64)) AS mli,
+        CAST(? AS datetime2)   AS stamp
+) AS src
+ON trg.mli = src.mli
+   AND trg.stamp = src.stamp
+WHEN MATCHED THEN
+    UPDATE SET
+        elevation = ?,
+        discharge = ?
+WHEN NOT MATCHED THEN
+    INSERT (mli, stamp, elevation, discharge)
+    VALUES (src.mli, src.stamp, ?, ?);
+```
+
+Important note about delete logic
+- There was earlier intent to delete old `WaterData` rows older than 15 days for a station.
+- In the current project state that delete is not active.
+- Recreate the current behavior as-is unless explicitly told to restore the cleanup query.
+
+Resilience4j settings
+- Retry instance name: `sqlRetry`
+- Circuit breaker instance name: `sqlBreaker`
+- Retry:
+  - max attempts `3`
+  - wait duration `2s`
+  - retry `org.springframework.dao.DataAccessException`
+  - retry `java.sql.SQLException`
+- Circuit breaker:
+  - sliding window size `10`
+  - minimum number of calls `5`
+  - failure rate threshold `50`
+  - wait duration in open state `30s`
+
+Logging
+- Root logging level `INFO`
+- App logging level `INFO` for `com.fishfind.water`
+- Log:
+  - worker start
+  - supported station count
+  - each processed station
+  - CSV fetch success
+  - save start/end with reading counts
+  - failures and station disable events
+
+Docker expectations
+- Multi-stage Dockerfile is acceptable
+- Build jar with Maven
+- Runtime container launches:
+  - `java $JAVA_OPTS -jar /app/water-station-pusher.jar`
+- Do not bake the real `.env` into the jar or image resources
+
+Files to include
+- `pom.xml`
+- `src/main/java/com/fishfind/water/WaterStationPusherApplication.java`
+- `src/main/java/com/fishfind/water/domain/Reading.java`
+- `src/main/java/com/fishfind/water/domain/StationRef.java`
+- `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
+- `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
+- `src/main/java/com/fishfind/water/service/CsvFetcher.java`
+- `src/main/java/com/fishfind/water/service/StationProcessor.java`
+- `src/main/java/com/fishfind/water/service/StationWorker.java`
+- `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
+- `src/main/resources/application.yml`
+- `src/main/resources/logback-spring.xml`
+- `.env.example`
+- `.dockerignore`
+- `Dockerfile`
+
+Do not include
+- Real secrets
+- A committed production `.env`
+- The real `.env` under `src/main/resources`
+
+If rebuilding from this specification, reproduce current behavior faithfully rather than improving architecture unless asked.
