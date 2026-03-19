@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.ZonedDateTime;
+
 @Component
 public class StationWorker implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(StationWorker.class);
@@ -16,9 +19,6 @@ public class StationWorker implements ApplicationRunner {
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
-
-    @Value("${water.worker.pause-between-cycles-ms:300000}")
-    private long pauseBetweenCyclesMs;
 
     public StationWorker(WaterStationRepository repo, StationProcessor processor) {
         this.repo = repo;
@@ -39,15 +39,36 @@ public class StationWorker implements ApplicationRunner {
 
     private void loop() {
         while (true) {
+            int processed = 0;
             try {
-                int processed = runOnce(null);
-                log.info("Worker cycle completed. processedStations={} sleepMs={}", processed, pauseBetweenCyclesMs);
-                Thread.sleep(pauseBetweenCyclesMs);
-
+                processed = runOnce(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.info("Station worker interrupted. thread={}", Thread.currentThread().getName());
+                return;
             } catch (Exception e) {
                 log.error("Station worker loop failed", e);
             }
+
+            long sleepMs = millisUntilNextHour();
+            ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
+            log.info("Worker cycle completed. processedStations={} nextRunAt={} sleepMs={}",
+                    processed, nextRunAt, sleepMs);
+
+            try {
+                Thread.sleep(sleepMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.info("Station worker interrupted during sleep. thread={}", Thread.currentThread().getName());
+                return;
+            }
         }
+    }
+
+    private long millisUntilNextHour() {
+        ZonedDateTime now = ZonedDateTime.now();
+        ZonedDateTime nextHour = now.plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        return Duration.between(now, nextHour).toMillis();
     }
 
     public int runOnce(String requestedMli) throws InterruptedException {
