@@ -6,6 +6,14 @@
   <component name="ChangeListManager">
     <list default="true" id="0cb2a5ea-ffca-4a0c-9249-51e9701c8c3e" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/WaterStationPusherApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/WaterStationPusherApplication.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/domain/Reading.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/domain/Reading.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/domain/StationRef.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/domain/StationRef.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterDataRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterDataRepository.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterStationRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterStationRepository.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/CsvFetcher.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/CsvFetcher.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/StationProcessor.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/StationProcessor.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/StationWorker.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/service/StationWorker.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

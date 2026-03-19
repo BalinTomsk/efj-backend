@@ -11,11 +11,19 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Persists parsed station readings into the legacy {@code dbo.WaterData} table.
+ */
 @Repository
 public class WaterDataRepository {
 
     private final JdbcTemplate jdbc;
 
+    /**
+     * Creates a repository backed by Spring JDBC.
+     *
+     * @param jdbc JDBC template used for SQL operations
+     */
     public WaterDataRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -33,6 +41,9 @@ public class WaterDataRepository {
      * - Resilience4j is applied only to SQL operations.
      * - Entire station save runs in one transaction.
      * - CSV timestamp should already be parsed as OffsetDateTime/Instant in Reading.
+     *
+     * @param mli station identifier
+     * @param readings readings to upsert for the station
      */
     @Transactional
     @Retry(name = "sqlRetry")
@@ -93,11 +104,24 @@ public class WaterDataRepository {
         }
     }
 
+    /**
+     * Converts a Resilience4j fallback callback into an unchecked failure for the caller.
+     *
+     * @param mli station identifier
+     * @param readings readings that failed to save
+     * @param ex original SQL-related exception
+     */
     @SuppressWarnings("unused")
     public void fallback(String mli, List<Reading> readings, Throwable ex) {
         throw new RuntimeException("SQL save failed for station " + mli, ex);
     }
 
+    /**
+     * Converts an instant to a JDBC timestamp.
+     *
+     * @param instant instant to convert
+     * @return JDBC timestamp representation
+     */
     private Timestamp toTimestamp(Instant instant) {
         return Timestamp.from(instant);
     }

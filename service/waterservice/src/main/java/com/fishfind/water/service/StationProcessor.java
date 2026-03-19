@@ -12,6 +12,9 @@ import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Coordinates fetch, parse, save, and failure tracking for one station at a time.
+ */
 @Service
 public class StationProcessor {
     private static final Logger log = LoggerFactory.getLogger(StationProcessor.class);
@@ -21,6 +24,13 @@ public class StationProcessor {
     private final WaterDataRepository dataRepo;
     private final WaterStationRepository stationRepo;
 
+    /**
+     * Creates a processor with the collaborators required for station handling.
+     *
+     * @param fetcher CSV fetcher used to download source data
+     * @param dataRepo repository used to persist parsed readings
+     * @param stationRepo repository used to disable failing stations
+     */
     public StationProcessor(CsvFetcher fetcher,
                             WaterDataRepository dataRepo,
                             WaterStationRepository stationRepo) {
@@ -29,6 +39,14 @@ public class StationProcessor {
         this.stationRepo = stationRepo;
     }
 
+    /**
+     * Processes one station by downloading its CSV, parsing readings, and persisting them.
+     * Repeated failures are tracked per day and disable the station after three failures.
+     *
+     * @param mli station identifier
+     * @param state Canadian province code used in the CSV URL
+     * @param tz station timezone metadata from the database
+     */
     public void process(String mli, String state, int tz) {
         try {
             var csv = fetcher.fetch(state, mli);
@@ -50,6 +68,12 @@ public class StationProcessor {
         }
     }
 
+    /**
+     * Increments the per-day failure counter for a station.
+     *
+     * @param mli station identifier
+     * @return the updated number of failures for the current day
+     */
     private int incrementFailureCount(String mli) {
         LocalDate today = LocalDate.now();
         return failureStates.compute(mli, (key, existing) -> {
@@ -61,6 +85,12 @@ public class StationProcessor {
         }).count();
     }
 
+    /**
+     * Parses downloaded CSV rows into domain readings while skipping the header and malformed rows.
+     *
+     * @param csv CSV rows split into columns
+     * @return parsed readings ready for persistence
+     */
     private List<Reading> parse(List<String[]> csv) {
         List<Reading> list = new ArrayList<>();
 
@@ -92,10 +122,22 @@ public class StationProcessor {
         return list;
     }
 
+    /**
+     * Trims a string value, preserving {@code null}.
+     *
+     * @param s raw input value
+     * @return trimmed value or {@code null}
+     */
     private String trim(String s) {
         return s == null ? null : s.trim();
     }
 
+    /**
+     * Parses a numeric string into a {@link Double}.
+     *
+     * @param s raw numeric text
+     * @return parsed number, or {@code null} for blank input
+     */
     private Double parseDouble(String s) {
         if (s == null || s.trim().isEmpty()) {
             return null;
@@ -103,6 +145,12 @@ public class StationProcessor {
         return Double.parseDouble(s.trim());
     }
 
+    /**
+     * Tracks failure count for a station on a specific calendar day.
+     *
+     * @param day day the failures apply to
+     * @param count number of failures recorded on that day
+     */
     private record FailureState(LocalDate day, int count) {
     }
 }

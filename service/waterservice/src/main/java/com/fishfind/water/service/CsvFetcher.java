@@ -10,6 +10,9 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+/**
+ * Downloads hourly hydrometric CSV files from Environment Canada.
+ */
 @Service
 public class CsvFetcher {
     private static final Logger log = LoggerFactory.getLogger(CsvFetcher.class);
@@ -20,6 +23,14 @@ public class CsvFetcher {
     @Value("${water.worker.read-timeout-ms:30000}")
     private int readTimeout;
 
+    /**
+     * Fetches the raw CSV rows for a station.
+     *
+     * @param state Canadian province code used in the source URL
+     * @param mli station identifier
+     * @return CSV rows split by comma
+     * @throws Exception when the remote file cannot be fetched successfully
+     */
     public List<String[]> fetch(String state, String mli) throws Exception {
         String url = String.format(
             "https://dd.weather.gc.ca/today/hydrometric/csv/%s/hourly/%s_%s_hourly_hydrometric.csv",
