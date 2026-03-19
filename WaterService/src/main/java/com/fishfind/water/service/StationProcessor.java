@@ -3,6 +3,8 @@ package com.fishfind.water.service;
 import com.fishfind.water.domain.Reading;
 import com.fishfind.water.repo.WaterDataRepository;
 import com.fishfind.water.repo.WaterStationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -12,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class StationProcessor {
+    private static final Logger log = LoggerFactory.getLogger(StationProcessor.class);
     private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
     private final CsvFetcher fetcher;
@@ -27,20 +30,22 @@ public class StationProcessor {
     }
 
     public void process(String mli, String state, int tz) {
-
         try {
             var csv = fetcher.fetch(state, mli);
             var readings = parse(csv);
 
-            System.out.println("Saving station: " + mli + " in[" + state + "]");
+            log.info("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
             dataRepo.saveStationData(mli, readings);
             failureStates.remove(mli);
+            log.info("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
 
         } catch (Exception ex) {
             int failures = incrementFailureCount(mli);
+            log.warn("Station processing failed. station={} state={} failuresToday={}", mli, state, failures, ex);
             if (failures >= 3) {
                 stationRepo.disableStation(mli);
                 failureStates.remove(mli);
+                log.error("Disabled station after repeated failures. station={} state={} failuresToday={}", mli, state, failures);
             }
         }
     }

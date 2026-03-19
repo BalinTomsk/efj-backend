@@ -31,13 +31,17 @@ public class StationWorker implements ApplicationRunner {
             return;
         }
 
-        new Thread(this::loop).start();
+        Thread workerThread = new Thread(this::loop, "water-station-worker");
+        workerThread.setDaemon(false);
+        workerThread.start();
+        log.info("Started background station worker thread. thread={}", workerThread.getName());
     }
 
     private void loop() {
         while (true) {
             try {
-                runOnce(null);
+                int processed = runOnce(null);
+                log.info("Worker cycle completed. processedStations={} sleepMs={}", processed, pauseBetweenCyclesMs);
                 Thread.sleep(pauseBetweenCyclesMs);
 
             } catch (Exception e) {
@@ -48,7 +52,8 @@ public class StationWorker implements ApplicationRunner {
 
     public int runOnce(String requestedMli) throws InterruptedException {
         var stations = repo.findSupported();
-        System.out.println("Loaded stations: " + stations.size());
+        log.info("Loaded supported stations. count={} requestedStation={}", stations.size(),
+                requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
         int processed = 0;
 
         for (var station : stations) {
@@ -57,7 +62,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             processor.process(station.mli(), station.state(), station.tz());
-            System.out.println("Processed: " + station.mli());
+            log.info("Processed station. station={} state={}", station.mli(), station.state());
             processed++;
 
             if (pauseBetweenStationsMs > 0) {
