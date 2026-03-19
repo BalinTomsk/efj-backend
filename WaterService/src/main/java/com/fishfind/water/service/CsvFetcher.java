@@ -31,6 +31,7 @@ public class CsvFetcher {
         if (conn.getResponseCode() != 200) {
             throw new RuntimeException("HTTP error " + conn.getResponseCode());
         }
+        System.out.println("Loaded station: " + mli + " in[" + state + "]");
 
         try (BufferedReader br = new BufferedReader(
                 new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {

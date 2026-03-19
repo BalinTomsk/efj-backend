@@ -17,7 +17,7 @@ public class WaterStationRepository {
 
     public List<StationRef> findSupported() {
         return jdbc.query(
-            "SELECT mli, state, ISNULL(tz,0) tz FROM WaterStation WHERE supported = 1",
+            "SELECT mli, state, ISNULL(tz,0) tz FROM WaterStation WHERE country = 'CA' AND supported = 1",
             (rs, i) -> new StationRef(
                 rs.getString("mli"),
                 rs.getString("state"),

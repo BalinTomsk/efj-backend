@@ -48,6 +48,7 @@ public class StationWorker implements ApplicationRunner {
 
     public int runOnce(String requestedMli) throws InterruptedException {
         var stations = repo.findSupported();
+        System.out.println("Loaded stations: " + stations.size());
         int processed = 0;
 
         for (var station : stations) {
@@ -56,6 +57,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             processor.process(station.mli(), station.state(), station.tz());
+            System.out.println("Processed: " + station.mli());
             processed++;
 
             if (pauseBetweenStationsMs > 0) {

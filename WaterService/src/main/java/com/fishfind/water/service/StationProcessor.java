@@ -1,27 +1,28 @@
 package com.fishfind.water.service;
 
 import com.fishfind.water.domain.Reading;
-import com.fishfind.water.repo.*;
+import com.fishfind.water.repo.WaterDataRepository;
+import com.fishfind.water.repo.WaterStationRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class StationProcessor {
+    private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
     private final CsvFetcher fetcher;
     private final WaterDataRepository dataRepo;
-    private final FailureRepository failureRepo;
     private final WaterStationRepository stationRepo;
 
     public StationProcessor(CsvFetcher fetcher,
                             WaterDataRepository dataRepo,
-                            FailureRepository failureRepo,
                             WaterStationRepository stationRepo) {
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
-        this.failureRepo = failureRepo;
         this.stationRepo = stationRepo;
     }
 
@@ -31,17 +32,28 @@ public class StationProcessor {
             var csv = fetcher.fetch(state, mli);
             var readings = parse(csv);
 
+            System.out.println("Saving station: " + mli + " in[" + state + "]");
             dataRepo.saveStationData(mli, readings);
+            failureStates.remove(mli);
 
         } catch (Exception ex) {
-
-            int failures = failureRepo.countToday(mli);
-            failureRepo.insert(mli);
-
-            if (failures >= 2) {
+            int failures = incrementFailureCount(mli);
+            if (failures >= 3) {
                 stationRepo.disableStation(mli);
+                failureStates.remove(mli);
             }
         }
+    }
+
+    private int incrementFailureCount(String mli) {
+        LocalDate today = LocalDate.now();
+        return failureStates.compute(mli, (key, existing) -> {
+            if (existing == null || !existing.day().equals(today)) {
+                return new FailureState(today, 1);
+            }
+
+            return new FailureState(today, existing.count() + 1);
+        }).count();
     }
 
     private List<Reading> parse(List<String[]> csv) {
@@ -84,5 +96,8 @@ public class StationProcessor {
             return null;
         }
         return Double.parseDouble(s.trim());
+    }
+
+    private record FailureState(LocalDate day, int count) {
     }
 }

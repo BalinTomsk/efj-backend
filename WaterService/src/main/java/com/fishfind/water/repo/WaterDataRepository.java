@@ -45,7 +45,7 @@ public class WaterDataRepository {
         if (readings == null || readings.isEmpty()) {
             return;
         }
-
+/*
         jdbc.update(
                 """
                 DELETE FROM dbo.WaterData
@@ -54,7 +54,7 @@ public class WaterDataRepository {
                 """,
                 mli
         );
-
+*/
         final String mergeSql =
                 """
                 MERGE dbo.WaterData AS trg
