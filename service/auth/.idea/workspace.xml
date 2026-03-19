@@ -6,21 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="d5b908e7-b055-409c-a59e-13e0473ac5fc" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/api/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/api/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/AuthPaths.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" beforeDir="false" afterPath="$PROJECT_DIR$/api/src/main/java/info/fishfind/auth/api/dto/AuthDtos.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/SecurityConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/config/WebConfig.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/domain/User.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/domain/User.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/repository/UserRowMapper.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/service/AuthService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/AuthController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main/java/info/fishfind/auth/web/HealthController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/repository/UserRepositoryTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/repository/UserRepositoryTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/repository/UserRowMapperTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/repository/UserRowMapperTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/service/AuthServiceTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/service/AuthServiceTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/web/AuthControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/test/java/info/fishfind/auth/web/AuthControllerTest.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -28,7 +13,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="48" />
+    <option name="cachedIndexableFilesCount" value="53" />
   </component>
   <component name="ExportToHTMLSettings">
     <option name="OUTPUT_DIRECTORY" value="$PROJECT_DIR$/../auth\exportToHTML" />
@@ -74,6 +59,7 @@
     &quot;JUnit.RateLimitFilterTest.executor&quot;: &quot;Run&quot;,
     &quot;JUnit.UserRepositoryTest.executor&quot;: &quot;Run&quot;,
     &quot;JUnit.UserRowMapperTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.java in server.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
