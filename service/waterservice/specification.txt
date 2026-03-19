@@ -4,4 +4,4 @@
 4. run thread where process this list of stations
 5. read data from endpoint: https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv Where QC is state and 02JE025 is station
 6. when list of stations is processed and  read data from endpoint for particular station is failed 3 times during the calendar day then set  supported to false and remove this station from the list
-7. use the from attached aspx file to update/insert/delete operations with WaterData
+7. use logic the from attached aspx file and sql file with database script to update/insert/delete operations with WaterData

@@ -1,0 +1,7 @@
+.git
+.idea
+target
+schema
+scripts
+specification.txt
+src/main/resources/.env
