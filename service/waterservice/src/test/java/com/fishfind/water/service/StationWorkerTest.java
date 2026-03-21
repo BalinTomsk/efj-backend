@@ -56,6 +56,23 @@ class StationWorkerTest {
         assertTrue(processed == 1);
         verify(processor).process("B", "ON", -5);
         verify(processor, never()).process("A", "QC", -5);
+        verify(repo, times(1)).findSupported();
+    }
+
+    @Test
+    void runOnceProcessesAllStationsFromSingleLoadedList() throws Exception {
+        when(repo.findSupported()).thenReturn(List.of(
+                new StationRef("A", "QC", -5),
+                new StationRef("B", "ON", -5)
+        ));
+        ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
+
+        int processed = worker.runOnce(null);
+
+        assertTrue(processed == 2);
+        verify(processor).process("A", "QC", -5);
+        verify(processor).process("B", "ON", -5);
+        verify(repo, times(1)).findSupported();
     }
 
     @Test
