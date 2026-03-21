@@ -10,6 +10,11 @@
 
 This service has no HTTP API. It runs as a worker process.
 
+Deployment runbooks:
+
+- `docs/digitalocean.md` for initial DigitalOcean setup
+- `docs/update.md` for publishing a new image version and replacing the running Droplet container
+
 ## Requirements
 
 - Java 21

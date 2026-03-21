@@ -324,7 +324,19 @@ docker run -d --name water-station-pusher --restart unless-stopped -v C:\envoinx
 
 If you use a Linux path from Windows, Docker can create the mount target incorrectly and the application may fail with `java.io.IOException: Is a directory` while loading the dotenv file.
 
-## 5. Recommended setup for this service
+## 5. Update an existing Droplet deployment
+
+If the service is already running on a Droplet and you only need to publish a new image version and replace the running container, use [`update.md`](./update.md).
+
+That runbook covers:
+
+- building a new image version locally
+- pushing it to `registry.digitalocean.com/envfish/waterservice/water-station-pusher`
+- pulling it on the Droplet
+- replacing the running `water-station-pusher` container
+- keeping the mounted dotenv file and restart policy
+
+## 6. Recommended setup for this service
 
 Use this unless you have a reason not to:
 
