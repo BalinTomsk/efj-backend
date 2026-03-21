@@ -38,7 +38,7 @@ public class CsvFetcher {
 
         log.debug("Fetching hydrometric CSV. station={} state={} url={}", mli, state, url);
 
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        HttpURLConnection conn = openConnection(url);
         conn.setConnectTimeout(connectTimeout);
         conn.setReadTimeout(readTimeout);
         conn.setRequestProperty("User-Agent", "Mozilla/5.0");
@@ -58,5 +58,16 @@ public class CsvFetcher {
             }
             return list;
         }
+    }
+
+    /**
+     * Opens an HTTP connection for the requested CSV URL.
+     *
+     * @param url source URL to connect to
+     * @return opened HTTP connection
+     * @throws IOException when the connection cannot be created
+     */
+    HttpURLConnection openConnection(String url) throws IOException {
+        return (HttpURLConnection) new URL(url).openConnection();
     }
 }

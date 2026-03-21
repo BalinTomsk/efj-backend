@@ -282,7 +282,7 @@ mvn spring-boot:run "-Dspring-boot.run.jvmArguments=-Dlogging.level.com.fishfind
 From the project root:
 
 ```powershell
-docker build -t water-station-pusher:1.0.0 .
+docker build -t water-station-pusher:1.0.1 .
 ```
 
 This uses the multi-stage `Dockerfile`:
@@ -295,13 +295,13 @@ This uses the multi-stage `Dockerfile`:
 Save the built image to a tar archive:
 
 ```powershell
-docker save -o water-station-pusher-1.0.0.tar water-station-pusher:1.0.0
+docker save -o water-station-pusher-1.0.1.tar water-station-pusher:1.0.1
 ```
 
 Load it later on the same or another machine:
 
 ```powershell
-docker load -i water-station-pusher-1.0.0.tar
+docker load -i water-station-pusher-1.0.1.tar
 ```
 
 ## Run in Docker
@@ -313,7 +313,7 @@ This service does not expose an application port. The important runtime dependen
 Create `.env` in the project root, then run:
 
 ```powershell
-docker run --name water-station-pusher --env-file .env water-station-pusher:1.0.0
+docker run --name water-station-pusher --env-file .env water-station-pusher:1.0.1
 ```
 
 ### Option 2: pass environment variables directly
@@ -368,7 +368,7 @@ docker run --name water-station-pusher-console-debug `
   -e DB_USERNAME="your_username" `
   -e DB_PASSWORD="your_password" `
   -p 5005:5005 `
-  water-station-pusher:1.0.0 `
+  water-station-pusher:1.0.1 `
   sh -c "java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005 -jar /app/water-station-pusher.jar --console --station=02JE025"
 ```
 
