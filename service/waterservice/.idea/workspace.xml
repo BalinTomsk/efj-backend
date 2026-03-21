@@ -6,8 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="0cb2a5ea-ffca-4a0c-9249-51e9701c8c3e" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterDataRepository.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/fishfind/water/repo/WaterDataRepository.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/test/java/com/fishfind/water/repo/WaterDataRepositoryTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/test/java/com/fishfind/water/repo/WaterDataRepositoryTest.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -44,23 +42,25 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Application.WaterStationPusherApplication.executor&quot;: &quot;Debug&quot;,
-    &quot;JUnit.All in water-station-pusher.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/envoinx/fishfind/fishfind-backend/service/waterservice&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;project.propVCSSupport.DirectoryMappings&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.WaterStationPusherApplication.executor": "Debug",
+    "JUnit.All in water-station-pusher (1).executor": "Run",
+    "JUnit.All in water-station-pusher (2).executor": "Run",
+    "JUnit.All in water-station-pusher.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/envoinx/fishfind/fishfind-backend/service/waterservice",
+    "settings.editor.selected.configurable": "project.propVCSSupport.DirectoryMappings"
   }
-}</component>
-  <component name="RunManager" selected="JUnit.All in water-station-pusher (1)">
+}]]></component>
+  <component name="RunManager" selected="JUnit.All in water-station-pusher (2)">
     <configuration name="WaterStationPusherApplication" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="com.fishfind.water.WaterStationPusherApplication" />
       <module name="water-station-pusher" />
@@ -70,6 +70,14 @@
       </method>
     </configuration>
     <configuration name="All in water-station-pusher (1)" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="water-station-pusher" />
+      <option name="PACKAGE_NAME" value="" />
+      <option name="TEST_OBJECT" value="package" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="All in water-station-pusher (2)" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
       <module name="water-station-pusher" />
       <option name="PACKAGE_NAME" value="" />
       <option name="TEST_OBJECT" value="package" />
@@ -103,6 +111,7 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="JUnit.All in water-station-pusher (2)" />
         <item itemvalue="JUnit.All in water-station-pusher (1)" />
         <item itemvalue="JUnit.All in water-station-pusher" />
         <item itemvalue="Python tests.Python tests in test" />
