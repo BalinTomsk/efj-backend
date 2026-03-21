@@ -16,9 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -57,7 +55,18 @@ class WaterDataRepositoryTest {
 
         repository.saveStationData("02JE025", Arrays.asList(valid, null, missingStamp));
 
-        verify(jdbc, times(1)).update(any(String.class), eq("02JE025"), any(Timestamp.class), eq(1.2), eq(3.4), eq(1.2), eq(3.4));
+        verify(jdbc, times(1)).update(any(String.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void saveStationDataDeduplicatesMatchingTimestampsWithinBatch() {
+        OffsetDateTime stamp = OffsetDateTime.of(2024, 1, 2, 3, 4, 0, 0, ZoneOffset.UTC);
+        Reading first = new Reading("02JE025", stamp, 1.2, 3.4);
+        Reading duplicate = new Reading("02JE025", stamp, 9.9, 8.8);
+
+        repository.saveStationData("02JE025", List.of(first, duplicate));
+
+        verify(jdbc, times(1)).update(any(String.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

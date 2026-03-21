@@ -9,7 +9,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Persists parsed station readings into the legacy {@code dbo.WaterData} table.
@@ -66,42 +68,78 @@ public class WaterDataRepository {
                 mli
         );
 */
-        final String mergeSql =
+        final String upsertSql =
                 """
-                MERGE dbo.WaterData AS trg
-                USING (
-                    SELECT
-                        CAST(? AS varchar(64)) AS mli,
-                        CAST(? AS datetime2)   AS stamp
-                ) AS src
-                ON trg.mli = src.mli
-                   AND trg.stamp = src.stamp
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        elevation = ?,
-                        discharge = ?
-                WHEN NOT MATCHED THEN
-                    INSERT (mli, stamp, elevation, discharge)
-                    VALUES (src.mli, src.stamp, ?, ?);
+                UPDATE dbo.WaterData
+                SET elevation = ?,
+                    discharge = ?
+                WHERE mli = ?
+                  AND stamp = CAST(? AS datetime2);
+
+                IF @@ROWCOUNT = 0
+                BEGIN
+                    BEGIN TRY
+                        INSERT INTO dbo.WaterData (mli, stamp, elevation, discharge)
+                        VALUES (?, CAST(? AS datetime2), ?, ?);
+                    END TRY
+                    BEGIN CATCH
+                        IF ERROR_NUMBER() IN (2601, 2627)
+                        BEGIN
+                            UPDATE dbo.WaterData
+                            SET elevation = ?,
+                                discharge = ?
+                            WHERE mli = ?
+                              AND stamp = CAST(? AS datetime2);
+                        END
+                        ELSE
+                        BEGIN
+                            THROW;
+                        END
+                    END CATCH
+                END
                 """;
 
-        for (Reading reading : readings) {
-            if (reading == null || reading.stamp() == null) {
-                continue;
-            }
-
-            Timestamp stamp = Timestamp.from(reading.stamp().toInstant());
+        for (Reading reading : deduplicateByTimestamp(readings)) {
+            Timestamp stamp = toTimestamp(reading.stamp().toInstant());
 
             jdbc.update(
-                    mergeSql,
+                    upsertSql,
+                    reading.waterLevel(),  // goes to legacy "elevation" column
+                    reading.discharge(),
+                    mli,
+                    stamp,
                     mli,
                     stamp,
                     reading.waterLevel(),  // goes to legacy "elevation" column
                     reading.discharge(),
                     reading.waterLevel(),
-                    reading.discharge()
+                    reading.discharge(),
+                    mli,
+                    stamp
             );
         }
+    }
+
+    /**
+     * Collapses duplicate timestamps from a single CSV batch so each station/timestamp pair is saved once.
+     *
+     * @param readings raw parsed readings
+     * @return readings keyed by timestamp in original iteration order, keeping the latest duplicate
+     */
+    private List<Reading> deduplicateByTimestamp(List<Reading> readings) {
+        Map<Instant, Reading> uniqueReadings = new LinkedHashMap<>();
+        for (Reading reading : readings) {
+            if (reading == null || reading.stamp() == null) {
+                continue;
+            }
+
+            uniqueReadings.put(
+                    reading.stamp().toInstant(),
+                    reading
+            );
+        }
+
+        return List.copyOf(uniqueReadings.values());
     }
 
     /**
