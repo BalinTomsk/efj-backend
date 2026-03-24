@@ -16,11 +16,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * Coordinates fetch, parse, save, and failure tracking for one station at a time.
  */
 @Service
-public class StationProcessor {
-    private static final Logger log = LoggerFactory.getLogger(StationProcessor.class);
+public class StationProcessorCA {
+    private static final Logger log = LoggerFactory.getLogger(StationProcessorCA.class);
     private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
-    private final CsvFetcher fetcher;
+    private final CsvFetcherCA fetcher;
     private final WaterDataRepository dataRepo;
     private final WaterStationRepository stationRepo;
 
@@ -31,9 +31,9 @@ public class StationProcessor {
      * @param dataRepo repository used to persist parsed readings
      * @param stationRepo repository used to disable failing stations
      */
-    public StationProcessor(CsvFetcher fetcher,
-                            WaterDataRepository dataRepo,
-                            WaterStationRepository stationRepo) {
+    public StationProcessorCA(CsvFetcherCA fetcher,
+                              WaterDataRepository dataRepo,
+                              WaterStationRepository stationRepo) {
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
         this.stationRepo = stationRepo;

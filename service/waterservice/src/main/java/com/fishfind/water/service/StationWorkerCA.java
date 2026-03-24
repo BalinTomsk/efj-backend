@@ -14,11 +14,11 @@ import java.time.ZonedDateTime;
  * Runs the background station-processing loop in normal application mode.
  */
 @Component
-public class StationWorker implements ApplicationRunner {
-    private static final Logger log = LoggerFactory.getLogger(StationWorker.class);
+public class StationWorkerCA implements ApplicationRunner {
+    private static final Logger log = LoggerFactory.getLogger(StationWorkerCA.class);
 
     private final WaterStationRepository repo;
-    private final StationProcessor processor;
+    private final StationProcessorCA processor;
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -29,7 +29,7 @@ public class StationWorker implements ApplicationRunner {
      * @param repo repository used to load supported stations
      * @param processor processor used to handle individual stations
      */
-    public StationWorker(WaterStationRepository repo, StationProcessor processor) {
+    public StationWorkerCA(WaterStationRepository repo, StationProcessorCA processor) {
         this.repo = repo;
         this.processor = processor;
     }

@@ -11,8 +11,8 @@ import static org.mockito.Mockito.when;
 
 class ConsoleDebugRunnerTest {
 
-    private final StationWorker stationWorker = mock(StationWorker.class);
-    private final ConsoleDebugRunner runner = new ConsoleDebugRunner(stationWorker);
+    private final StationWorkerCA stationWorkerCA = mock(StationWorkerCA.class);
+    private final ConsoleDebugRunner runner = new ConsoleDebugRunner(stationWorkerCA);
 
     @Test
     void runDoesNothingWithoutConsoleFlag() throws Exception {
@@ -20,26 +20,26 @@ class ConsoleDebugRunnerTest {
 
         runner.run(args);
 
-        verify(stationWorker, never()).runOnce(org.mockito.ArgumentMatchers.any());
+        verify(stationWorkerCA, never()).runOnce(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void runProcessesAllStationsWhenNoSpecificStationIsProvided() throws Exception {
         ApplicationArguments args = new DefaultApplicationArguments("--console");
-        when(stationWorker.runOnce(null)).thenReturn(3);
+        when(stationWorkerCA.runOnce(null)).thenReturn(3);
 
         runner.run(args);
 
-        verify(stationWorker).runOnce(null);
+        verify(stationWorkerCA).runOnce(null);
     }
 
     @Test
     void runProcessesRequestedStationWhenProvided() throws Exception {
         ApplicationArguments args = new DefaultApplicationArguments("--console", "--station=02JE025");
-        when(stationWorker.runOnce("02JE025")).thenReturn(1);
+        when(stationWorkerCA.runOnce("02JE025")).thenReturn(1);
 
         runner.run(args);
 
-        verify(stationWorker).runOnce("02JE025");
+        verify(stationWorkerCA).runOnce("02JE025");
     }
 }

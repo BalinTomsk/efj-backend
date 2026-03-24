@@ -20,12 +20,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class StationProcessorTest {
+class StationProcessorCATest {
 
-    private final CsvFetcher fetcher = mock(CsvFetcher.class);
+    private final CsvFetcherCA fetcher = mock(CsvFetcherCA.class);
     private final WaterDataRepository dataRepo = mock(WaterDataRepository.class);
     private final WaterStationRepository stationRepo = mock(WaterStationRepository.class);
-    private final StationProcessor processor = new StationProcessor(fetcher, dataRepo, stationRepo);
+    private final StationProcessorCA processor = new StationProcessorCA(fetcher, dataRepo, stationRepo);
 
     @Test
     void processFetchesParsesAndSavesReadingsOnSuccess() throws Exception {
@@ -92,19 +92,19 @@ class StationProcessorTest {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> failureStates() throws Exception {
-        Field field = StationProcessor.class.getDeclaredField("failureStates");
+        Field field = StationProcessorCA.class.getDeclaredField("failureStates");
         field.setAccessible(true);
         return (Map<String, Object>) field.get(processor);
     }
 
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Method method = StationProcessor.class.getDeclaredMethod(name, parameterTypes);
+        Method method = StationProcessorCA.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(processor, args);
     }
 
     private Object newFailureState(LocalDate day, int count) throws Exception {
-        Class<?> type = Class.forName("com.fishfind.water.service.StationProcessor$FailureState");
+        Class<?> type = Class.forName("com.fishfind.water.service.StationProcessorCA$FailureState");
         var constructor = type.getDeclaredConstructor(LocalDate.class, int.class);
         constructor.setAccessible(true);
         return constructor.newInstance(day, count);

@@ -16,11 +16,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
-class CsvFetcherTest {
+class CsvFetcherCATest {
 
     @Test
     void fetchReturnsSplitCsvRowsAndAppliesConnectionSettings() throws Exception {
-        CsvFetcher fetcher = spy(new CsvFetcher());
+        CsvFetcherCA fetcher = spy(new CsvFetcherCA());
         ReflectionTestUtils.setField(fetcher, "connectTimeout", 15000);
         ReflectionTestUtils.setField(fetcher, "readTimeout", 30000);
         FakeHttpURLConnection connection = new FakeHttpURLConnection(
@@ -42,7 +42,7 @@ class CsvFetcherTest {
 
     @Test
     void fetchThrowsOnNonSuccessStatus() throws Exception {
-        CsvFetcher fetcher = spy(new CsvFetcher());
+        CsvFetcherCA fetcher = spy(new CsvFetcherCA());
         ReflectionTestUtils.setField(fetcher, "connectTimeout", 1);
         ReflectionTestUtils.setField(fetcher, "readTimeout", 1);
         FakeHttpURLConnection connection = new FakeHttpURLConnection(new URL("https://example.test/file.csv"), 500, "");

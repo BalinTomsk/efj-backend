@@ -15,15 +15,15 @@ import org.springframework.stereotype.Component;
 public class ConsoleDebugRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(ConsoleDebugRunner.class);
 
-    private final StationWorker stationWorker;
+    private final StationWorkerCA stationWorkerCA;
 
     /**
      * Creates the console runner.
      *
-     * @param stationWorker worker used to execute a single processing pass
+     * @param stationWorkerCA worker used to execute a single processing pass
      */
-    public ConsoleDebugRunner(StationWorker stationWorker) {
-        this.stationWorker = stationWorker;
+    public ConsoleDebugRunner(StationWorkerCA stationWorkerCA) {
+        this.stationWorkerCA = stationWorkerCA;
     }
 
     /**
@@ -43,7 +43,7 @@ public class ConsoleDebugRunner implements ApplicationRunner {
                 : args.getOptionValues("station").get(0);
 
         log.info("Running console debug mode. station={}", station == null ? "<all>" : station);
-        int processed = stationWorker.runOnce(station);
+        int processed = stationWorkerCA.runOnce(station);
         log.info("Console debug mode finished. processedStations={}", processed);
     }
 }

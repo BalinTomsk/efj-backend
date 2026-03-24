@@ -14,8 +14,8 @@ import java.util.*;
  * Downloads hourly hydrometric CSV files from Environment Canada.
  */
 @Service
-public class CsvFetcher {
-    private static final Logger log = LoggerFactory.getLogger(CsvFetcher.class);
+public class CsvFetcherCA {
+    private static final Logger log = LoggerFactory.getLogger(CsvFetcherCA.class);
 
     @Value("${water.worker.connect-timeout-ms:15000}")
     private int connectTimeout;

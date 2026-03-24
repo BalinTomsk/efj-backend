@@ -17,11 +17,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class StationWorkerTest {
+class StationWorkerCATest {
 
     private final WaterStationRepository repo = mock(WaterStationRepository.class);
-    private final StationProcessor processor = mock(StationProcessor.class);
-    private final StationWorker worker = new StationWorker(repo, processor);
+    private final StationProcessorCA processor = mock(StationProcessorCA.class);
+    private final StationWorkerCA worker = new StationWorkerCA(repo, processor);
 
     @Test
     void runDoesNothingInConsoleMode() {
@@ -138,7 +138,7 @@ class StationWorkerTest {
     }
 
     private Object invokePrivate(String name, Class<?>... parameterTypes) throws Exception {
-        Method method = StationWorker.class.getDeclaredMethod(name, parameterTypes);
+        Method method = StationWorkerCA.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(worker);
     }
