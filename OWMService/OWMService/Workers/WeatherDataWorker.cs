@@ -54,7 +54,7 @@ namespace OWMService.Workers
                     await ProcessEnvDataAsync(stations, settings, cnn);
                     m_logger.LogInfo("Read all {stations.Count} OWS stations.");
 
-                    ProcessFishState(cnn);
+                    await ProcessFishStateAsync(cnn);
                     m_logger.LogInfo("Updated all {stations.Count} OWS/Fish related data.");
 
                     return true;
@@ -97,7 +97,7 @@ namespace OWMService.Workers
             var result = new List<StationData>();
 
             using (SqlCommand cmd = new SqlCommand(
-                "select top 100 mli, lat, lon, state from WaterStation w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)", cnn))
+                "select mli, lat, lon, state from WaterStation w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)", cnn))
             using (SqlDataReader dr = cmd.ExecuteReader())
             {
                 while (dr.Read())
@@ -126,7 +126,7 @@ namespace OWMService.Workers
             return SaveJSONOWSData(jsonData, mli, cnn);
         }
 
-        private void ProcessFishState(SqlConnection cnn)
+        private async Task ProcessFishStateAsync(SqlConnection cnn)
         {
             using (SqlCommand cmd = new SqlCommand())
             {
@@ -136,10 +136,12 @@ namespace OWMService.Workers
                 try
                 {
                     cmd.CommandText = "spPushSpeciesFromLakeToStation";
-                    cmd.ExecuteNonQuery();
+                    cmd.CommandTimeout = 30; // Default timeout
+                    await cmd.ExecuteNonQueryAsync();
 
                     cmd.CommandText = "spTotalUpdateProbability";
-                    cmd.ExecuteNonQuery();
+                    cmd.CommandTimeout = 300; // 5 minutes for long-running procedure
+                    await cmd.ExecuteNonQueryAsync();
                 }
                 catch (Exception ex)
                 {
@@ -189,7 +191,7 @@ namespace OWMService.Workers
             {
                 cmd.CommandType = CommandType.Text;
                 cmd.Connection = cnn;
-                cmd.CommandText = "UPDATE ows_meteo SET ows = @js WHERE mli = @mli";
+                cmd.CommandText = "UPDATE ows_meteo SET ows = @js, stamp=GETDATE() WHERE mli = @mli";
                 cmd.Parameters.Add("@js", SqlDbType.NVarChar);
                 cmd.Parameters.Add("@mli", SqlDbType.VarChar);
 
