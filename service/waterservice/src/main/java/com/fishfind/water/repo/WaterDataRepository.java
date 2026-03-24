@@ -1,6 +1,7 @@
 package com.fishfind.water.repo;
 
 import com.fishfind.water.domain.Reading;
+import com.fishfind.water.domain.UsSeriesReading;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -121,6 +122,38 @@ public class WaterDataRepository {
     }
 
     /**
+     * Saves USGS station series using the legacy stored procedure used by the old ASP.NET worker.
+     *
+     * @param mli station identifier
+     * @param state US state code
+     * @param seriesList parsed USGS variable payloads
+     */
+    @Transactional
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackUs")
+    public void saveUsStationData(String mli, String state, List<UsSeriesReading> seriesList) {
+        if (mli == null || mli.isBlank()) {
+            throw new IllegalArgumentException("mli must not be null or blank");
+        }
+        if (state == null || state.isBlank()) {
+            throw new IllegalArgumentException("state must not be null or blank");
+        }
+        if (seriesList == null || seriesList.isEmpty()) {
+            return;
+        }
+
+        final String sql = "EXEC dbo.sp_push_us_water_data ?, ?, ?, ?, ?";
+        for (UsSeriesReading series : seriesList) {
+            if (series == null || series.name() == null || series.name().isBlank() || series.xmlDoc() == null
+                    || series.xmlDoc().isBlank()) {
+                continue;
+            }
+
+            jdbc.update(sql, mli, state, series.name(), series.unit(), series.xmlDoc());
+        }
+    }
+
+    /**
      * Collapses duplicate timestamps from a single CSV batch so each station/timestamp pair is saved once.
      *
      * @param readings raw parsed readings
@@ -152,6 +185,19 @@ public class WaterDataRepository {
     @SuppressWarnings("unused")
     public void fallback(String mli, List<Reading> readings, Throwable ex) {
         throw new RuntimeException("SQL save failed for station " + mli, ex);
+    }
+
+    /**
+     * Converts a Resilience4j fallback callback for US stored-procedure saves into an unchecked failure.
+     *
+     * @param mli station identifier
+     * @param state US state code
+     * @param seriesList payloads that failed to save
+     * @param ex original SQL-related exception
+     */
+    @SuppressWarnings("unused")
+    public void fallbackUs(String mli, String state, List<UsSeriesReading> seriesList, Throwable ex) {
+        throw new RuntimeException("SQL save failed for US station " + mli, ex);
     }
 
     /**

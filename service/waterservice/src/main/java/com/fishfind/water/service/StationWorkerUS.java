@@ -11,49 +11,41 @@ import java.time.Duration;
 import java.time.ZonedDateTime;
 
 /**
- * Runs the background station-processing loop in normal application mode.
+ * Runs the US background station-processing loop in normal application mode.
  */
 @Component
-public class StationWorkerCA implements ApplicationRunner {
-    private static final Logger log = LoggerFactory.getLogger(StationWorkerCA.class);
+public class StationWorkerUS implements ApplicationRunner {
+    private static final Logger log = LoggerFactory.getLogger(StationWorkerUS.class);
 
     private final WaterStationRepository repo;
-    private final StationProcessorCA processorCA;
+    private final StationProcessorUS processorUS;
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
 
     /**
-     * Creates the background worker.
+     * Creates the US background worker.
      *
      * @param repo repository used to load supported stations
-     * @param processor processor used to handle individual stations
+     * @param processorUS processor used to handle individual US stations
      */
-    public StationWorkerCA(WaterStationRepository repo, StationProcessorCA processorCA) {
+    public StationWorkerUS(WaterStationRepository repo, StationProcessorUS processorUS) {
         this.repo = repo;
-        this.processorCA = processorCA;
+        this.processorUS = processorUS;
     }
 
-    /**
-     * Starts the background worker thread unless the application is running in console mode.
-     *
-     * @param args parsed application arguments
-     */
     @Override
     public void run(org.springframework.boot.ApplicationArguments args) {
         if (args.containsOption("console")) {
             return;
         }
 
-        Thread workerThread = new Thread(this::loop, "water-station-worker");
+        Thread workerThread = new Thread(this::loop, "water-station-worker-us");
         workerThread.setDaemon(false);
         workerThread.start();
-        log.info("Started background station worker thread. thread={}", workerThread.getName());
+        log.info("Started US background station worker thread. thread={}", workerThread.getName());
     }
 
-    /**
-     * Repeatedly processes all supported stations, then waits until the next hour boundary.
-     */
     private void loop() {
         while (true) {
             int processed = 0;
@@ -61,32 +53,27 @@ public class StationWorkerCA implements ApplicationRunner {
                 processed = runOnce(null);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.info("Station worker interrupted. thread={}", Thread.currentThread().getName());
+                log.info("US station worker interrupted. thread={}", Thread.currentThread().getName());
                 return;
             } catch (Exception e) {
-                log.error("Station worker loop failed", e);
+                log.error("US station worker loop failed", e);
             }
 
             long sleepMs = millisUntilNextHour();
             ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
-            log.info("Worker cycle completed. processedStations={} nextRunAt={} sleepMs={}",
+            log.info("US worker cycle completed. processedStations={} nextRunAt={} sleepMs={}",
                     processed, nextRunAt, sleepMs);
 
             try {
                 Thread.sleep(sleepMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.info("Station worker interrupted during sleep. thread={}", Thread.currentThread().getName());
+                log.info("US station worker interrupted during sleep. thread={}", Thread.currentThread().getName());
                 return;
             }
         }
     }
 
-    /**
-     * Calculates the delay until the next top-of-hour in the local system timezone.
-     *
-     * @return milliseconds to sleep before the next worker cycle
-     */
     private long millisUntilNextHour() {
         ZonedDateTime now = ZonedDateTime.now();
         ZonedDateTime nextHour = now.plusHours(1).withMinute(0).withSecond(0).withNano(0);
@@ -94,25 +81,25 @@ public class StationWorkerCA implements ApplicationRunner {
     }
 
     /**
-     * Processes either all supported stations or a single requested station.
+     * Processes either all supported US stations or a single requested station.
      *
      * @param requestedMli optional station identifier to filter by
      * @return number of processed stations
      * @throws InterruptedException when the worker is interrupted while waiting between stations
      */
     public int runOnce(String requestedMli) throws InterruptedException {
-        var stationsCA = repo.findSupported("CA");
-        log.info("Loaded supported stations. count={} requestedStation={}", stationsCA.size(),
+        var stationsUS = repo.findSupported("US");
+        log.info("Loaded supported US stations. count={} requestedStation={}", stationsUS.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
         int processed = 0;
 
-        for (var station : stationsCA) {
+        for (var station : stationsUS) {
             if (requestedMli != null && !requestedMli.isBlank() && !station.mli().equalsIgnoreCase(requestedMli)) {
                 continue;
             }
 
-            processorCA.process(station.mli(), station.state(), station.tz());
-            log.info("Processed station. station={} state={}", station.mli(), station.state());
+            processorUS.process(station.mli(), station.state(), station.tz());
+            log.info("Processed US station. station={} state={}", station.mli(), station.state());
             processed++;
 
             if (pauseBetweenStationsMs > 0) {

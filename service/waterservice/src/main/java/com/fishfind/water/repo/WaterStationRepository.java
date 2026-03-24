@@ -4,6 +4,7 @@ import com.fishfind.water.domain.StationRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.text.MessageFormat;
 import java.util.List;
 
 /**
@@ -24,13 +25,17 @@ public class WaterStationRepository {
     }
 
     /**
-     * Returns all supported Canadian stations that should be processed by the worker.
+     * Returns all supported stations for the requested country that should be processed by the worker.
      *
+     * @param country country code used to filter stations
      * @return list of supported station references
      */
-    public List<StationRef> findSupported() {
+    public List<StationRef> findSupported(String country) {
         return jdbc.query(
-            "SELECT mli, state, ISNULL(tz,0) tz FROM WaterStation WHERE country = 'CA' AND supported = 1",
+            MessageFormat.format(
+                "SELECT mli, state, ISNULL(tz,0) tz FROM WaterStation WHERE country = ''{0}'' AND supported = 1",
+                country
+            ),
             (rs, i) -> new StationRef(
                 rs.getString("mli"),
                 rs.getString("state"),

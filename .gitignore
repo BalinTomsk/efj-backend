@@ -7,14 +7,13 @@ target/
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
-.idea/workspace.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
 *.iws
 *.iml
 *.ipr
-WaterService/.idea
+service/waterservice/.idea/workspace.xml 
 
 
 ### VS Code ###

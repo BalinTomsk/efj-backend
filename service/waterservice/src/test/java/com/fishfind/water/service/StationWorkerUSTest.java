@@ -17,22 +17,22 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class StationWorkerCATest {
+class StationWorkerUSTest {
 
     private final WaterStationRepository repo = mock(WaterStationRepository.class);
-    private final StationProcessorCA processor = mock(StationProcessorCA.class);
-    private final StationWorkerCA worker = new StationWorkerCA(repo, processor);
+    private final StationProcessorUS processor = mock(StationProcessorUS.class);
+    private final StationWorkerUS worker = new StationWorkerUS(repo, processor);
 
     @Test
     void runDoesNothingInConsoleMode() {
         worker.run(new DefaultApplicationArguments("--console"));
 
-        verify(repo, never()).findSupported("CA");
+        verify(repo, never()).findSupported("US");
     }
 
     @Test
     void runStartsBackgroundThreadInNormalMode() throws Exception {
-        when(repo.findSupported("CA")).thenReturn(List.of());
+        when(repo.findSupported("US")).thenReturn(List.of());
 
         worker.run(new DefaultApplicationArguments());
 
@@ -40,39 +40,39 @@ class StationWorkerCATest {
         assertTrue(thread.isAlive());
         thread.interrupt();
         thread.join(Duration.ofSeconds(2).toMillis());
-        verify(repo, times(1)).findSupported("CA");
+        verify(repo, times(1)).findSupported("US");
     }
 
     @Test
     void runOnceProcessesAllStationsAndAppliesFilter() throws Exception {
-        when(repo.findSupported("CA")).thenReturn(List.of(
-                new StationRef("A", "QC", -5),
-                new StationRef("B", "ON", -5)
+        when(repo.findSupported("US")).thenReturn(List.of(
+                new StationRef("08312000", "NM", -7),
+                new StationRef("08313000", "NY", -5)
         ));
         ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
 
-        int processed = worker.runOnce("B");
+        int processed = worker.runOnce("08313000");
 
         assertTrue(processed == 1);
-        verify(processor).process("B", "ON", -5);
-        verify(processor, never()).process("A", "QC", -5);
-        verify(repo, times(1)).findSupported("CA");
+        verify(processor).process("08313000", "NY", -5);
+        verify(processor, never()).process("08312000", "NM", -7);
+        verify(repo, times(1)).findSupported("US");
     }
 
     @Test
     void runOnceProcessesAllStationsFromSingleLoadedList() throws Exception {
-        when(repo.findSupported("CA")).thenReturn(List.of(
-                new StationRef("A", "QC", -5),
-                new StationRef("B", "ON", -5)
+        when(repo.findSupported("US")).thenReturn(List.of(
+                new StationRef("08312000", "NM", -7),
+                new StationRef("08313000", "NY", -5)
         ));
         ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
 
         int processed = worker.runOnce(null);
 
         assertTrue(processed == 2);
-        verify(processor).process("A", "QC", -5);
-        verify(processor).process("B", "ON", -5);
-        verify(repo, times(1)).findSupported("CA");
+        verify(processor).process("08312000", "NM", -7);
+        verify(processor).process("08313000", "NY", -5);
+        verify(repo, times(1)).findSupported("US");
     }
 
     @Test
@@ -85,7 +85,7 @@ class StationWorkerCATest {
 
     @Test
     void loopStopsWhenInterruptedDuringSleep() throws Exception {
-        when(repo.findSupported("CA")).thenReturn(List.of());
+        when(repo.findSupported("US")).thenReturn(List.of());
 
         Thread thread = new Thread(() -> {
             try {
@@ -117,7 +117,7 @@ class StationWorkerCATest {
 
     private Thread findWorkerThread() {
         for (Thread thread : Thread.getAllStackTraces().keySet()) {
-            if ("water-station-worker".equals(thread.getName())) {
+            if ("water-station-worker-us".equals(thread.getName())) {
                 return thread;
             }
         }
@@ -128,7 +128,7 @@ class StationWorkerCATest {
         long deadline = System.currentTimeMillis() + 2000;
         while (System.currentTimeMillis() < deadline) {
             try {
-                verify(repo, times(1)).findSupported("CA");
+                verify(repo, times(1)).findSupported("US");
                 return;
             } catch (AssertionError ignored) {
                 Thread.sleep(25);
@@ -138,7 +138,7 @@ class StationWorkerCATest {
     }
 
     private Object invokePrivate(String name, Class<?>... parameterTypes) throws Exception {
-        Method method = StationWorkerCA.class.getDeclaredMethod(name, parameterTypes);
+        Method method = StationWorkerUS.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(worker);
     }

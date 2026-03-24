@@ -1,6 +1,7 @@
 package com.fishfind.water.repo;
 
 import com.fishfind.water.domain.Reading;
+import com.fishfind.water.domain.UsSeriesReading;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -87,6 +89,45 @@ class WaterDataRepositoryTest {
         Timestamp timestamp = (Timestamp) invokePrivate("toTimestamp", new Class<?>[]{Instant.class}, instant);
 
         assertEquals(Timestamp.from(instant), timestamp);
+    }
+
+    @Test
+    void saveUsStationDataRejectsBlankState() {
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> repository.saveUsStationData("08313000", " ", List.of())
+        );
+
+        assertEquals("state must not be null or blank", ex.getMessage());
+    }
+
+    @Test
+    void saveUsStationDataExecutesStoredProcedurePerValidSeries() {
+        repository.saveUsStationData("08313000", "NY", List.of(
+                new UsSeriesReading("Streamflow", "ft^3/s", "<root><a d=\"2024-01-02\" v=\"1.2\" /></root>"),
+                new UsSeriesReading(" ", "ft", "<root><a d=\"2024-01-02\" v=\"1.2\" /></root>"),
+                new UsSeriesReading("Gage height", "ft", "<root><a d=\"2024-01-02\" v=\"7.8\" /></root>")
+        ));
+
+        verify(jdbc, times(2)).update(
+                eq("EXEC dbo.sp_push_us_water_data ?, ?, ?, ?, ?"),
+                eq("08313000"),
+                eq("NY"),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void fallbackUsWrapsOriginalException() {
+        RuntimeException ex = assertThrows(
+                RuntimeException.class,
+                () -> repository.fallbackUs("08313000", "NY", List.of(), new IllegalStateException("sql failed"))
+        );
+
+        assertEquals("SQL save failed for US station 08313000", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
     }
 
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {

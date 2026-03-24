@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -32,9 +33,13 @@ class WaterStationRepositoryTest {
             return List.of(mapper.mapRow(rs, 0));
         });
 
-        List<StationRef> stations = repository.findSupported();
+        List<StationRef> stations = repository.findSupported("CA");
 
         assertEquals(List.of(new StationRef("02JE025", "QC", -5)), stations);
+        verify(jdbc).query(
+                argThat((String sql) -> sql.contains("country = 'CA'") && sql.contains("supported = 1")),
+                any(RowMapper.class)
+        );
     }
 
     @Test
