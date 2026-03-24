@@ -8,6 +8,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +85,30 @@ class StationWorkerUSTest {
     }
 
     @Test
+    void millisUntilNextHourReturnsZeroWhenCycleAlreadyExceededNextHourBoundary() throws Exception {
+        ZonedDateTime cycleStartedAt = ZonedDateTime.parse("2026-03-23T12:15:00-04:00[America/New_York]");
+        ZonedDateTime now = ZonedDateTime.parse("2026-03-23T13:05:00-04:00[America/New_York]");
+
+        long millis = (long) invokePrivate("millisUntilNextHour",
+                new Class<?>[]{ZonedDateTime.class, ZonedDateTime.class},
+                cycleStartedAt, now);
+
+        assertTrue(millis == 0);
+    }
+
+    @Test
+    void millisUntilNextHourReturnsRemainingDelayWithinCurrentCycleWindow() throws Exception {
+        ZonedDateTime cycleStartedAt = ZonedDateTime.parse("2026-03-23T12:15:00-04:00[America/New_York]");
+        ZonedDateTime now = ZonedDateTime.parse("2026-03-23T12:45:00-04:00[America/New_York]");
+
+        long millis = (long) invokePrivate("millisUntilNextHour",
+                new Class<?>[]{ZonedDateTime.class, ZonedDateTime.class},
+                cycleStartedAt, now);
+
+        assertTrue(millis == Duration.ofMinutes(15).toMillis());
+    }
+
+    @Test
     void loopStopsWhenInterruptedDuringSleep() throws Exception {
         when(repo.findSupported("US")).thenReturn(List.of());
 
@@ -141,5 +166,11 @@ class StationWorkerUSTest {
         Method method = StationWorkerUS.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(worker);
+    }
+
+    private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
+        Method method = StationWorkerUS.class.getDeclaredMethod(name, parameterTypes);
+        method.setAccessible(true);
+        return method.invoke(worker, args);
     }
 }

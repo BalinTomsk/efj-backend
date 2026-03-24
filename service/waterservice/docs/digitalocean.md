@@ -140,11 +140,15 @@ If you want one-shot console mode instead of the normal worker loop, override th
 java $JAVA_OPTS -jar /app/water-station-pusher.jar --console
 ```
 
+That runs the CA and US workers once in parallel and then exits.
+
 If you want one station only:
 
 ```sh
 java $JAVA_OPTS -jar /app/water-station-pusher.jar --console --station=02JE025
 ```
+
+The `--station` filter is passed to both workers. If the station id exists in only one country, the other worker processes zero stations.
 
 ### Deploy
 
@@ -155,9 +159,12 @@ java $JAVA_OPTS -jar /app/water-station-pusher.jar --console --station=02JE025
 
 Expected behavior:
 
-- the worker starts
+- the CA and US workers start
 - it connects to SQL Server
 - it begins processing stations
+- each worker pauses 1 second between station retrievals
+- each worker waits for the next top-of-hour only when its cycle finishes before that boundary
+- if a worker cycle runs longer than an hour, that worker starts the next cycle immediately
 - no public URL is created, because this is not a web app
 
 ## 3. Database connectivity notes

@@ -1,0 +1,16 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.kotlin
+!**/src/main\resources\application.yml 
+
+### IntelliJ IDEA ###
+.idea/*
+
+############################
+# Application secrets
+############################
+application.yml
+.env
+config.ini

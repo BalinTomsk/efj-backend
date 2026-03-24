@@ -2,8 +2,9 @@
 
 `water-station-pusher` is a Spring Boot 3 background service that:
 
-- reads supported Canadian water stations from SQL Server
-- downloads hourly hydrometric CSV files from Environment Canada
+- reads supported Canadian and US water stations from SQL Server
+- downloads hourly hydrometric CSV files from Environment Canada for CA stations
+- downloads WaterML payloads from USGS for US stations
 - parses the readings
 - upserts them into `dbo.WaterData`
 - disables a station after repeated fetch failures
@@ -26,14 +27,20 @@ Deployment runbooks:
 
 - `src/main/java/com/fishfind/water/WaterStationPusherApplication.java`
   Entry point. Loads credentials from environment variables or `.env` before Spring starts.
-- `src/main/java/com/fishfind/water/service/StationWorker.java`
-  Starts the background worker thread in normal mode.
+- `src/main/java/com/fishfind/water/service/StationWorkerCA.java`
+  Starts the Canadian background worker thread in normal mode.
+- `src/main/java/com/fishfind/water/service/StationWorkerUS.java`
+  Starts the US background worker thread in normal mode.
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
-  Runs exactly one processing pass when `--console` is used.
-- `src/main/java/com/fishfind/water/service/StationProcessor.java`
-  Fetches, parses, saves, and handles station failure tracking.
-- `src/main/java/com/fishfind/water/service/CsvFetcher.java`
+  Runs exactly one processing pass for both country workers in parallel when `--console` is used.
+- `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
+  Fetches, parses, saves, and handles failure tracking for Canadian stations.
+- `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
+  Fetches, parses, saves, and handles failure tracking for US stations.
+- `src/main/java/com/fishfind/water/service/CsvFetcherCA.java`
   Downloads CSV files from Environment Canada.
+- `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
+  Downloads WaterML payloads from USGS.
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
   Loads supported stations and disables failing stations.
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
@@ -78,14 +85,18 @@ The service supports two modes.
 
 ### Normal worker mode
 
-This is the default. The application starts Spring and then launches a non-daemon worker thread named `water-station-worker`.
+This is the default. The application starts Spring and then launches two non-daemon worker threads:
+
+- `water-station-worker` for CA stations
+- `water-station-worker-us` for US stations
 
 Worker behavior:
 
-- loads all supported Canadian stations from `WaterStation`
-- processes them one by one
-- sleeps between stations
-- after a full cycle, waits until the next top-of-hour before starting again
+- loads all supported CA and US stations from `WaterStation`
+- processes each country list one station at a time
+- sleeps 1 second between station retrievals
+- after a full cycle, waits until the next top-of-hour before starting again only if the cycle finished early
+- starts the next cycle immediately if processing already ran past that hour boundary
 - keeps running until the process is stopped
 
 ### Console mode
@@ -94,7 +105,7 @@ Use `--console` to run exactly one pass and then exit.
 
 Optional:
 
-- `--station=<MLI>` to process only one station
+- `--station=<MLI>` to process only one station id across both country workers
 
 Examples:
 
@@ -106,13 +117,15 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--console"
 mvn spring-boot:run "-Dspring-boot.run.arguments=--console --station=02JE025"
 ```
 
+Console mode runs the CA and US workers in parallel for that single pass. If the requested station id only exists in one country, the other worker simply processes zero stations.
+
 Console mode is the easiest way to debug one station without waiting for the full worker loop.
 
 ## Worker settings
 
 Defined in `src/main/resources/application.yml`:
 
-- `water.worker.pause-between-stations-ms=1500`
+- `water.worker.pause-between-stations-ms=1000`
 - `water.worker.connect-timeout-ms=15000`
 - `water.worker.read-timeout-ms=30000`
 
@@ -215,15 +228,18 @@ Recommended first breakpoint locations:
 
 - `WaterStationPusherApplication.main`
 - `ConsoleDebugRunner.run`
-- `StationWorker.runOnce`
-- `StationProcessor.process`
-- `CsvFetcher.fetch`
+- `StationWorkerCA.runOnce`
+- `StationWorkerUS.runOnce`
+- `StationProcessorCA.process`
+- `StationProcessorUS.process`
+- `CsvFetcherCA.fetch`
+- `XmlFetcherUS.fetch`
 - `WaterDataRepository.saveStationData`
 
 Why `--console` is useful:
 
 - it avoids the infinite worker loop
-- it runs a single pass
+- it runs a single pass for both country workers
 - it exits cleanly after the station run
 - it makes repeatable debugging much easier
 
@@ -269,9 +285,11 @@ The service logs to standard output.
 Typical events:
 
 - worker thread start
+- US worker thread start
 - supported station count
 - station processing progress
 - CSV fetch success
+- USGS fetch success
 - save start and save finish
 - failure counts
 - station disable after 3 failures in one day
@@ -464,7 +482,7 @@ For most development tasks:
 
 1. Put valid credentials in root `.env`.
 2. Run with `--console --station=<MLI>`.
-3. Place breakpoints in `StationProcessor.process`, `CsvFetcher.fetch`, and `WaterDataRepository.saveStationData`.
+3. Place breakpoints in `StationProcessorCA.process` or `StationProcessorUS.process`, the matching fetcher, and `WaterDataRepository.saveStationData`.
 4. Once the station flow works, run normal worker mode.
 
 This is the fastest loop for verifying fetch, parse, and save behavior.

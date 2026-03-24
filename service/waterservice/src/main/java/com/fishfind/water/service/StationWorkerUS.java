@@ -49,6 +49,7 @@ public class StationWorkerUS implements ApplicationRunner {
     private void loop() {
         while (true) {
             int processed = 0;
+            ZonedDateTime cycleStartedAt = ZonedDateTime.now();
             try {
                 processed = runOnce(null);
             } catch (InterruptedException e) {
@@ -59,10 +60,14 @@ public class StationWorkerUS implements ApplicationRunner {
                 log.error("US station worker loop failed", e);
             }
 
-            long sleepMs = millisUntilNextHour();
+            long sleepMs = millisUntilNextHour(cycleStartedAt, ZonedDateTime.now());
             ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
             log.info("US worker cycle completed. processedStations={} nextRunAt={} sleepMs={}",
                     processed, nextRunAt, sleepMs);
+
+            if (sleepMs <= 0) {
+                continue;
+            }
 
             try {
                 Thread.sleep(sleepMs);
@@ -76,8 +81,20 @@ public class StationWorkerUS implements ApplicationRunner {
 
     private long millisUntilNextHour() {
         ZonedDateTime now = ZonedDateTime.now();
-        ZonedDateTime nextHour = now.plusHours(1).withMinute(0).withSecond(0).withNano(0);
-        return Duration.between(now, nextHour).toMillis();
+        return millisUntilNextHour(now, now);
+    }
+
+    /**
+     * Calculates the remaining delay until the next top-of-hour after a cycle started.
+     * If the cycle has already run past that boundary, the next cycle should begin immediately.
+     *
+     * @param cycleStartedAt timestamp captured at the beginning of the worker cycle
+     * @param now current timestamp when the cycle completed
+     * @return milliseconds to sleep before the next worker cycle, never negative
+     */
+    private long millisUntilNextHour(ZonedDateTime cycleStartedAt, ZonedDateTime now) {
+        ZonedDateTime nextHour = cycleStartedAt.plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        return Math.max(0, Duration.between(now, nextHour).toMillis());
     }
 
     /**
