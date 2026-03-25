@@ -1,14 +1,9 @@
 namespace OWMService.Logging
 {
     using System;
-    using System.IO;
-    using System.Text;
     using System.Diagnostics;
+    using System.IO;
 
-    /// <summary>
-    /// Logger that writes all messages to a file and errors to Windows Event Log.
-    /// Works in both Debug and Release modes, including Windows Service execution.
-    /// </summary>
     public class FileEventLogger : IEventLogger, IDisposable
     {
         private readonly string m_logFilePath;
@@ -17,41 +12,46 @@ namespace OWMService.Logging
 
         public FileEventLogger(string source, string logName, string logFilePath = null)
         {
-            // Simplest possible path determination
-            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string logDir = Path.Combine(appDataPath, "OWMService", "Logs");
-            m_logFilePath = Path.Combine(logDir, "OWMService.log");
+            string resolvedPath;
 
-            // Create directory
+            if (!string.IsNullOrWhiteSpace(logFilePath))
+            {
+                resolvedPath = Environment.ExpandEnvironmentVariables(logFilePath);
+            }
+            else
+            {
+                string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                resolvedPath = Path.Combine(programData, "OWMService", "Logs", "OWMService.log");
+            }
+
+            m_logFilePath = resolvedPath;
+            string logDir = Path.GetDirectoryName(m_logFilePath);
+
             try
             {
-                if (!Directory.Exists(logDir))
+                if (!string.IsNullOrWhiteSpace(logDir) && !Directory.Exists(logDir))
                 {
                     Directory.CreateDirectory(logDir);
                 }
-            }
-            catch { }
 
-            // Write test entry
-            try
-            {
-                File.AppendAllText(m_logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [INIT] Logger initialized\r\n");
+                File.AppendAllText(m_logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [INIT] Logger initialized{Environment.NewLine}");
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"LOGGER ERROR: {ex.Message}");
             }
 
-            // Event Log
             try
             {
                 if (!EventLog.SourceExists(source))
                 {
                     EventLog.CreateEventSource(source, logName);
                 }
+
                 m_eventLog = new EventLog { Source = source, Log = logName };
             }
-            catch { }
+            catch
+            {
+            }
         }
 
         public void LogInfo(string message) => Log(message, "INFO");
@@ -63,9 +63,11 @@ namespace OWMService.Logging
         {
             try
             {
-                File.AppendAllText(m_logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}\r\n");
+                File.AppendAllText(m_logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}{Environment.NewLine}");
             }
-            catch { }
+            catch
+            {
+            }
         }
 
         public void Dispose()
