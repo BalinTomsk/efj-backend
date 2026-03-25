@@ -24,12 +24,12 @@
 
         /// <summary> 
         /// Required method for Designer support - do not modify 
-        /// the contents of this method with the code editor.
+        /// the contents of this method.
         /// </summary>
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            this.ServiceName = "Service1";
+            // ServiceName is set in the constructor, not here
         }
 
         #endregion

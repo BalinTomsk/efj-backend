@@ -5,10 +5,6 @@ namespace OWMService.Tests.Workers
     using OWMService.Logging;
     using OWMService.Workers;
     using System;
-    using System.Collections.Generic;
-    using System.Data;
-    using System.Data.SqlClient;
-    using System.Threading.Tasks;
     using Xunit;
 
     public class WeatherDataWorkerTests
@@ -46,7 +42,7 @@ namespace OWMService.Tests.Workers
         #region Process Tests
 
         [Fact]
-        public void Process_WithEmptySettings_ShouldReturnFalse()
+        public void Process_WithEmptyConnectionString_ShouldReturnFalse()
         {
             // Arrange
             var settings = new Settings
@@ -59,48 +55,6 @@ namespace OWMService.Tests.Workers
 
             // Act
             var result = m_worker.Process(settings);
-
-            // Assert
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void Process_WithNullSettings_ShouldReturnFalse()
-        {
-            // Arrange
-            var settings = new Settings
-            {
-                Server = null,
-                DbName = null,
-                UserName = null,
-                UserPassword = null
-            };
-
-            // Act
-            var result = m_worker.Process(settings);
-
-            // Assert
-            Assert.False(result);
-        }
-
-        #endregion
-
-        #region ProcessAsync Tests
-
-        [Fact]
-        public async Task ProcessAsync_WithEmptyConnectionString_ShouldReturnFalse()
-        {
-            // Arrange
-            var settings = new Settings
-            {
-                Server = "",
-                DbName = "",
-                UserName = "",
-                UserPassword = ""
-            };
-
-            // Act
-            var result = await m_worker.ProcessAsync(settings);
 
             // Assert
             Assert.False(result);
@@ -108,7 +62,7 @@ namespace OWMService.Tests.Workers
         }
 
         [Fact]
-        public async Task ProcessAsync_WithNullConnectionString_ShouldReturnFalse()
+        public void Process_WithNullConnectionString_ShouldReturnFalse()
         {
             // Arrange
             var settings = new Settings
@@ -120,14 +74,14 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = await m_worker.ProcessAsync(settings);
+            var result = m_worker.Process(settings);
 
             // Assert
             Assert.False(result);
         }
 
         [Fact]
-        public async Task ProcessAsync_WithInvalidConnection_ShouldReturnFalseAndLogError()
+        public void Process_WithInvalidConnection_ShouldReturnFalseAndLogError()
         {
             // Arrange
             var settings = new Settings
@@ -139,7 +93,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = await m_worker.ProcessAsync(settings);
+            var result = m_worker.Process(settings);
 
             // Assert
             Assert.False(result);
@@ -149,26 +103,11 @@ namespace OWMService.Tests.Workers
                 "Should log error on connection failure");
         }
 
-        #endregion
-
-        #region IWeatherDataWorker Interface Tests
-
-        [Fact]
-        public void WeatherDataWorker_ShouldImplementIWeatherDataWorker()
-        {
-            // Assert
-            Assert.IsAssignableFrom<IWeatherDataWorker>(m_worker);
-        }
-
-        #endregion
-
-        #region Integration-Ready Tests
-
         [Theory]
         [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
-        public async Task ProcessAsync_WithVariousInvalidSettings_ShouldReturnFalse(string invalidValue)
+        public void Process_WithVariousInvalidSettings_ShouldReturnFalse(string invalidValue)
         {
             // Arrange
             var settings = new Settings
@@ -180,14 +119,37 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = await m_worker.ProcessAsync(settings);
+            var result = m_worker.Process(settings);
 
             // Assert
             Assert.False(result);
         }
 
         [Fact]
-        public void Process_ShouldCallProcessAsyncAndReturnResult()
+        public void Process_WithInvalidConnectionString_ShouldLogErrorMessage()
+        {
+            // Arrange
+            var settings = new Settings
+            {
+                Server = "nonexistent_server_xyz_invalid",
+                DbName = "testdb",
+                UserName = "invaliduser",
+                UserPassword = "invalidpass"
+            };
+
+            // Act
+            var result = m_worker.Process(settings);
+
+            // Assert
+            Assert.False(result);
+            m_mockLogger.Verify(
+                l => l.LogError(It.Is<string>(msg => msg.Contains("OWMService Failed to connect"))),
+                Times.Once,
+                "Should log connection failure message");
+        }
+
+        [Fact]
+        public void Process_ShouldReturnResult()
         {
             // Arrange
             var settings = new Settings
@@ -205,27 +167,15 @@ namespace OWMService.Tests.Workers
             Assert.False(result);
         }
 
+        #endregion
+
+        #region IWeatherDataWorker Interface Tests
+
         [Fact]
-        public async Task ProcessAsync_WithInvalidConnectionString_ShouldLogErrorMessage()
+        public void WeatherDataWorker_ShouldImplementIWeatherDataWorker()
         {
-            // Arrange
-            var settings = new Settings
-            {
-                Server = "nonexistent_server_xyz_invalid",
-                DbName = "testdb",
-                UserName = "invaliduser",
-                UserPassword = "invalidpass"
-            };
-
-            // Act
-            var result = await m_worker.ProcessAsync(settings);
-
             // Assert
-            Assert.False(result);
-            m_mockLogger.Verify(
-                l => l.LogError(It.Is<string>(msg => msg.Contains("OWMService Failed to connect"))),
-                Times.Once,
-                "Should log connection failure message");
+            Assert.IsAssignableFrom<IWeatherDataWorker>(m_worker);
         }
 
         #endregion

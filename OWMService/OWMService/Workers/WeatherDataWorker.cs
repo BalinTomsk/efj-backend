@@ -6,11 +6,12 @@ namespace OWMService.Workers
     using System.Collections.Generic;
     using System.Data;
     using System.Data.SqlClient;
+    using System.IO;
     using System.Net;
     using System.Net.Http;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
- 
+
     public class WeatherDataWorker : IWeatherDataWorker
     {
         private readonly IEventLogger m_logger;
@@ -32,16 +33,12 @@ namespace OWMService.Workers
 
         public bool Process(Settings settings)
         {
-            return ProcessAsync(settings).GetAwaiter().GetResult();
-        }
-
-        public async Task<bool> ProcessAsync(Settings settings)
-        {
             string conStr = settings.GetConnectionString();
             if (string.IsNullOrEmpty(conStr))
             {
                 return false;
             }
+
             try
             {
                 using (SqlConnection cnn = new SqlConnection(conStr))
@@ -51,11 +48,11 @@ namespace OWMService.Workers
                     List<StationData> stations = GetListOwsMeteo(cnn);
                     m_logger.LogInfo($"Get {stations.Count} OWS stations.");
 
-                    await ProcessEnvDataAsync(stations, settings, cnn);
-                    m_logger.LogInfo("Read all {stations.Count} OWS stations.");
+                    ProcessEnvData(stations, settings, cnn);
+                    m_logger.LogInfo($"Read all {stations.Count} OWS stations.");
 
-                    await ProcessFishStateAsync(cnn);
-                    m_logger.LogInfo("Updated all {stations.Count} OWS/Fish related data.");
+                    ProcessFishState(cnn);
+                    m_logger.LogInfo($"Updated all {stations.Count} OWS/Fish related data.");
 
                     return true;
                 }
@@ -67,7 +64,7 @@ namespace OWMService.Workers
             }
         }
 
-        private async Task ProcessEnvDataAsync(List<StationData> stations, Settings settings, SqlConnection cnn)
+        private void ProcessEnvData(List<StationData> stations, Settings settings, SqlConnection cnn)
         {
             try
             {
@@ -77,7 +74,7 @@ namespace OWMService.Workers
                 {
                     try
                     {
-                        await ProcessOWSPointAsync(item.Mli, item.Latitude, item.Longitude, settings, cnn);
+                        ProcessOWSPoint(item.Mli, item.Latitude, item.Longitude, settings, cnn);
                         i++;
                     }
                     catch (Exception ex)
@@ -114,9 +111,9 @@ namespace OWMService.Workers
             return result;
         }
 
-        private async Task<bool> ProcessOWSPointAsync(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
+        private bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
         {
-            string jsonData = await ReadJSONOWSDataAsync(lat, lon, settings);
+            string jsonData = ReadJSONOWSData(lat, lon, settings);
 
             if (string.IsNullOrEmpty(jsonData))
             {
@@ -126,22 +123,21 @@ namespace OWMService.Workers
             return SaveJSONOWSData(jsonData, mli, cnn);
         }
 
-        private async Task ProcessFishStateAsync(SqlConnection cnn)
+        private void ProcessFishState(SqlConnection cnn)
         {
             using (SqlCommand cmd = new SqlCommand())
             {
                 cmd.CommandType = CommandType.StoredProcedure;
                 cmd.Connection = cnn;
+                cmd.CommandTimeout = 300; // 5 minutes timeout
 
                 try
                 {
                     cmd.CommandText = "spPushSpeciesFromLakeToStation";
-                    cmd.CommandTimeout = 30; // Default timeout
-                    await cmd.ExecuteNonQueryAsync();
+                    cmd.ExecuteNonQuery();
 
                     cmd.CommandText = "spTotalUpdateProbability";
-                    cmd.CommandTimeout = 300; // 5 minutes for long-running procedure
-                    await cmd.ExecuteNonQueryAsync();
+                    cmd.ExecuteNonQuery();
                 }
                 catch (Exception ex)
                 {
@@ -150,26 +146,34 @@ namespace OWMService.Workers
             }
         }
 
-        private async Task<string> ReadJSONOWSDataAsync(float lat, float lon, Settings settings)
+        private string ReadJSONOWSData(float lat, float lon, Settings settings)
         {
+            System.Threading.Thread.Sleep(1000);
             try
             {
                 string url = $"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={settings.Wunderground}";
 
-                using (HttpResponseMessage response = await m_httpClient.GetAsync(url))
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "GET";
+                request.Timeout = 30000;
+                request.ReadWriteTimeout = 30000;
+
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    if (!response.IsSuccessStatusCode)
+                    if (response.StatusCode != HttpStatusCode.OK)
                     {
                         m_logger.LogError($"ReadJSONOWSData: HTTP {response.StatusCode}");
                         return "";
                     }
 
-                    string result = await response.Content.ReadAsStringAsync();
-                    
-                    // Optimize escape sequence removal: use regex instead of multiple Replace calls
-                    result = m_escapeSequenceRegex.Replace(result, "\"");
-
-                    return result;
+                    using (Stream responseStream = response.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(responseStream))
+                    {
+                        string result = reader.ReadToEnd();
+                        // Optimize escape sequence removal: use regex instead of multiple Replace calls
+                        result = m_escapeSequenceRegex.Replace(result, "\"");
+                        return result;
+                    }
                 }
             }
             catch (Exception ex)
@@ -208,6 +212,7 @@ namespace OWMService.Workers
                     return false;
                 }
             }
+
             m_logger.LogInfo($"Processed {mli} station.");
             return true;
         }
