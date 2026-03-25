@@ -128,6 +128,7 @@ namespace OWMService
 
         private void TimerElapsed(object sender, ElapsedEventArgs e)
         {
+            // Only process if NOT already processing
             if (m_bFlagProcessing)
             {
                 return;
@@ -140,6 +141,10 @@ namespace OWMService
                 m_logger.LogInfo("OWMService running at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 m_weatherDataWorker.Process(m_settings);
             }
+            catch (Exception ex)
+            {
+                m_logger.LogError($"Error in TimerElapsed: {ex.Message}");
+            }
             finally
             {
                 m_bFlagProcessing = false;
@@ -148,6 +153,7 @@ namespace OWMService
 
         public void StartDebug(string[] args)
         {
+            m_bFlagProcessing = false;  // Allow processing in debug mode
             OnStart(args);
             m_weatherDataWorker.Process(m_settings);
         }

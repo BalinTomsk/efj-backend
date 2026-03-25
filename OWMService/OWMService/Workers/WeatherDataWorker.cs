@@ -208,7 +208,7 @@ namespace OWMService.Workers
                     return false;
                 }
             }
-
+            m_logger.LogInfo($"Processed {mli} station.");
             return true;
         }
     }

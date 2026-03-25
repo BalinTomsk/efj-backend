@@ -100,6 +100,7 @@
     <Compile Include="Logging\IEventLogger.cs" />
     <Compile Include="Logging\LoggerFactory.cs" />
     <Compile Include="OWMService.Tests\Workers\WeatherDataWorkerTests.cs" />
+    <Compile Include="OWMService\Logging\FileEventLogger.cs" />
     <Compile Include="OWMService\Workers\IWeatherDataWorker.cs" />
     <Compile Include="OWMService\Workers\WeatherDataWorker.cs" />
     <Compile Include="ProjectInstaller.cs">
