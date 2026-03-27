@@ -402,6 +402,8 @@ GO
 ALTER TABLE fish_Rule ADD CONSTRAINT FK_fish_Rule_Fish FOREIGN KEY (fish_Id) 
    REFERENCES fish(fish_id)
 GO
+CREATE NONCLUSTERED INDEX IDX_fish_rule ON [dbo].[fish_Rule] ([periodStart],[periodEnd]) INCLUDE ([fish_Id],[habitat])
+GO
 ------------------------------------------------------------------------------
 if object_id('TR_iFish_rule') is not null drop TRIGGER TR_iFish_rule
 GO
@@ -905,6 +907,8 @@ ALTER TABLE Tributaries ADD CONSTRAINT FK_Tributaries_lake FOREIGN KEY(Main_Lake
 GO
 ALTER TABLE Tributaries ADD CONSTRAINT FK_Tributaries_lake2 FOREIGN KEY(Lake_id) REFERENCES lake( Lake_id );
 GO
+CREATE NONCLUSTERED INDEX IDX_Tributaries_p4f ON [dbo].[Tributaries] ([Main_Lake_id]) INCLUDE ([Lake_id],[lat],[lon],[side],[Tributaries_stamp],[Country],[State],[county],[city],[elevation],[pic],[location],[descript],[district],[zone],[municipality],[region],[coast])
+GO
 
 if object_id('TR_Lake_INS') is not null drop TRIGGER TR_Lake_INS
 GO
@@ -1107,6 +1111,8 @@ GO
 ALTER TABLE lake_fish ADD PRIMARY KEY (lake_Id, fish_Id, probability);
 GO
 ALTER TABLE lake_fish add constraint DF_lake_fish_created default getutcdate() for created
+GO
+CREATE NONCLUSTERED INDEX IDX_lake_fish_p4f ON [dbo].[lake_fish] ([fish_id]) INCLUDE ([created],[link],[probability_source_type],[spawn],[sid],[tributaries],[forbidden],[Distribution],[note],[status],[method],[stamp])
 GO
 
 CREATE TRIGGER TR_insLakes_Fish ON lake_fish

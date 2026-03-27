@@ -51,8 +51,11 @@ namespace OWMService.Workers
                     ProcessEnvData(stations, settings, cnn);
                     m_logger.LogInfo($"Read all {stations.Count} OWS stations.");
 
-                    ProcessFishState(cnn);
-                    m_logger.LogInfo($"Updated all {stations.Count} OWS/Fish related data.");
+                    //ProcessFishState(cnn);
+                    //m_logger.LogInfo($"Updated all {stations.Count} OWS/Fish related data.");
+
+                    m_logger.LogInfo("Full loop completed. Waiting 10 hours before next loop.");
+                    System.Threading.Thread.Sleep(TimeSpan.FromHours(10));
 
                     return true;
                 }
@@ -94,7 +97,7 @@ namespace OWMService.Workers
             var result = new List<StationData>();
 
             using (SqlCommand cmd = new SqlCommand(
-                "select mli, lat, lon, state from WaterStation w where exists (select * from lake_fish f where f.lake_Id = w.lakeId)", cnn))
+                "select mli, lat, lon, state from dbo.vwWeatherForecast", cnn))
             using (SqlDataReader dr = cmd.ExecuteReader())
             {
                 while (dr.Read())
@@ -145,7 +148,14 @@ namespace OWMService.Workers
                 }
             }
         }
-
+        /// <summary>
+        ///   Weather Underground  https://www.wunderground.com/
+        ///   https://api.weather.com/v3/wx/forecast/daily/5day?geocode=48.98165,-96.46308&format=json&units=e&language=en-US&apiKey=3f3b23d16b1a484ebb23d16b1a184e28
+        /// </summary>
+        /// <param name="lat"></param>
+        /// <param name="lon"></param>
+        /// <param name="settings"></param>
+        /// <returns></returns>
         private string ReadJSONOWSData(float lat, float lon, Settings settings)
         {
             System.Threading.Thread.Sleep(1000);
@@ -160,6 +170,8 @@ namespace OWMService.Workers
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
+                    System.Threading.Thread.Sleep(3000);
+
                     if (response.StatusCode != HttpStatusCode.OK)
                     {
                         m_logger.LogError($"ReadJSONOWSData: HTTP {response.StatusCode}");

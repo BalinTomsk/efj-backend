@@ -524,6 +524,23 @@ AS
 GO
 -- select *  from  dbo.vget_trial_fish_list
 -- 1 - sport, 2 - Coarse, 4 - commersial, 8 - invading, 128 - migrate pattern (inverted logic by default)
+-------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
+-- used in [spStepPushSpeciesFromLakeToStation]
+-- select * from vget_fish4push
+CREATE VIEW [dbo].[vget_fish4push]
+WITH SCHEMABINDING
+AS 
+SELECT fish_id, habitat, spawnPeriod, periodStart, periodEnd FROM 
+(
+    SELECT fish_id, habitat, 0 AS spawnPeriod, periodStart, periodEnd 
+    FROM dbo.fish_rule WHERE -1 = periodStart AND -1 = periodEnd
+    UNION ALL
+    SELECT fish_id, habitat, 1 AS spawnPeriod, periodStart, periodEnd 
+    FROM dbo.fish_rule WHERE -1 <> periodStart AND -1 <> periodEnd
+)e WHERE spawnPeriod = (CASE WHEN DATEPART( MM, getdate()) BETWEEN periodStart AND periodEnd THEN 1 ELSE 0 END)
+GO
+
 ---------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vGetCurrentWeather' AND type = 'V')
     DROP VIEW dbo.vGetCurrentWeather
@@ -1019,4 +1036,18 @@ AS
     WHERE news_publish = 1
 GO
 -------------------------------------------------------------------------------------------------------
+/*
+-----------------------------------  display selected monitoring station ------------------------------------------
+*/
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vwWeatherForecast' AND type = 'V')
+    DROP VIEW dbo.vwWeatherForecast
+GO
+-------------------------------------------------------------------------------------------------------
+CREATE VIEW dbo.vwWeatherForecast 
+WITH SCHEMABINDING
+AS
+  SELECT mli, lat, lon, state from dbo.WaterStation w 
+    WHERE EXISTS (select 1 from dbo.lake_fish f where f.lake_Id = w.lakeId)
+    AND w.supported = 1
+GO
 -------------------------------------------------------------------------------------------------------
