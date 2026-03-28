@@ -1,4 +1,4 @@
-namespace OWMService.Workers
+﻿namespace OWMService.Workers
 {
     using OWMService.Config;
     using OWMService.Logging;
@@ -12,15 +12,16 @@ namespace OWMService.Workers
     using System.Net.Http;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
+    using Newtonsoft.Json.Linq;
 
-    public class WeatherDataWorker : IWeatherDataWorker
+    public class WeatherDataWorkerOpen : IWeatherDataWorker
     {
         private readonly IEventLogger m_logger;
         private static readonly HttpClient m_httpClient = new HttpClient();
         private static readonly Regex m_escapeSequenceRegex = new Regex(@"\\""");
         private const int MinDelayBetweenStationsMs = 12000;
 
-        static WeatherDataWorker()
+        static WeatherDataWorkerOpen()
         {
             // Configure once at static initialization instead of per-request
             ServicePointManager.Expect100Continue = true;
@@ -28,7 +29,7 @@ namespace OWMService.Workers
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
 
-        public WeatherDataWorker(IEventLogger logger)
+        public WeatherDataWorkerOpen(IEventLogger logger)
         {
             m_logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -105,12 +106,15 @@ namespace OWMService.Workers
             }
         }
 
+        /// <summary>
+        /// Retrieves weather stations from the database
+        /// </summary>
         private List<StationData> GetListOwsMeteo(SqlConnection cnn)
         {
             var result = new List<StationData>();
 
             using (SqlCommand cmd = new SqlCommand(
-                "select mli, lat, lon, state from dbo.vwWeatherForecast", cnn))
+                "select mli, lat, lon, state from dbo.vwWeatherForecastToDay", cnn))
             using (SqlDataReader dr = cmd.ExecuteReader())
             {
                 while (dr.Read())
@@ -161,21 +165,19 @@ namespace OWMService.Workers
                 }
             }
         }
+
         /// <summary>
-        ///   Weather Underground  https://www.wunderground.com/
-        ///   https://www.wunderground.com/member/api-keys
-        ///   https://api.weather.com/v3/wx/forecast/daily/5day?geocode=48.98165,-96.46308&format=json&units=e&language=en-US&apiKey=772439a83c8944ffa439a83c8924ff19
+        /// Fetches weather data from Open-Meteo API
+        /// https://api.open-meteo.com/v1/forecast?latitude=43.45&longitude=-80.49&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code,rain&daily=temperature_2m_max,temperature_2m_min&timezone=auto 
         /// </summary>
-        /// <param name="lat"></param>
-        /// <param name="lon"></param>
-        /// <param name="settings"></param>
-        /// <returns></returns>
         private string ReadJSONOWSData(float lat, float lon, Settings settings)
         {
             System.Threading.Thread.Sleep(1000);
             try
             {
-                string url = $"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={settings.Wunderground}";
+                string url = $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                    + "&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,pressure_msl,"
+                    + "wind_speed_10m,wind_direction_10m,weather_code,rain&daily=temperature_2m_max,temperature_2m_min&timezone=auto";
 
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
@@ -184,7 +186,7 @@ namespace OWMService.Workers
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    System.Threading.Thread.Sleep(10000);
+                    System.Threading.Thread.Sleep(100);
 
                     if (response.StatusCode != HttpStatusCode.OK)
                     {
@@ -196,8 +198,6 @@ namespace OWMService.Workers
                     using (StreamReader reader = new StreamReader(responseStream))
                     {
                         string result = reader.ReadToEnd();
-                        // Optimize escape sequence removal: use regex instead of multiple Replace calls
-                        result = m_escapeSequenceRegex.Replace(result, "\"");
                         return result;
                     }
                 }
@@ -210,6 +210,9 @@ namespace OWMService.Workers
             return "";
         }
 
+        /// <summary>
+        /// saved into ows_meteo trigger on it parses Open-Meteo API JSON response and inserts weather data into weather_Forecast table
+        /// </summary>
         private bool SaveJSONOWSData(string jsonData, string mli, SqlConnection cnn)
         {
             if (string.IsNullOrEmpty(jsonData) || string.IsNullOrEmpty(mli) || cnn == null)
@@ -221,7 +224,7 @@ namespace OWMService.Workers
             {
                 cmd.CommandType = CommandType.Text;
                 cmd.Connection = cnn;
-                cmd.CommandText = "UPDATE ows_meteo SET type = 1, ows = @js, stamp=GETDATE() WHERE mli = @mli";
+                cmd.CommandText = "UPDATE ows_meteo SET type = 2, ows = @js, stamp=GETDATE() WHERE mli = @mli";
                 cmd.Parameters.Add("@js", SqlDbType.NVarChar);
                 cmd.Parameters.Add("@mli", SqlDbType.VarChar);
 
@@ -242,13 +245,5 @@ namespace OWMService.Workers
             m_logger.LogInfo($"Processed {mli} station.");
             return true;
         }
-    }
-
-    public class StationData
-    {
-        public string Mli { get; set; }
-        public float Latitude { get; set; }
-        public float Longitude { get; set; }
-        public string State { get; set; }
     }
 }

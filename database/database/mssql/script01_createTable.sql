@@ -1461,10 +1461,71 @@ GO
 CREATE NONCLUSTERED INDEX [idx_fish_location_id] ON fish_location (id ASC) 
 
 ------------------------------------------------------------------------------
-/*
-	place to store meteo data for water stations from meteo services	
-    http://api.weatherstack.com/current?access_key=5505cface519335581352f9e7093864a&query=40.7831,-73.9712
-*/
+/******************************************************************************
+Table: ows_meteo
+
+Description:
+Stores meteorological (weather) data associated with water monitoring stations.
+The data is retrieved from external weather services (e.g., Weatherstack API)
+and persisted in JSON format for further processing and analytics.
+
+Example source:
+http://api.weatherstack.com/current?access_key=...&query=<lat>,<lon>
+
+Purpose:
+- Maintain latest weather snapshot per WaterStation
+- Support enrichment of hydrological / environmental data
+- Enable downstream processing via stored procedures and triggers
+
+Columns:
+- WaterStation_id (PK, FK):
+    Unique identifier of the water station (references WaterStation.id)
+
+- mli (FK, unique):
+    External station identifier (matches WaterStation.mli)
+
+- country:
+    ISO country code of the station location
+
+- state:
+    State/region code
+
+- lat / lon:
+    Geographic coordinates of the station
+
+- type:
+    Data source type
+        1 = Weather Gateway (default)
+        2 = Open weather source
+
+- ows:
+    Raw JSON document containing weather data returned by external API
+
+- stamp (implicit):
+    Timestamp of record creation/update (default = GETDATE())
+
+Indexes:
+- UK_ows_meteo_mli:
+    Ensures one weather record per station (by mli)
+
+Constraints:
+- FK_ows_meteo_id:
+    Enforces relation to WaterStation.id
+
+- FK_ows_meteo_mli:
+    Enforces relation to WaterStation.mli
+
+Trigger:
+- TR_ows_meteo (AFTER UPDATE):
+    Invokes sp_ows_meteo stored procedure on update,
+    passing updated JSON payload and station identifiers.
+    Used for parsing, validation, or propagation of weather data.
+
+Notes:
+- Table is designed for semi-structured data (JSON in nvarchar(max))
+- Intended for integration with external weather APIs
+- Processing logic is delegated to sp_ows_meteo
+******************************************************************************/
 
 CREATE TABLE ows_meteo
 (
@@ -1474,13 +1535,32 @@ CREATE TABLE ows_meteo
     , state               char(2)
     , lat				  float
     , lon				  float
+    , type                int                       -- 1 - WG, 2-- Open
 	, ows                 nvarchar(max)				-- JSON doc with weater
-    , CONSTRAINT FK_ows_meteo_id  FOREIGN KEY ( WaterStation_id ) REFERENCES WaterStation(id)
-    , CONSTRAINT FK_ows_meteo_mli FOREIGN KEY ( mli )             REFERENCES WaterStation(mli)
 )
 GO
 
 CREATE UNIQUE NONCLUSTERED INDEX [UK_ows_meteo_mli] ON ows_meteo ( mli );
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD  DEFAULT (getdate()) FOR [stamp]
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD  DEFAULT (1) FOR [type]
+GO
+
+ALTER TABLE [dbo].[ows_meteo]  WITH CHECK ADD  CONSTRAINT [FK_ows_meteo_id] FOREIGN KEY([WaterStation_id])
+REFERENCES [dbo].[WaterStation] ([id])
+GO
+
+ALTER TABLE [dbo].[ows_meteo] CHECK CONSTRAINT [FK_ows_meteo_id]
+GO
+
+ALTER TABLE [dbo].[ows_meteo]  WITH CHECK ADD  CONSTRAINT [FK_ows_meteo_mli] FOREIGN KEY([mli])
+REFERENCES [dbo].[WaterStation] ([mli])
+GO
+
+ALTER TABLE [dbo].[ows_meteo] CHECK CONSTRAINT [FK_ows_meteo_mli]
 GO
 
 --------------------------------------------------------------------------------------------
@@ -1494,9 +1574,12 @@ NOT FOR REPLICATION
 AS 
 SET NOCOUNT ON
 BEGIN
-	DECLARE  @json nvarchar(max), @mli varchar(64), @WaterStation_id uniqueidentifier
+	DECLARE @type int,  @json nvarchar(max), @mli varchar(64), @WaterStation_id uniqueidentifier
 	SELECT TOP 1 @json = ows, @mli = mli, @WaterStation_id = WaterStation_id FROM INSERTED
-	EXEC sp_ows_meteo @json, @mli, @WaterStation_id
+	IF @type = 1
+      EXEC sp_ows_meteo      @json, @mli, @WaterStation_id
+    ELSE IF @type = 2
+      EXEC sp_ows_meteo_open @json, @mli, @WaterStation_id
 END
 GO
 

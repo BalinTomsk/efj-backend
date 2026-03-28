@@ -17,6 +17,7 @@ namespace OWMService
         private readonly IEventLogger m_logger;
         private readonly ISettingsProvider m_settingsProvider;
         private readonly IWeatherDataWorker m_weatherDataWorker;
+        private readonly IWeatherDataWorker m_weatherDataWorkerToday;
 
         private double m_servicePollInterval;
         private Settings m_settings = new Settings();
@@ -32,12 +33,12 @@ namespace OWMService
 
         // Overload for DI (logger + settings provider)
         public RWS(IEventLogger logger, ISettingsProvider settingsProvider)
-            : this(logger, settingsProvider, new WeatherDataWorker(logger))
+            : this(logger, settingsProvider, new WeatherDataWorker(logger), new WeatherDataWorkerOpen(logger))
         {
         }
 
-        // Full overload for DI (logger + settings provider + worker)
-        public RWS(IEventLogger logger, ISettingsProvider settingsProvider, IWeatherDataWorker weatherDataWorker)
+        // Full overload for DI (logger + settings provider + both workers)
+        public RWS(IEventLogger logger, ISettingsProvider settingsProvider, IWeatherDataWorker weatherDataWorker, IWeatherDataWorker weatherDataWorkerToday)
         {
             // Set service properties first
             ServiceName = "OWMService";
@@ -51,6 +52,7 @@ namespace OWMService
             m_logger = logger ?? LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName);
             m_settingsProvider = settingsProvider ?? new RegistrySettingsProvider();
             m_weatherDataWorker = weatherDataWorker ?? new WeatherDataWorker(m_logger);
+            m_weatherDataWorkerToday = weatherDataWorkerToday ?? new WeatherDataWorkerOpen(m_logger);
             m_servicePollInterval = m_settings.Interval;
         }
 
@@ -157,6 +159,7 @@ namespace OWMService
             {
                 m_logger.LogInfo($"Processing weather data at {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                 m_weatherDataWorker.Process(m_settings);
+                m_weatherDataWorkerToday.Process(m_settings);
                 m_logger.LogInfo("Processing completed");
             }
             catch (Exception ex)
@@ -178,7 +181,8 @@ namespace OWMService
             try
             {
                 m_logger.LogInfo("Running single weather data process");
-                m_weatherDataWorker.Process(m_settings);
+                // m_weatherDataWorker.Process(m_settings);
+                m_weatherDataWorkerToday.Process(m_settings);
                 m_logger.LogInfo("Debug process completed");
             }
             catch (Exception ex)

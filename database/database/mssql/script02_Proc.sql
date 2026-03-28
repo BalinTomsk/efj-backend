@@ -1829,6 +1829,340 @@ BEGIN CATCH
 END CATCH;     
 
 GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+/*
+	Procedure parse JSON doc and then insert into diffrent tables:
+	1. WaterStation - meteo from water station
+	2. weather_Forecast
+
+		called from [TR_ows_meteo]
+*/
+CREATE OR ALTER PROCEDURE [dbo].[sp_ows_meteo_open]
+      @js   nvarchar(max)
+    , @mli  varchar(64)
+    , @link uniqueidentifier
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+        IF @js IS NULL OR @mli IS NULL OR @link IS NULL OR ISJSON(@js) <> 1
+            RETURN;
+
+        ;WITH
+        hourly_time AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(datetime2(0), REPLACE([value], 'T', ' ')) AS validTimeLocal
+            FROM OPENJSON(@js, '$.hourly.time')
+        ),
+        hourly_temperature AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS air_temperature
+            FROM OPENJSON(@js, '$.hourly.temperature_2m')
+        ),
+        hourly_humidity AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS humidity
+            FROM OPENJSON(@js, '$.hourly.relative_humidity_2m')
+        ),
+        hourly_pop AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(int, [value]) AS pop
+            FROM OPENJSON(@js, '$.hourly.precipitation_probability')
+        ),
+        hourly_pressure AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(int, [value]) AS pressure
+            FROM OPENJSON(@js, '$.hourly.pressure_msl')
+        ),
+        hourly_wind_speed AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS wind_max_speed
+            FROM OPENJSON(@js, '$.hourly.wind_speed_10m')
+        ),
+        hourly_wind_degree AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS wind_degree
+            FROM OPENJSON(@js, '$.hourly.wind_direction_10m')
+        ),
+        hourly_weather_code AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(int, [value]) AS weather_code
+            FROM OPENJSON(@js, '$.hourly.weather_code')
+        ),
+        hourly_rain AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS rain_mm
+            FROM OPENJSON(@js, '$.hourly.rain')
+        ),
+        hourly_data AS
+        (
+            SELECT
+                  t.idx
+                , t.validTimeLocal
+                , CAST(t.validTimeLocal AS date) AS dt
+                , CAST(t.validTimeLocal AS time(7)) AS tm
+                , tmp.air_temperature
+                , hum.humidity
+                , pp.pop
+                , prs.pressure
+                , ws.wind_max_speed
+                , wd.wind_degree
+                , wc.weather_code
+                , rn.rain_mm
+            FROM hourly_time t
+            LEFT JOIN hourly_temperature  tmp ON tmp.idx = t.idx
+            LEFT JOIN hourly_humidity     hum ON hum.idx = t.idx
+            LEFT JOIN hourly_pop          pp  ON pp.idx  = t.idx
+            LEFT JOIN hourly_pressure     prs ON prs.idx = t.idx
+            LEFT JOIN hourly_wind_speed   ws  ON ws.idx  = t.idx
+            LEFT JOIN hourly_wind_degree  wd  ON wd.idx  = t.idx
+            LEFT JOIN hourly_weather_code wc  ON wc.idx  = t.idx
+            LEFT JOIN hourly_rain         rn  ON rn.idx  = t.idx
+            WHERE t.validTimeLocal IS NOT NULL
+        ),
+        daily_time AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(date, [value]) AS dt
+            FROM OPENJSON(@js, '$.daily.time')
+        ),
+        daily_tmax AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS tmHigh
+            FROM OPENJSON(@js, '$.daily.temperature_2m_max')
+        ),
+        daily_tmin AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(float, [value]) AS tmLow
+            FROM OPENJSON(@js, '$.daily.temperature_2m_min')
+        ),
+        daily_data AS
+        (
+            SELECT
+                  d.dt
+                , mx.tmHigh
+                , mn.tmLow
+            FROM daily_time d
+            LEFT JOIN daily_tmax mx ON mx.idx = d.idx
+            LEFT JOIN daily_tmin mn ON mn.idx = d.idx
+            WHERE d.dt IS NOT NULL
+        ),
+        rain_by_day AS
+        (
+            SELECT
+                  h.dt
+                , SUM(CASE WHEN DATEPART(HOUR, h.validTimeLocal) BETWEEN 6 AND 17
+                           THEN ISNULL(h.rain_mm, 0) ELSE 0 END) AS gpfDay
+                , SUM(CASE WHEN DATEPART(HOUR, h.validTimeLocal) NOT BETWEEN 6 AND 17
+                           THEN ISNULL(h.rain_mm, 0) ELSE 0 END) AS gpfNight
+                , SUM(ISNULL(h.rain_mm, 0)) AS rain_today
+                , AVG(CASE WHEN DATEPART(HOUR, h.validTimeLocal) BETWEEN 6 AND 17
+                           THEN h.air_temperature END) AS tmDay
+            FROM hourly_data h
+            GROUP BY h.dt
+        ),
+        src AS
+        (
+            SELECT
+                  @link AS [link]
+                , d.tmHigh
+                , d.tmLow
+                , ISNULL(r.gpfDay, 0.0) AS gpfDay
+                , ISNULL(r.gpfNight, 0.0) AS gpfNight
+                , h.humidity
+                , h.wind_max_speed
+                , h.wind_degree
+                , CASE
+                    WHEN h.wind_degree IS NULL THEN NULL
+                    WHEN h.wind_degree >= 337.5 OR h.wind_degree < 22.5 THEN 'N'
+                    WHEN h.wind_degree < 67.5  THEN 'NE'
+                    WHEN h.wind_degree < 112.5 THEN 'E'
+                    WHEN h.wind_degree < 157.5 THEN 'SE'
+                    WHEN h.wind_degree < 202.5 THEN 'S'
+                    WHEN h.wind_degree < 247.5 THEN 'SW'
+                    WHEN h.wind_degree < 292.5 THEN 'W'
+                    ELSE 'NW'
+                  END AS wind_direction
+                , CASE h.weather_code
+                    WHEN 0  THEN 'Clear'
+                    WHEN 1  THEN 'Mainly clear'
+                    WHEN 2  THEN 'Partly cloudy'
+                    WHEN 3  THEN 'Overcast'
+                    WHEN 45 THEN 'Fog'
+                    WHEN 48 THEN 'Rime fog'
+                    WHEN 51 THEN 'Light drizzle'
+                    WHEN 53 THEN 'Drizzle'
+                    WHEN 55 THEN 'Dense drizzle'
+                    WHEN 61 THEN 'Light rain'
+                    WHEN 63 THEN 'Rain'
+                    WHEN 65 THEN 'Heavy rain'
+                    WHEN 71 THEN 'Light snow'
+                    WHEN 73 THEN 'Snow'
+                    WHEN 75 THEN 'Heavy snow'
+                    WHEN 80 THEN 'Rain showers'
+                    WHEN 81 THEN 'Rain showers'
+                    WHEN 82 THEN 'Heavy showers'
+                    WHEN 95 THEN 'Thunderstorm'
+                    ELSE 'Unknown'
+                  END AS shortText
+                , CASE h.weather_code
+                    WHEN 0  THEN 'Clear sky'
+                    WHEN 1  THEN 'Mainly clear sky'
+                    WHEN 2  THEN 'Partly cloudy'
+                    WHEN 3  THEN 'Overcast'
+                    WHEN 45 THEN 'Fog'
+                    WHEN 48 THEN 'Depositing rime fog'
+                    WHEN 51 THEN 'Light drizzle'
+                    WHEN 53 THEN 'Moderate drizzle'
+                    WHEN 55 THEN 'Dense drizzle'
+                    WHEN 61 THEN 'Slight rain'
+                    WHEN 63 THEN 'Moderate rain'
+                    WHEN 65 THEN 'Heavy rain'
+                    WHEN 71 THEN 'Slight snow fall'
+                    WHEN 73 THEN 'Moderate snow fall'
+                    WHEN 75 THEN 'Heavy snow fall'
+                    WHEN 80 THEN 'Slight rain showers'
+                    WHEN 81 THEN 'Moderate rain showers'
+                    WHEN 82 THEN 'Violent rain showers'
+                    WHEN 95 THEN 'Thunderstorm'
+                    ELSE 'Unknown weather condition'
+                  END AS longText
+                , CONCAT('om_', ISNULL(CONVERT(varchar(12), h.weather_code), 'na'), '.png') AS icon
+                , h.pop
+                , h.dt
+                , h.tm
+                , @mli AS mli
+                , CAST(NULL AS int) AS city_id
+                , h.pressure
+                , TRY_CONVERT(int, ROUND(r.rain_today, 0)) AS rain_today
+                , TRY_CONVERT(int, ROUND(h.air_temperature, 0)) AS air_temperature
+                , r.tmDay
+                , h.weather_code
+            FROM hourly_data h
+            LEFT JOIN daily_data d  ON d.dt = h.dt
+            LEFT JOIN rain_by_day r ON r.dt = h.dt
+        )
+
+        MERGE dbo.weather_Forecast AS t
+        USING src
+           ON t.mli = src.mli
+          AND t.dt  = src.dt
+          AND ISNULL(t.tm, CAST('00:00:00' AS time)) = ISNULL(src.tm, CAST('00:00:00' AS time))
+
+        WHEN MATCHED THEN
+            UPDATE SET
+                  t.[link]            = src.[link]
+                , t.tmHigh            = ISNULL(src.tmHigh, t.tmHigh)
+                , t.tmLow             = ISNULL(src.tmLow, t.tmLow)
+                , t.gpfDay            = src.gpfDay
+                , t.gpfNight          = src.gpfNight
+                , t.humidity          = src.humidity
+                , t.wind_max_speed    = src.wind_max_speed
+                , t.wind_degree       = src.wind_degree
+                , t.wind_direction    = src.wind_direction
+                , t.shortText         = LEFT(src.shortText, 64)
+                , t.longText          = LEFT(src.longText, 255)
+                , t.icon              = LEFT(src.icon, 255)
+                , t.pop               = src.pop
+                , t.pressure          = src.pressure
+                , t.rain_today        = src.rain_today
+                , t.air_temperature   = src.air_temperature
+                , t.tmDay             = src.tmDay
+                , t.weather_code      = src.weather_code
+
+        WHEN NOT MATCHED BY TARGET THEN
+            INSERT
+            (
+                  [link]
+                , [tmHigh]
+                , [tmLow]
+                , [gpfDay]
+                , [gpfNight]
+                , [humidity]
+                , [wind_max_speed]
+                , [wind_degree]
+                , [wind_direction]
+                , [shortText]
+                , [longText]
+                , [icon]
+                , [pop]
+                , [dt]
+                , [tm]
+                , [mli]
+                , [city_id]
+                , [pressure]
+                , [rain_today]
+                , [air_temperature]
+                , [tmDay]
+                , [weather_code]
+            )
+            VALUES
+            (
+                  src.[link]
+                , ISNULL(src.tmHigh, 0)
+                , ISNULL(src.tmLow, 0)
+                , ISNULL(src.gpfDay, 0)
+                , ISNULL(src.gpfNight, 0)
+                , src.humidity
+                , src.wind_max_speed
+                , src.wind_degree
+                , src.wind_direction
+                , LEFT(src.shortText, 64)
+                , LEFT(src.longText, 255)
+                , LEFT(src.icon, 255)
+                , src.pop
+                , src.dt
+                , src.tm
+                , src.mli
+                , src.city_id
+                , src.pressure
+                , src.rain_today
+                , src.air_temperature
+                , src.tmDay
+                , src.weather_code
+            );
+
+    END TRY
+    BEGIN CATCH
+        SELECT
+              ERROR_NUMBER()    AS ErrorNumber
+            , ERROR_SEVERITY()  AS ErrorSeverity
+            , ERROR_STATE()     AS ErrorState
+            , ERROR_PROCEDURE() AS ErrorProcedure
+            , ERROR_LINE()      AS ErrorLine
+            , ERROR_MESSAGE()   AS ErrorMessage;
+    END CATCH
+END
+GO
+
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
