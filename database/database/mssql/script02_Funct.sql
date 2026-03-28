@@ -1775,18 +1775,18 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_map_location' AND xtype = '
 GO
 
 /****** Called from FishTracker.Forecast.MapFrame.LoadMapLocation
--- SELECT * FROM [dbo].[fn_get_trial_location]( 'Bass, rock', 43, -80 )
+-- SELECT * FROM [fn_map_location]( 'Bass, rock', 43, -80, 'CA', 0 )
 **/
-CREATE function dbo.fn_map_location( @fishName  varchar(64), @lat float, @lon float, @dist float )
+CREATE function [dbo].[fn_map_location]( @fishName  varchar(64), @lat float, @lon float, @country char(3), @dist float )
   RETURNS  TABLE
   WITH SCHEMABINDING
 AS
 RETURN   --lat, lon, today, location, sid, country, state, county
     SELECT  w.lat, w.lon, f.today, w.LocName AS location, w.sid, w.country, w.state, w.county 
-        FROM dbo.vWaterStation w 
+        FROM dbo.vWaterStation w
         JOIN dbo.fish_location f ON ( f.station_Id = w.id )
         JOIN dbo.fish          s ON ( f.fish_Id    = s.fish_Id )
-        WHERE s.fish_name = @fishName
+        WHERE s.fish_name = @fishName AND @country = w.country
 		AND EXISTS( SELECT TOP 1 1 FROM dbo.WaterData d WHERE d.mli = w.mli )
 		/*
      UNION ALL
