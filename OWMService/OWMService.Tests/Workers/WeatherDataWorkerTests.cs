@@ -10,12 +10,12 @@ namespace OWMService.Tests.Workers
     public class WeatherDataWorkerTests
     {
         private readonly Mock<IEventLogger> m_mockLogger;
-        private readonly WeatherDataWorker m_worker;
+        private readonly WeatherDataWorkerWg m_worker;
 
         public WeatherDataWorkerTests()
         {
             m_mockLogger = new Mock<IEventLogger>();
-            m_worker = new WeatherDataWorker(m_mockLogger.Object);
+            m_worker = new WeatherDataWorkerWg(m_mockLogger.Object);
         }
 
         #region Constructor Tests
@@ -24,7 +24,7 @@ namespace OWMService.Tests.Workers
         public void Constructor_WithValidLogger_ShouldInitialize()
         {
             // Arrange & Act
-            var worker = new WeatherDataWorker(m_mockLogger.Object);
+            var worker = new WeatherDataWorkerWg(m_mockLogger.Object);
 
             // Assert
             Assert.NotNull(worker);
@@ -34,7 +34,7 @@ namespace OWMService.Tests.Workers
         public void Constructor_WithNullLogger_ShouldThrowArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new WeatherDataWorker(null));
+            Assert.Throws<ArgumentNullException>(() => new WeatherDataWorkerWg(null));
         }
 
         #endregion

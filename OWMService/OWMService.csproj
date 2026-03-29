@@ -133,7 +133,8 @@
     <Compile Include="OWMService.Tests\Workers\WeatherDataWorkerTests.cs" />
     <Compile Include="OWMService\Logging\FileEventLogger.cs" />
     <Compile Include="OWMService\Workers\IWeatherDataWorker.cs" />
-    <Compile Include="OWMService\Workers\WeatherDataWorker.cs" />
+    <Compile Include="OWMService\Workers\WeatherDataWorkerWg.cs" />
+    <Compile Include="OWMService\Workers\WeatherDataWorkerBase.cs" />
     <Compile Include="OWMService\Workers\WeatherDataWorkerOpen.cs" />
     <Compile Include="ProjectInstaller.cs">
       <SubType>Component</SubType>

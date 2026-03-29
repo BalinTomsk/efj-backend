@@ -11,16 +11,15 @@ namespace OWMService.Workers
     using System.Net;
     using System.Net.Http;
     using System.Text.RegularExpressions;
-    using System.Threading.Tasks;
 
-    public class WeatherDataWorker : IWeatherDataWorker
+    public abstract class WeatherDataWorkerBase : IWeatherDataWorker
     {
-        private readonly IEventLogger m_logger;
-        private static readonly HttpClient m_httpClient = new HttpClient();
-        private static readonly Regex m_escapeSequenceRegex = new Regex(@"\\""");
-        private const int MinDelayBetweenStationsMs = 12000;
+        protected readonly IEventLogger m_logger;
+        protected static readonly HttpClient m_httpClient = new HttpClient();
+        protected static readonly Regex m_escapeSequenceRegex = new Regex(@"\\""");
+        protected const int MinDelayBetweenStationsMs = 12000;
 
-        static WeatherDataWorker()
+        static WeatherDataWorkerBase()
         {
             // Configure once at static initialization instead of per-request
             ServicePointManager.Expect100Continue = true;
@@ -28,7 +27,7 @@ namespace OWMService.Workers
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
 
-        public WeatherDataWorker(IEventLogger logger)
+        protected WeatherDataWorkerBase(IEventLogger logger)
         {
             m_logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -40,7 +39,6 @@ namespace OWMService.Workers
             {
                 return false;
             }
-
             try
             {
                 using (SqlConnection cnn = new SqlConnection(conStr))
@@ -69,7 +67,7 @@ namespace OWMService.Workers
             }
         }
 
-        private void ProcessEnvData(List<StationData> stations, Settings settings, SqlConnection cnn)
+        protected void ProcessEnvData(List<StationData> stations, Settings settings, SqlConnection cnn)
         {
             try
             {
@@ -83,6 +81,11 @@ namespace OWMService.Workers
                     {
                         ProcessOWSPoint(item.Mli, item.Latitude, item.Longitude, settings, cnn);
                         i++;
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        m_logger.LogError($"OWMService API returned 401 Unauthorized. Stopping processing. {ex.Message}");
+                        break;
                     }
                     catch (Exception ex)
                     {
@@ -105,31 +108,10 @@ namespace OWMService.Workers
             }
         }
 
-        private List<StationData> GetListOwsMeteo(SqlConnection cnn)
+        protected bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
         {
-            var result = new List<StationData>();
-
-            using (SqlCommand cmd = new SqlCommand(
-                "select mli, lat, lon, state from dbo.vwWeatherForecast", cnn))
-            using (SqlDataReader dr = cmd.ExecuteReader())
-            {
-                while (dr.Read())
-                {
-                    string mli = dr.GetString(0);
-                    float lat = (float)dr.GetDouble(1);
-                    float lon = (float)dr.GetDouble(2);
-                    string state = dr.GetString(3);
-
-                    result.Add(new StationData { Mli = mli, Latitude = lat, Longitude = lon, State = state });
-                }
-            }
-
-            return result;
-        }
-
-        private bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)
-        {
-            string jsonData = ReadJSONOWSData(lat, lon, settings);
+            string url = GetApiUrl(lat, lon, settings);
+            string jsonData = ReadJSONOWSData(url);
 
             if (string.IsNullOrEmpty(jsonData))
             {
@@ -139,7 +121,7 @@ namespace OWMService.Workers
             return SaveJSONOWSData(jsonData, mli, cnn);
         }
 
-        private void ProcessFishState(SqlConnection cnn)
+        protected void ProcessFishState(SqlConnection cnn)
         {
             using (SqlCommand cmd = new SqlCommand())
             {
@@ -161,22 +143,55 @@ namespace OWMService.Workers
                 }
             }
         }
+
         /// <summary>
-        ///   Weather Underground  https://www.wunderground.com/
-        ///   https://www.wunderground.com/member/api-keys
-        ///   https://api.weather.com/v3/wx/forecast/daily/5day?geocode=48.98165,-96.46308&format=json&units=e&language=en-US&apiKey=772439a83c8944ffa439a83c8924ff19
+        /// Returns the SQL query to retrieve weather stations.
         /// </summary>
-        /// <param name="lat"></param>
-        /// <param name="lon"></param>
-        /// <param name="settings"></param>
-        /// <returns></returns>
-        private string ReadJSONOWSData(float lat, float lon, Settings settings)
+        protected abstract string GetStationQuery();
+
+        /// <summary>
+        /// Returns the weather source type identifier used in ows_meteo.
+        /// </summary>
+        protected abstract int GetSourceType();
+
+        /// <summary>
+        /// Retrieves weather stations from the database using the query from GetStationQuery().
+        /// </summary>
+        protected List<StationData> GetListOwsMeteo(SqlConnection cnn)
+        {
+            var result = new List<StationData>();
+
+            using (SqlCommand cmd = new SqlCommand(GetStationQuery(), cnn))
+            using (SqlDataReader dr = cmd.ExecuteReader())
+            {
+                while (dr.Read())
+                {
+                    string mli = dr.GetString(0);
+                    float lat = (float)dr.GetDouble(1);
+                    float lon = (float)dr.GetDouble(2);
+                    string state = dr.GetString(3);
+
+                    result.Add(new StationData { Mli = mli, Latitude = lat, Longitude = lon, State = state });
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Builds the weather API URL for the given coordinates.
+        /// </summary>
+        protected abstract string GetApiUrl(float lat, float lon, Settings settings);
+
+        /// <summary>
+        /// Fetches weather JSON data from the given URL.
+        /// Throws UnauthorizedAccessException on HTTP 401 to stop processing.
+        /// </summary>
+        protected string ReadJSONOWSData(string url)
         {
             System.Threading.Thread.Sleep(1000);
             try
             {
-                string url = $"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={lat},{lon}&format=json&units=e&language=en-US&apiKey={settings.Wunderground}";
-
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
                 request.Timeout = 30000;
@@ -184,8 +199,6 @@ namespace OWMService.Workers
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    System.Threading.Thread.Sleep(10000);
-
                     if (response.StatusCode != HttpStatusCode.OK)
                     {
                         m_logger.LogError($"ReadJSONOWSData: HTTP {response.StatusCode}");
@@ -196,11 +209,16 @@ namespace OWMService.Workers
                     using (StreamReader reader = new StreamReader(responseStream))
                     {
                         string result = reader.ReadToEnd();
-                        // Optimize escape sequence removal: use regex instead of multiple Replace calls
                         result = m_escapeSequenceRegex.Replace(result, "\"");
                         return result;
                     }
                 }
+            }
+            catch (WebException ex) when (ex.Response is HttpWebResponse resp
+                && resp.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                m_logger.LogError($"ReadJSONOWSData: 401 Unauthorized - API key is invalid or expired.");
+                throw new UnauthorizedAccessException("API returned 401 Unauthorized.", ex);
             }
             catch (Exception ex)
             {
@@ -210,7 +228,10 @@ namespace OWMService.Workers
             return "";
         }
 
-        private bool SaveJSONOWSData(string jsonData, string mli, SqlConnection cnn)
+        /// <summary>
+        /// Saves fetched weather JSON data to ows_meteo using the type from GetSourceType().
+        /// </summary>
+        protected bool SaveJSONOWSData(string jsonData, string mli, SqlConnection cnn)
         {
             if (string.IsNullOrEmpty(jsonData) || string.IsNullOrEmpty(mli) || cnn == null)
             {
@@ -221,15 +242,13 @@ namespace OWMService.Workers
             {
                 cmd.CommandType = CommandType.Text;
                 cmd.Connection = cnn;
-                cmd.CommandText = "UPDATE ows_meteo SET type = 1, ows = @js, stamp=GETDATE() WHERE mli = @mli";
-                cmd.Parameters.Add("@js", SqlDbType.NVarChar);
-                cmd.Parameters.Add("@mli", SqlDbType.VarChar);
+                cmd.CommandText = "UPDATE ows_meteo SET type = @type, ows = @js, stamp=GETDATE() WHERE mli = @mli";
+                cmd.Parameters.Add("@type", SqlDbType.Int).Value = GetSourceType();
+                cmd.Parameters.Add("@js", SqlDbType.NVarChar).Value = jsonData;
+                cmd.Parameters.Add("@mli", SqlDbType.VarChar).Value = mli;
 
                 try
                 {
-                    cmd.Parameters[0].Value = jsonData;
-                    cmd.Parameters[1].Value = mli;
-
                     cmd.ExecuteNonQuery();
                 }
                 catch (Exception ex)
@@ -242,13 +261,5 @@ namespace OWMService.Workers
             m_logger.LogInfo($"Processed {mli} station.");
             return true;
         }
-    }
-
-    public class StationData
-    {
-        public string Mli { get; set; }
-        public float Latitude { get; set; }
-        public float Longitude { get; set; }
-        public string State { get; set; }
     }
 }
