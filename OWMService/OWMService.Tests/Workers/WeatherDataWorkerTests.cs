@@ -11,6 +11,7 @@ namespace OWMService.Tests.Workers
     {
         private readonly Mock<IEventLogger> m_mockLogger;
         private readonly WeatherDataWorkerWg m_worker;
+        private readonly TimeSpan m_defaultBudget = TimeSpan.FromHours(8);
 
         public WeatherDataWorkerTests()
         {
@@ -54,7 +55,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);
@@ -74,7 +75,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);
@@ -93,7 +94,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);
@@ -119,7 +120,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);
@@ -138,7 +139,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);
@@ -161,7 +162,7 @@ namespace OWMService.Tests.Workers
             };
 
             // Act
-            var result = m_worker.Process(settings);
+            var result = m_worker.Process(settings, m_defaultBudget);
 
             // Assert
             Assert.False(result);

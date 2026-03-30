@@ -153,6 +153,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="Docs\specification.md" />
     <None Include="OWMService.Tests\OWMService.Tests.csproj" />
     <None Include="packages.config" />
     <None Include="readme.md" />

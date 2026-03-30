@@ -1051,3 +1051,17 @@ AS
     AND w.supported = 1
 GO
 -------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vwWeatherForecast' AND type = 'V')
+    DROP VIEW dbo.vwWeatherForecast
+GO
+
+-- Used in OWMService to get list of waterstations not having yestoday wheather data
+-------------------------------------------------------------------------------------------------------
+CREATE VIEW dbo.vwWeatherForecast 
+WITH SCHEMABINDING
+AS
+  SELECT mli, lat, lon, state from dbo.WaterStation w 
+    WHERE EXISTS (select 1 from dbo.lake_fish f where f.lake_Id = w.lakeId)
+    AND w.supported = 1
+GO
+-------------------------------------------------------------------------------------------------------

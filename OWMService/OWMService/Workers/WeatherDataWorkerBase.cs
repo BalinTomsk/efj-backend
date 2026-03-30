@@ -17,7 +17,7 @@ namespace OWMService.Workers
         protected readonly IEventLogger m_logger;
         protected static readonly HttpClient m_httpClient = new HttpClient();
         protected static readonly Regex m_escapeSequenceRegex = new Regex(@"\\""");
-        protected const int MinDelayBetweenStationsMs = 12000;
+        protected const int MinDelayBetweenStationsMs = 2000;
 
         static WeatherDataWorkerBase()
         {
@@ -32,7 +32,7 @@ namespace OWMService.Workers
             m_logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public bool Process(Settings settings)
+        public bool Process(Settings settings, TimeSpan timeBudget)
         {
             string conStr = settings.GetConnectionString();
             if (string.IsNullOrEmpty(conStr))
@@ -48,14 +48,20 @@ namespace OWMService.Workers
                     List<StationData> stations = GetListOwsMeteo(cnn);
                     m_logger.LogInfo($"Get {stations.Count} OWS stations.");
 
-                    ProcessEnvData(stations, settings, cnn);
+                    int delayMs = CalculateDelayMs(stations.Count, timeBudget);
+                    m_logger.LogInfo($"Time budget: {timeBudget.TotalHours:F1}h, calculated delay per station: {delayMs}ms.");
+
+                    bool apiAuthorized = ProcessEnvData(stations, settings, cnn, delayMs);
                     m_logger.LogInfo($"Read all {stations.Count} OWS stations.");
+
+                    if (!apiAuthorized)
+                    {
+                        m_logger.LogError("Stopping worker — API key is invalid or expired. Fix the key before restarting.");
+                        return false;
+                    }
 
                     ProcessFishState(cnn);
                     m_logger.LogInfo($"Updated all {stations.Count} OWS/Fish related data.");
-
-                    m_logger.LogInfo("Full loop completed. Waiting 10 hours before next loop.");
-                    System.Threading.Thread.Sleep(TimeSpan.FromHours(1));
 
                     return true;
                 }
@@ -67,8 +73,30 @@ namespace OWMService.Workers
             }
         }
 
-        protected void ProcessEnvData(List<StationData> stations, Settings settings, SqlConnection cnn)
+        /// <summary>
+        /// Calculates the delay between station calls so that all stations fit within the time budget.
+        /// </summary>
+        private int CalculateDelayMs(int stationCount, TimeSpan timeBudget)
         {
+            if (stationCount <= 1)
+            {
+                return MinDelayBetweenStationsMs;
+            }
+
+            int totalMs = (int)timeBudget.TotalMilliseconds;
+            int delayMs = totalMs / stationCount;
+
+            return Math.Max(delayMs, MinDelayBetweenStationsMs);
+        }
+
+        /// <summary>
+        /// Processes environment data for all stations.
+        /// Returns false if a 401 Unauthorized was encountered (API key invalid).
+        /// </summary>
+        protected bool ProcessEnvData(List<StationData> stations, Settings settings, SqlConnection cnn, int targetDelayMs)
+        {
+            bool apiAuthorized = true;
+
             try
             {
                 int i = 0;
@@ -85,6 +113,7 @@ namespace OWMService.Workers
                     catch (UnauthorizedAccessException ex)
                     {
                         m_logger.LogError($"OWMService API returned 401 Unauthorized. Stopping processing. {ex.Message}");
+                        apiAuthorized = false;
                         break;
                     }
                     catch (Exception ex)
@@ -94,7 +123,7 @@ namespace OWMService.Workers
                     finally
                     {
                         sw.Stop();
-                        int remainingDelay = MinDelayBetweenStationsMs - (int)sw.ElapsedMilliseconds;
+                        int remainingDelay = targetDelayMs - (int)sw.ElapsedMilliseconds;
                         if (remainingDelay > 0)
                         {
                             System.Threading.Thread.Sleep(remainingDelay);
@@ -106,6 +135,8 @@ namespace OWMService.Workers
             {
                 m_logger.LogError($"OWMService Failed in ProcessEnvData. {ex.Message}");
             }
+
+            return apiAuthorized;
         }
 
         protected bool ProcessOWSPoint(string mli, float lat, float lon, Settings settings, SqlConnection cnn)

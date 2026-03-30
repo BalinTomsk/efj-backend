@@ -12,6 +12,11 @@ namespace OWMService
         private const string EventSourceName = "OWMService";
         private const string EventLogName = "Application";
 
+        /// <summary>
+        /// Each worker gets 8 hours to process all its stations.
+        /// </summary>
+        private static readonly TimeSpan WorkerTimeBudget = TimeSpan.FromHours(8);
+
         private System.Timers.Timer m_timer;
         private readonly IEventLogger m_logger;
         private readonly ISettingsProvider m_settingsProvider;
@@ -156,19 +161,46 @@ namespace OWMService
 
             try
             {
-                m_logger.LogInfo($"Processing weather data at {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                m_weatherDataWorkerWg.Process(m_settings);
-                // m_weatherDataWorkerOpen.Process(m_settings);
-                m_logger.LogInfo("Processing completed");
+                m_logger.LogInfo($"=== Daily cycle started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+
+                // Step 1: Run Wunderground worker (8-hour budget)
+                m_logger.LogInfo("Starting WeatherDataWorkerWg...");
+                bool wgSuccess = m_weatherDataWorkerWg.Process(m_settings, WorkerTimeBudget);
+                m_logger.LogInfo($"WeatherDataWorkerWg finished. Success: {wgSuccess}");
+
+                // Step 2: Run Open-Meteo worker (8-hour budget) — always runs regardless of Wg result
+                m_logger.LogInfo("Starting WeatherDataWorkerOpen...");
+                bool openSuccess = m_weatherDataWorkerOpen.Process(m_settings, WorkerTimeBudget);
+                m_logger.LogInfo($"WeatherDataWorkerOpen finished. Success: {openSuccess}");
+
+                // Step 3: Wait until the beginning of the next day
+                WaitUntilNextDay();
             }
             catch (Exception ex)
             {
                 m_logger.LogError($"Processing error: {ex.Message}\n{ex.StackTrace}");
+
+                // On unexpected failure, still wait until next day to avoid a tight retry loop
+                WaitUntilNextDay();
             }
             finally
             {
                 m_bFlagProcessing = false;
             }
+        }
+
+        /// <summary>
+        /// Sleeps until midnight (start of next day).
+        /// </summary>
+        private void WaitUntilNextDay()
+        {
+            DateTime now = DateTime.Now;
+            DateTime nextDay = now.Date.AddDays(1); // midnight tomorrow
+            TimeSpan waitTime = nextDay - now;
+
+            m_logger.LogInfo($"Daily cycle complete. Sleeping {waitTime.Hours}h {waitTime.Minutes}m until {nextDay:yyyy-MM-dd HH:mm:ss}.");
+            System.Threading.Thread.Sleep(waitTime);
+            m_logger.LogInfo($"Woke up at {DateTime.Now:yyyy-MM-dd HH:mm:ss}. Ready for next cycle.");
         }
 
         public void StartDebug(string[] args)
@@ -179,9 +211,9 @@ namespace OWMService
 
             try
             {
-                m_logger.LogInfo("Running single weather data process");
-                // m_weatherDataWorker.Process(m_settings);
-                m_weatherDataWorkerOpen.Process(m_settings);
+                m_logger.LogInfo("Running single weather data process (debug)");
+                m_weatherDataWorkerWg.Process(m_settings, WorkerTimeBudget);
+                m_weatherDataWorkerOpen.Process(m_settings, WorkerTimeBudget);
                 m_logger.LogInfo("Debug process completed");
             }
             catch (Exception ex)
