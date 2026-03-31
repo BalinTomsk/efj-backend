@@ -11,7 +11,7 @@ namespace OWMService.Workers
 
         protected override string GetStationQuery()
         {
-            return "select TOP 1000 mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE sid % 2 = 1 ORDER BY stamp ASC";
+            return "select TOP 1000 mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE sid % 2 = 1 ORDER BY CHECKSUM(NEWID(), sid)";
         }
 
         /// <summary>

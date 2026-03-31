@@ -11,7 +11,7 @@
 
         protected override string GetStationQuery()
         {
-            return "select TOP 1400 mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE sid % 2 = 0 ORDER BY stamp ASC";
+            return "select TOP 1400 mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE sid % 2 = 0 ORDER BY CHECKSUM(NEWID(), sid)";
         }
 
         /// <summary>
