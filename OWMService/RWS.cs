@@ -20,8 +20,10 @@ namespace OWMService
         private System.Timers.Timer m_timer;
         private readonly IEventLogger m_logger;
         private readonly ISettingsProvider m_settingsProvider;
-        private readonly IWeatherDataWorker m_weatherDataWorkerWg;
-        private readonly IWeatherDataWorker m_weatherDataWorkerOpen;
+        
+        // Removed readonly so these can be re-instantiated daily
+        private IWeatherDataWorker m_weatherDataWorkerWg;
+        private IWeatherDataWorker m_weatherDataWorkerOpen;
 
         private double m_servicePollInterval;
         private Settings m_settings = new Settings();
@@ -37,7 +39,7 @@ namespace OWMService
 
         // Overload for DI (logger + settings provider)
         public RWS(IEventLogger logger, ISettingsProvider settingsProvider)
-            : this(logger, settingsProvider, new WeatherDataWorkerWg(logger), new WeatherDataWorkerOpen(logger))
+            : this(logger, settingsProvider, null, null)
         {
         }
 
@@ -55,8 +57,11 @@ namespace OWMService
             // Set dependencies
             m_logger = logger ?? LoggerFactory.CreateDefaultLogger(EventSourceName, EventLogName);
             m_settingsProvider = settingsProvider ?? new RegistrySettingsProvider();
-            m_weatherDataWorkerWg = m_weatherDataWorkerWg ?? new WeatherDataWorkerWg(m_logger);
-            m_weatherDataWorkerOpen = m_weatherDataWorkerOpen ?? new WeatherDataWorkerOpen(m_logger);
+            
+            // Allow DI overrides but otherwise we will instantiate them daily
+            m_weatherDataWorkerWg = weatherDataWorker;
+            m_weatherDataWorkerOpen = weatherDataWorkerToday;
+            
             m_servicePollInterval = m_settings.Interval;
         }
 
@@ -161,7 +166,11 @@ namespace OWMService
 
             try
             {
-                m_logger.LogInfo($"=== Daily cycle started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+                m_logger.LogInfo($"=== Cycle started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+
+                // Instantiate fresh workers for the new cycle (preserves DI if already populated once)
+                m_weatherDataWorkerWg = m_weatherDataWorkerWg ?? new WeatherDataWorkerWg(m_logger);
+                m_weatherDataWorkerOpen = m_weatherDataWorkerOpen ?? new WeatherDataWorkerOpen(m_logger);
 
                 // Step 1: Run Wunderground worker (8-hour budget)
                 m_logger.LogInfo("Starting WeatherDataWorkerWg...");
@@ -172,16 +181,20 @@ namespace OWMService
                 m_logger.LogInfo("Starting WeatherDataWorkerOpen...");
                 bool openSuccess = m_weatherDataWorkerOpen.Process(m_settings, WorkerTimeBudget);
                 m_logger.LogInfo($"WeatherDataWorkerOpen finished. Success: {openSuccess}");
+                
+                // Clear the instances so they get fully recreated next cycle
+                m_weatherDataWorkerWg = null;
+                m_weatherDataWorkerOpen = null;
 
-                // Step 3: Wait until the beginning of the next day
-                WaitUntilNextDay();
+                // Step 3: Wait until the beginning of the next day before letting the timer tick again
+                WaitUntilNextDay(); 
             }
             catch (Exception ex)
             {
                 m_logger.LogError($"Processing error: {ex.Message}\n{ex.StackTrace}");
-
-                // On unexpected failure, still wait until next day to avoid a tight retry loop
-                WaitUntilNextDay();
+                
+                // Sleep for an hour on error so we don't end up in an endless retry loop immediately firing
+                System.Threading.Thread.Sleep(TimeSpan.FromHours(1));
             }
             finally
             {
@@ -198,7 +211,7 @@ namespace OWMService
             DateTime nextDay = now.Date.AddDays(1); // midnight tomorrow
             TimeSpan waitTime = nextDay - now;
 
-            m_logger.LogInfo($"Daily cycle complete. Sleeping {waitTime.Hours}h {waitTime.Minutes}m until {nextDay:yyyy-MM-dd HH:mm:ss}.");
+            m_logger.LogInfo($"Cycle resting. Sleeping {waitTime.Hours}h {waitTime.Minutes}m until {nextDay:yyyy-MM-dd HH:mm:ss}.");
             System.Threading.Thread.Sleep(waitTime);
             m_logger.LogInfo($"Woke up at {DateTime.Now:yyyy-MM-dd HH:mm:ss}. Ready for next cycle.");
         }
@@ -212,6 +225,11 @@ namespace OWMService
             try
             {
                 m_logger.LogInfo("Running single weather data process (debug)");
+                
+                // Mock dependencies instantiated correctly for debug
+                m_weatherDataWorkerWg = m_weatherDataWorkerWg ?? new WeatherDataWorkerWg(m_logger);
+                m_weatherDataWorkerOpen = m_weatherDataWorkerOpen ?? new WeatherDataWorkerOpen(m_logger);
+                
                 m_weatherDataWorkerWg.Process(m_settings, WorkerTimeBudget);
                 m_weatherDataWorkerOpen.Process(m_settings, WorkerTimeBudget);
                 m_logger.LogInfo("Debug process completed");

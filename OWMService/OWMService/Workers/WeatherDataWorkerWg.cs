@@ -8,11 +8,13 @@ namespace OWMService.Workers
         public WeatherDataWorkerWg(IEventLogger logger) : base(logger)
         {
         }
+        public override string GetServiceName() { return "wunderground"; }
 
-        protected override string GetStationQuery()
+        public override string GetStationQuery()
         {
-            return "select TOP 1000 mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE sid % 2 = 1 ORDER BY CHECKSUM(NEWID(), sid)";
+            return $"select TOP {GetStationMaxLimitPerDay()} mli, lat, lon, state from dbo.vwWeatherForecastToDay  country = 'CA' ORDER BY CHECKSUM(NEWID(), sid)";
         }
+        protected override int GetStationMaxLimitPerDay() {  return 1000; }
 
         /// <summary>
         ///   Weather Underground  https://www.wunderground.com/

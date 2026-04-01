@@ -12,6 +12,13 @@ namespace OWMService.Workers
     using System.Net.Http;
     using System.Text.RegularExpressions;
 
+    // https://api.weather.gc.ca/
+    // https://www.weather.gov/documentation/services-web-api
+    // https://developers.google.com/maps/documentation/weather/overview
+    // https://www.visualcrossing.com/weather-api/
+    // https://weatherstack.com/
+    // https://www.meteomatics.com/en/weather-api/
+
     public abstract class WeatherDataWorkerBase : IWeatherDataWorker
     {
         protected readonly IEventLogger m_logger;
@@ -41,6 +48,8 @@ namespace OWMService.Workers
             }
             try
             {
+                m_logger.LogInfo($"Started {GetServiceName()} service.");
+
                 using (SqlConnection cnn = new SqlConnection(conStr))
                 {
                     cnn.Open();
@@ -176,9 +185,16 @@ namespace OWMService.Workers
         }
 
         /// <summary>
+        /// Returns the name of the service running the worker.
+        /// </summary>
+        public abstract string GetServiceName();
+
+        /// <summary>
         /// Returns the SQL query to retrieve weather stations.
         /// </summary>
-        protected abstract string GetStationQuery();
+        public abstract string GetStationQuery();
+
+        protected abstract int GetStationMaxLimitPerDay();
 
         /// <summary>
         /// Returns the weather source type identifier used in ows_meteo.
