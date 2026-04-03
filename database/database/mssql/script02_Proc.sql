@@ -2384,4 +2384,48 @@ BEGIN CATCH
 END CATCH;   
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- used in water data services
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_UpdateWaterData' AND type = 'P')
+    DROP PROCEDURE dbo.sp_UpdateWaterData
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_UpdateWaterData
+    @mli varchar(64),
+    @stamp datetime2,
+    @elevation float,
+    @discharge float
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE dbo.WaterData
+    SET elevation = @elevation,
+        discharge = @discharge
+    WHERE mli = @mli
+      AND stamp = @stamp;
+
+    IF @@ROWCOUNT = 0
+    BEGIN
+        BEGIN TRY
+            INSERT INTO dbo.WaterData (mli, stamp, elevation, discharge)
+            VALUES (@mli, @stamp, @elevation, @discharge);
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() IN (2601, 2627)
+            BEGIN
+                UPDATE dbo.WaterData
+                SET elevation = @elevation,
+                    discharge = @discharge
+                WHERE mli = @mli
+                  AND stamp = @stamp;
+            END
+            ELSE
+            BEGIN
+                THROW;
+            END
+        END CATCH
+    END
+END;
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------

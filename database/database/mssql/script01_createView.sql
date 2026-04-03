@@ -554,6 +554,18 @@ CREATE VIEW dbo.vGetCurrentWeather
         JOIN dbo.WaterStation w on f.link=w.id WHERE tm IS NULL AND dt >= CONVERT(VARCHAR(10),GETDATE(),101)   
 GO
 ----------------------------------------------------------------------------------------------------------------------------
+-- used in water data services
+----------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vwWaterStation' AND type = 'V')
+    DROP VIEW dbo.[vwWaterStation]
+GO  
+
+CREATE VIEW [dbo].[vwWaterStation] 
+WITH SCHEMABINDING
+AS
+  SELECT mli, country, state, ISNULL(tz,0) AS tz from dbo.WaterStation  WHERE supported = 1  
+GO
+----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vGetOntarioList' AND xtype = 'V')
     DROP VIEW dbo.vGetOntarioList 
 GO
