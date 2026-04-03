@@ -4,6 +4,7 @@ import com.fishfind.water.domain.Reading;
 import com.fishfind.water.domain.UsSeriesReading;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 
 import java.lang.reflect.Method;
 import java.sql.Timestamp;
@@ -109,13 +110,9 @@ class WaterDataRepositoryTest {
                 new UsSeriesReading("Gage height", "ft", "<root><a d=\"2024-01-02\" v=\"7.8\" /></root>")
         ));
 
-        verify(jdbc, times(2)).update(
+        verify(jdbc, times(2)).execute(
                 eq("EXEC dbo.sp_push_us_water_data ?, ?, ?, ?, ?"),
-                eq("08313000"),
-                eq("NY"),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
+                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
         );
     }
 

@@ -5,10 +5,12 @@ import com.fishfind.water.domain.UsSeriesReading;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -149,7 +151,24 @@ public class WaterDataRepository {
                 continue;
             }
 
-            jdbc.update(sql, mli, state, series.name(), series.unit(), series.xmlDoc());
+            jdbc.execute(sql, (PreparedStatementCallback<Void>) ps -> {
+                ps.setString(1, mli);
+                ps.setString(2, state);
+                ps.setString(3, series.name());
+                ps.setString(4, series.unit());
+                ps.setString(5, series.xmlDoc());
+
+                boolean hasResults = ps.execute();
+                while (hasResults || ps.getUpdateCount() != -1) {
+                    if (hasResults) {
+                        try (var ignored = ps.getResultSet()) {
+                            // Drain result sets produced by the legacy procedure so the driver can complete cleanly.
+                        }
+                    }
+                    hasResults = ps.getMoreResults(Statement.CLOSE_CURRENT_RESULT);
+                }
+                return null;
+            });
         }
     }
 
