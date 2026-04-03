@@ -1,1 +1,0 @@
-wget wget --no-cache --spider -q "http://fishfind.info/WebService/PushStationUS.aspx?mli=%1&state=%2"

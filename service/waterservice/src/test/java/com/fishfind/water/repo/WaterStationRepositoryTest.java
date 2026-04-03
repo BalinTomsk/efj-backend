@@ -11,7 +11,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -38,7 +37,7 @@ class WaterStationRepositoryTest {
 
         assertEquals(List.of(new StationRef("02JE025", "QC", -5)), stations);
         verify(jdbc).query(
-                eq("SELECT mli, state, tz FROM vwWaterStation WHERE country = ? AND supported = 1"),
+                eq("SELECT mli, state, tz FROM vwWaterStation WHERE country = ?"),
                 any(PreparedStatementSetter.class),
                 any(RowMapper.class)
         );
@@ -48,6 +47,6 @@ class WaterStationRepositoryTest {
     void disableStationUpdatesSupportedFlag() {
         repository.disableStation("02JE025");
 
-        verify(jdbc).update(eq("UPDATE WaterStation SET supported = 0 WHERE mli=?"), eq("02JE025"));
+        verify(jdbc).update(eq("EXEC dbo.sp_DisableWaterStation ?"), eq("02JE025"));
     }
 }

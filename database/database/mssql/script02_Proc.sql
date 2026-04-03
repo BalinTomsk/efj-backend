@@ -2386,6 +2386,26 @@ GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- used in water data services
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_DisableWaterStation' AND type = 'P')
+    DROP PROCEDURE dbo.sp_DisableWaterStation
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_DisableWaterStation
+    @mli varchar(64)
+AS
+SET NOCOUNT ON
+BEGIN TRY 
+
+    UPDATE dbo.WaterStation SET supported = 0 WHERE mli = @mli;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_UpdateWaterData' AND type = 'P')
     DROP PROCEDURE dbo.sp_UpdateWaterData
 GO

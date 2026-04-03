@@ -47,6 +47,6 @@ public class WaterStationRepository {
      * @param mli station identifier to disable
      */
     public void disableStation(String mli) {
-        jdbc.update("UPDATE WaterStation SET supported = 0 WHERE mli=?", mli);
+        jdbc.update("EXEC dbo.sp_DisableWaterStation ?", mli);
     }
 }

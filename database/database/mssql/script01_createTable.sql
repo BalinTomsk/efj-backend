@@ -1694,12 +1694,4 @@ INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, 
                  VALUES ('news',        'IU', 2, '', 'news_id', 'stamp', '' )
 GO
 ------------------------------------------------------------------------------
--- used in water data station service
-------------------------------------------------------------------------------
-CREATE TABLE StationFailure(
-    mli varchar(64) NOT NULL,
-    stamp datetime2 NOT NULL DEFAULT GETDATE()
-);
-GO
-------------------------------------------------------------------------------
-------------------------------------------------------------------------------
+

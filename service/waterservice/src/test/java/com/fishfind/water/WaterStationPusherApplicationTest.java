@@ -1,11 +1,13 @@
 package com.fishfind.water;
 
 import io.github.cdimascio.dotenv.Dotenv;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.springframework.boot.SpringApplication;
 
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +22,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WaterStationPusherApplicationTest {
+    private static final Path DOTENV_PATH = Path.of(".env");
+
+    @AfterEach
+    void cleanup() throws Exception {
+        Files.deleteIfExists(DOTENV_PATH);
+        System.clearProperty("DB_URL");
+        System.clearProperty("DB_USERNAME");
+        System.clearProperty("DB_PASSWORD");
+        System.clearProperty("TEST_KEY");
+    }
 
     @Test
     void mainStartsSpringApplication() {
@@ -38,13 +50,18 @@ class WaterStationPusherApplicationTest {
 
     @Test
     void loadDotenvReadsWorkingDirectoryFile() throws Exception {
+        Files.writeString(DOTENV_PATH, "DB_URL=jdbc:test\nDB_USERNAME=test-user\nDB_PASSWORD=test-pass\n");
+
         Dotenv dotenv = (Dotenv) invokeStatic("loadDotenv");
 
         assertNotNull(dotenv.get("DB_URL"));
+        assertEquals("jdbc:test", dotenv.get("DB_URL"));
     }
 
     @Test
     void resolveDotenvPathReturnsWorkingDirectoryDotenv() throws Exception {
+        Files.writeString(DOTENV_PATH, "DB_URL=jdbc:test\n");
+
         Path resolved = (Path) invokeStatic("resolveDotenvPath");
 
         assertEquals(Path.of(".env"), resolved);
@@ -54,12 +71,10 @@ class WaterStationPusherApplicationTest {
     void applyIfMissingSetsPropertyFromDotenv() throws Exception {
         Dotenv dotenv = mock(Dotenv.class);
         when(dotenv.get("TEST_KEY")).thenReturn("test-value");
-        System.clearProperty("TEST_KEY");
 
         invokeStatic("applyIfMissing", new Class<?>[]{Dotenv.class, String.class}, dotenv, "TEST_KEY");
 
         assertEquals("test-value", System.getProperty("TEST_KEY"));
-        System.clearProperty("TEST_KEY");
     }
 
     @Test
@@ -71,24 +86,18 @@ class WaterStationPusherApplicationTest {
         invokeStatic("applyIfMissing", new Class<?>[]{Dotenv.class, String.class}, dotenv, "TEST_KEY");
 
         assertEquals("existing", System.getProperty("TEST_KEY"));
-        System.clearProperty("TEST_KEY");
     }
 
     @Test
     void loadDotenvCredentialsCopiesKnownKeysWhenTheyAreUnset() throws Exception {
+        Files.writeString(DOTENV_PATH, "DB_URL=jdbc:test\nDB_USERNAME=test-user\nDB_PASSWORD=test-pass\n");
         Dotenv dotenv = Dotenv.configure().ignoreIfMalformed().ignoreIfMissing().load();
-        System.clearProperty("DB_URL");
-        System.clearProperty("DB_USERNAME");
-        System.clearProperty("DB_PASSWORD");
 
         invokeStatic("loadDotenvCredentials");
 
         assertExpectedProperty("DB_URL", dotenv);
         assertExpectedProperty("DB_USERNAME", dotenv);
         assertExpectedProperty("DB_PASSWORD", dotenv);
-        System.clearProperty("DB_URL");
-        System.clearProperty("DB_USERNAME");
-        System.clearProperty("DB_PASSWORD");
     }
 
     private static void assertExpectedProperty(String key, Dotenv dotenv) {
