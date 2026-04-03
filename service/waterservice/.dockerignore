@@ -3,5 +3,6 @@
 target
 schema
 scripts
-specification.txt
+docs
 .env
+

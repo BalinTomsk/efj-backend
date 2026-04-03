@@ -43,7 +43,7 @@ public class StationWorkerUS implements ApplicationRunner {
         Thread workerThread = new Thread(this::loop, "water-station-worker-us");
         workerThread.setDaemon(false);
         workerThread.start();
-        log.info("Started US background station worker thread. thread={}", workerThread.getName());
+        log.debug("Started US background station worker thread. thread={}", workerThread.getName());
     }
 
     private void loop() {
@@ -116,7 +116,7 @@ public class StationWorkerUS implements ApplicationRunner {
             }
 
             processorUS.process(station.mli(), station.state(), station.tz());
-            log.info("Processed US station. station={} state={}", station.mli(), station.state());
+            log.debug("Processed US station. station={} state={}", station.mli(), station.state());
             processed++;
 
             if (pauseBetweenStationsMs > 0) {

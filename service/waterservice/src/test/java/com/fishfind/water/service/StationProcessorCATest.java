@@ -5,6 +5,7 @@ import com.fishfind.water.repo.WaterDataRepository;
 import com.fishfind.water.repo.WaterStationRepository;
 import org.junit.jupiter.api.Test;
 
+import java.io.FileNotFoundException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
@@ -13,6 +14,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -53,6 +56,17 @@ class StationProcessorCATest {
 
         verify(stationRepo, times(1)).disableStation("02JE025");
         assertNull(failureStates().get("02JE025"));
+    }
+
+    @Test
+    void processDisablesStationImmediatelyWhenSourceCsvIsMissing() throws Exception {
+        doThrow(new FileNotFoundException("HTTP error 404")).when(fetcher).fetch("MB", "05MD011");
+
+        processor.process("05MD011", "MB", -6);
+
+        verify(stationRepo, times(1)).disableStation("05MD011");
+        verify(dataRepo, never()).saveStationData(eq("05MD011"), anyList());
+        assertNull(failureStates().get("05MD011"));
     }
 
     @Test

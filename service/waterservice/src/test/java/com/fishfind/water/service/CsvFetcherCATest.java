@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
@@ -41,15 +43,29 @@ class CsvFetcherCATest {
     }
 
     @Test
-    void fetchThrowsOnNonSuccessStatus() throws Exception {
+    void fetchThrowsFileNotFoundOn404() throws Exception {
+        CsvFetcherCA fetcher = spy(new CsvFetcherCA());
+        ReflectionTestUtils.setField(fetcher, "connectTimeout", 1);
+        ReflectionTestUtils.setField(fetcher, "readTimeout", 1);
+        FakeHttpURLConnection connection = new FakeHttpURLConnection(new URL("https://example.test/file.csv"), 404, "");
+        doReturn(connection).when(fetcher).openConnection("https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv");
+
+        FileNotFoundException ex = assertThrows(FileNotFoundException.class, () -> fetcher.fetch("QC", "02JE025"));
+
+        assertEquals("HTTP error 404", ex.getMessage());
+    }
+
+    @Test
+    void fetchThrowsIoExceptionOnOtherNonSuccessStatus() throws Exception {
         CsvFetcherCA fetcher = spy(new CsvFetcherCA());
         ReflectionTestUtils.setField(fetcher, "connectTimeout", 1);
         ReflectionTestUtils.setField(fetcher, "readTimeout", 1);
         FakeHttpURLConnection connection = new FakeHttpURLConnection(new URL("https://example.test/file.csv"), 500, "");
         doReturn(connection).when(fetcher).openConnection("https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv");
 
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> fetcher.fetch("QC", "02JE025"));
+        IOException ex = assertThrows(IOException.class, () -> fetcher.fetch("QC", "02JE025"));
 
+        assertInstanceOf(IOException.class, ex);
         assertEquals("HTTP error 500", ex.getMessage());
     }
 

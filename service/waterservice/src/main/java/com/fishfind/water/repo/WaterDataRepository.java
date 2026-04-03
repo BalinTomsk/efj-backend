@@ -61,64 +61,17 @@ public class WaterDataRepository {
         if (readings == null || readings.isEmpty()) {
             return;
         }
-/*
-        jdbc.update(
-                """
-                DELETE FROM dbo.WaterData
-                WHERE mli = ?
-                  AND stamp < DATEADD(day, -15, GETDATE())
-                """,
-                mli
-        );
-*/
-        final String upsertSql =
-                """
-                UPDATE dbo.WaterData
-                SET elevation = ?,
-                    discharge = ?
-                WHERE mli = ?
-                  AND stamp = CAST(? AS datetime2);
-
-                IF @@ROWCOUNT = 0
-                BEGIN
-                    BEGIN TRY
-                        INSERT INTO dbo.WaterData (mli, stamp, elevation, discharge)
-                        VALUES (?, CAST(? AS datetime2), ?, ?);
-                    END TRY
-                    BEGIN CATCH
-                        IF ERROR_NUMBER() IN (2601, 2627)
-                        BEGIN
-                            UPDATE dbo.WaterData
-                            SET elevation = ?,
-                                discharge = ?
-                            WHERE mli = ?
-                              AND stamp = CAST(? AS datetime2);
-                        END
-                        ELSE
-                        BEGIN
-                            THROW;
-                        END
-                    END CATCH
-                END
-                """;
+        final String upsertSql = "EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?";
 
         for (Reading reading : deduplicateByTimestamp(readings)) {
             Timestamp stamp = toTimestamp(reading.stamp().toInstant());
 
             jdbc.update(
                     upsertSql,
-                    reading.waterLevel(),  // goes to legacy "elevation" column
-                    reading.discharge(),
-                    mli,
-                    stamp,
                     mli,
                     stamp,
                     reading.waterLevel(),  // goes to legacy "elevation" column
-                    reading.discharge(),
-                    reading.waterLevel(),
-                    reading.discharge(),
-                    mli,
-                    stamp
+                    reading.discharge()
             );
         }
     }

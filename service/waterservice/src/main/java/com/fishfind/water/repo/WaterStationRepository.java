@@ -4,7 +4,6 @@ import com.fishfind.water.domain.StationRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.text.MessageFormat;
 import java.util.List;
 
 /**
@@ -32,10 +31,8 @@ public class WaterStationRepository {
      */
     public List<StationRef> findSupported(String country) {
         return jdbc.query(
-            MessageFormat.format(
-                "SELECT mli, state, ISNULL(tz,0) tz FROM WaterStation WHERE country = ''{0}'' AND supported = 1",
-                country
-            ),
+            "SELECT mli, state, tz FROM vwWaterStation WHERE country = ?",
+            (ps) -> ps.setString(1, country),
             (rs, i) -> new StationRef(
                 rs.getString("mli"),
                 rs.getString("state"),

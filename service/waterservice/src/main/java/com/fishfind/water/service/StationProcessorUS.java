@@ -64,10 +64,10 @@ public class StationProcessorUS {
             String xml = fetcher.fetch(state, mli);
             List<UsSeriesReading> seriesList = parse(xml);
 
-            log.info("Saving US station readings. station={} state={} series={}", mli, state, seriesList.size());
+            log.debug("Saving US station readings. station={} state={} series={}", mli, state, seriesList.size());
             dataRepo.saveUsStationData(mli, state, seriesList);
             failureStates.remove(mli);
-            log.info("Saved US station readings. station={} state={} series={}", mli, state, seriesList.size());
+            log.debug("Saved US station readings. station={} state={} series={}", mli, state, seriesList.size());
         } catch (Exception ex) {
             int failures = incrementFailureCount(mli);
             log.warn("US station processing failed. station={} state={} failuresToday={}", mli, state, failures, ex);

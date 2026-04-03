@@ -45,7 +45,7 @@ public class XmlFetcherUS {
         if (conn.getResponseCode() != 200) {
             throw new IOException("HTTP error " + conn.getResponseCode());
         }
-        log.info("Fetched USGS WaterML. station={} state={}", mli, state);
+        log.debug("Fetched USGS WaterML. station={} state={}", mli, state);
 
         try (InputStream inputStream = conn.getInputStream()) {
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);

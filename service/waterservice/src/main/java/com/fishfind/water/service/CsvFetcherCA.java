@@ -43,10 +43,14 @@ public class CsvFetcherCA {
         conn.setReadTimeout(readTimeout);
         conn.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-        if (conn.getResponseCode() != 200) {
-            throw new RuntimeException("HTTP error " + conn.getResponseCode());
+        int responseCode = conn.getResponseCode();
+        if (responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
+            throw new FileNotFoundException("HTTP error " + responseCode);
         }
-        log.info("Fetched station CSV. station={} state={}", mli, state);
+        if (responseCode != HttpURLConnection.HTTP_OK) {
+            throw new IOException("HTTP error " + responseCode);
+        }
+        log.debug("Fetched station CSV. station={} state={}", mli, state);
 
         try (BufferedReader br = new BufferedReader(
                 new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {

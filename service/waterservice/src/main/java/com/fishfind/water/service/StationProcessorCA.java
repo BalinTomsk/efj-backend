@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.FileNotFoundException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -52,11 +53,15 @@ public class StationProcessorCA {
             var csv = fetcher.fetch(state, mli);
             var readings = parse(csv);
 
-            log.info("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
+            log.debug("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
             dataRepo.saveStationData(mli, readings);
             failureStates.remove(mli);
-            log.info("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
+            log.debug("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
 
+        } catch (FileNotFoundException ex) {
+            failureStates.remove(mli);
+            stationRepo.disableStation(mli);
+            log.warn("Disabled station because source CSV was not found. station={} state={}", mli, state, ex);
         } catch (Exception ex) {
             int failures = incrementFailureCount(mli);
             log.warn("Station processing failed. station={} state={} failuresToday={}", mli, state, failures, ex);

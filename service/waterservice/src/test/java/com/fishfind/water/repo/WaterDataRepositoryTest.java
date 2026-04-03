@@ -58,7 +58,13 @@ class WaterDataRepositoryTest {
 
         repository.saveStationData("02JE025", Arrays.asList(valid, null, missingStamp));
 
-        verify(jdbc, times(1)).update(any(String.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(jdbc, times(1)).update(
+                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
+                eq("02JE025"),
+                any(),
+                eq(1.2),
+                eq(3.4)
+        );
     }
 
     @Test
@@ -69,7 +75,13 @@ class WaterDataRepositoryTest {
 
         repository.saveStationData("02JE025", List.of(first, duplicate));
 
-        verify(jdbc, times(1)).update(any(String.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(jdbc, times(1)).update(
+                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
+                eq("02JE025"),
+                any(),
+                eq(9.9),
+                eq(8.8)
+        );
     }
 
     @Test

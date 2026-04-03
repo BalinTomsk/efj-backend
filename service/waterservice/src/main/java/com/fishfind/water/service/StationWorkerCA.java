@@ -129,7 +129,7 @@ public class StationWorkerCA implements ApplicationRunner {
             }
 
             processorCA.process(station.mli(), station.state(), station.tz());
-            log.info("Processed station. station={} state={}", station.mli(), station.state());
+            log.debug("Processed station. station={} state={}", station.mli(), station.state());
             processed++;
 
             if (pauseBetweenStationsMs > 0) {

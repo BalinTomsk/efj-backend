@@ -3,6 +3,7 @@ package com.fishfind.water.repo;
 import com.fishfind.water.domain.StationRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
 
 import java.sql.ResultSet;
@@ -23,9 +24,9 @@ class WaterStationRepositoryTest {
 
     @Test
     void findSupportedMapsRowsToStationRefs() throws Exception {
-        when(jdbc.query(any(String.class), any(RowMapper.class))).thenAnswer(invocation -> {
+        when(jdbc.query(any(String.class), any(PreparedStatementSetter.class), any(RowMapper.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            RowMapper<StationRef> mapper = invocation.getArgument(1);
+            RowMapper<StationRef> mapper = invocation.getArgument(2);
             ResultSet rs = mock(ResultSet.class);
             when(rs.getString("mli")).thenReturn("02JE025");
             when(rs.getString("state")).thenReturn("QC");
@@ -37,7 +38,8 @@ class WaterStationRepositoryTest {
 
         assertEquals(List.of(new StationRef("02JE025", "QC", -5)), stations);
         verify(jdbc).query(
-                argThat((String sql) -> sql.contains("country = 'CA'") && sql.contains("supported = 1")),
+                eq("SELECT mli, state, tz FROM vwWaterStation WHERE country = ? AND supported = 1"),
+                any(PreparedStatementSetter.class),
                 any(RowMapper.class)
         );
     }
