@@ -31,8 +31,7 @@ END CATCH
 ROLLBACK TRAN TestT2 
 GO
  --  delete  from Tributaries ;delete  from lake; delete  from news; 
- PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
+
 BEGIN TRAN TestT1
 DECLARE @test_name SYSNAME = 'TestT1 [fn_river_view_news] find no news';
 
@@ -56,8 +55,8 @@ END CATCH
 		print 'PASSED ' + @test_name
 ROLLBACK TRAN TestT1 
 GO
- PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
+ 
+
 BEGIN TRAN TestT3
 DECLARE @test_name SYSNAME = 'TestT3 [fn_river_view_news] find 2 news';
 
@@ -82,8 +81,8 @@ END CATCH
 		print 'PASSED ' + @test_name
 ROLLBACK TRAN TestT3 
 GO
-  PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
+
+
 BEGIN TRAN TestT4
 DECLARE @test_name SYSNAME = 'TestT4 [fn_river_view_news] find 3 news';
 

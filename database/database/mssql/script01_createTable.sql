@@ -1537,6 +1537,7 @@ CREATE TABLE ows_meteo
     , lon				  float
     , type                int                       -- 1 - WG, 2-- Open
 	, ows                 nvarchar(max)				-- JSON doc with weater
+    , stamp               datetime
 )
 GO
 

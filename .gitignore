@@ -21,8 +21,9 @@ service/waterservice/.idea/workspace.xml
 OWMService/bin/*
 OWMService/obj/*
 OWMService/packages
-OWMService\Res\OWMService.reg 
+OWMService/Res/OWMService.reg 
 .vs
+
 
 ### Mac OS ###
 .DS_Store
@@ -36,3 +37,6 @@ config.ini
 fisheditor.sql 
 lakeeditor.sql 
 OWMService/Res/OWMService.reg
+
+database/database/mssql/ffi2.sql
+database/database/mssql/UNIT_TESTS/cleaned.txt
