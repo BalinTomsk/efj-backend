@@ -142,12 +142,12 @@ public class StationProcessorUS {
             }
 
             LocalDate day = parseDate(dateTimeAttribute.getNodeValue());
-            String value = valueNode.getTextContent();
-            if (day == null || value == null || value.isBlank()) {
+            String value = normalizeNumericValue(valueNode.getTextContent());
+            if (day == null || value == null) {
                 continue;
             }
 
-            valuesByDay.put(day, value.trim());
+            valuesByDay.put(day, value);
         }
 
         StringBuilder xml = new StringBuilder("<root>");
@@ -178,6 +178,24 @@ public class StationProcessorUS {
 
     private String normalizeUnit(String unit) {
         return unit.replace("&#179;", "^3").replace("³", "^3");
+    }
+
+    private String normalizeNumericValue(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        try {
+            Double.parseDouble(trimmed);
+            return trimmed;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private String escapeXml(String value) {

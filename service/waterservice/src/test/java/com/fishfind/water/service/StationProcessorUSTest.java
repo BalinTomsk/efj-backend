@@ -130,6 +130,40 @@ class StationProcessorUSTest {
     }
 
     @Test
+    void parseSkipsNonNumericDailyValuesBeforeBuildingLegacyXml() throws Exception {
+        String xml = """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
+                  <ns1:timeSeries name="USGS:01519200:00060:00000">
+                    <ns1:variable>
+                      <ns1:variableName>Discharge, ft&amp;#179;/s</ns1:variableName>
+                    </ns1:variable>
+                    <ns1:values>
+                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:00:00.000-04:00">152</ns1:value>
+                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:15:00.000-04:00">Ice</ns1:value>
+                      <ns1:value qualifiers="P" dateTime="2026-03-24T08:00:00.000-04:00">160</ns1:value>
+                    </ns1:values>
+                  </ns1:timeSeries>
+                </ns1:timeSeriesResponse>
+                """;
+
+        @SuppressWarnings("unchecked")
+        List<UsSeriesReading> series = (List<UsSeriesReading>) invokePrivate(
+                "parse",
+                new Class<?>[]{String.class},
+                xml
+        );
+
+        assertEquals(List.of(
+                new UsSeriesReading(
+                        "Discharge",
+                        "ft^3/s",
+                        "<root><a d=\"2026-03-23\" v=\"152\" /><a d=\"2026-03-24\" v=\"160\" /></root>"
+                )
+        ), series);
+    }
+
+    @Test
     void incrementFailureCountResetsWhenDayChanges() throws Exception {
         Map<String, Object> states = failureStates();
         states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 7));
