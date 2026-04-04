@@ -1073,8 +1073,8 @@ BEGIN
 	DECLARE @bodytype int = dbo.GetWaterType(@search)
 
 	-- delete type of waterbody from name
-	DELETE FROM @mix WHERE line IN (SELECT en FROM dbo.water_body e where dbo.GetValidPart(@search) = e.en
-	                                    UNION SELECT fr FROM dbo.water_body f where dbo.GetValidPart(@search) = f.fr)
+	DELETE FROM @mix WHERE line IN (SELECT en FROM dbo.water_body WHERE en = dbo.GetValidPart(@search)
+	                                    UNION SELECT fr FROM dbo.water_body WHERE en = dbo.GetValidPart(@search))
 
 	SET @cnt = @cnt - 1
 
