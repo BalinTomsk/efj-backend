@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON
+SET QUOTED_IDENTIFIER ON
 
 PRINT 'Unit tests for Close By' 
 PRINT '-----------------------------------------------------------------------------------------------------------------------------' 

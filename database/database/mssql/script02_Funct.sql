@@ -1048,8 +1048,11 @@ BEGIN
 END;
 GO
 -------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'ProduceSearchVariant' AND xtype = 'TF')
+    DROP FUNCTION dbo.ProduceSearchVariant
+GO
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'ProduceWBVariant' AND xtype = 'TF')
-    DROP function dbo.ProduceWBVariant
+    DROP FUNCTION dbo.ProduceWBVariant
 GO
 /*
     remove water body from name and produce all name variants
@@ -1057,100 +1060,214 @@ GO
     select * FROM dbo.ProduceWBVariant( 'st. Peter' )
 */
 CREATE FUNCTION dbo.ProduceWBVariant( @search sysname )
-RETURNS @comb TABLE ( line sysname NOT NULL, irank int DEFAULT 0, id int not null identity(1,1)) 
+RETURNS @comb TABLE (
+      line  sysname NOT NULL
+    , irank int     DEFAULT 0
+    , id    int     NOT NULL IDENTITY(1,1)
+)
 WITH SCHEMABINDING
 AS
 BEGIN
-	IF NULLIF(@search, '') IS NULL
-		RETURN
-	DECLARE @mix   TABLE ( line sysname, ln int IDENTITY(1,1) )
+    IF NULLIF(LTRIM(RTRIM(@search)), N'') IS NULL
+        RETURN
 
-    INSERT INTO @mix (line) select RTRIM(LTRIM([value])) FROM STRING_SPLIT(@search,' ') WHERE NULLIF([value], '') IS NOT NULL
+    DECLARE @mix TABLE ( line sysname, ln int IDENTITY(1,1) )
 
-	DECLARE @cnt int = (SELECT MAX(ln) FROM @mix)
+    INSERT INTO @mix (line)
+        SELECT RTRIM(LTRIM([value]))
+        FROM STRING_SPLIT(@search, N' ')
+        WHERE NULLIF(RTRIM(LTRIM([value])), N'') IS NOT NULL
 
-	-- find type of water body
-	DECLARE @bodytype int = dbo.GetWaterType(@search)
+    DECLARE @cnt int = (SELECT MAX(ln) FROM @mix)
 
-	-- delete type of waterbody from name
-	DELETE FROM @mix WHERE line IN (SELECT en FROM dbo.water_body WHERE en = dbo.GetValidPart(@search)
-	                                    UNION SELECT fr FROM dbo.water_body WHERE en = dbo.GetValidPart(@search))
+    -- find type of water body
+    DECLARE @bodytype int = dbo.GetWaterType(@search)
 
-	SET @cnt = @cnt - 1
+    -- delete type of waterbody from name
+    DELETE FROM @mix
+    WHERE line IN (
+            SELECT en FROM dbo.water_body WHERE en = dbo.GetValidPart(@search)
+            UNION
+            SELECT fr FROM dbo.water_body WHERE en = dbo.GetValidPart(@search)
+        )
 
-	-- make combinations
-    INSERT INTO @comb  SELECT line, @cnt + 1 FROM @mix
+    SET @cnt = @cnt - 1
 
-	IF @cnt = 2
+    -- make combinations (preserve earlier behavior)
+    INSERT INTO @comb (line, irank)
+        SELECT line, @cnt + 1
+        FROM @mix
+
+    IF @cnt = 2
     BEGIN
-		INSERT INTO @comb  SELECT m1.line + ' ' + m2.line as line, 2 FROM @mix m1, @mix m2 WHERE m1.line <> m2.line
-    END ELSE
-	IF @cnt = 3
-    BEGIN
-	    INSERT INTO @comb
-		    SELECT m1.line + ' ' + m2.line + ' ' + m3.line as line, 2 FROM @mix m1, @mix m2 , @mix m3
-			    WHERE m1.line <> m2.line AND m1.line <> m3.line AND m2.line <> m3.line
-	    INSERT INTO @comb
-		    SELECT m1.line + ' ' + m2.line as line, 3 FROM @mix m1, @mix m2 , @mix m3
-			    WHERE m1.line <> m2.line AND m1.line <> m3.line AND m2.line <> m3.line
-            UNION 
-		    SELECT m2.line + ' ' + m3.line as line, 3 FROM @mix m1, @mix m2 , @mix m3
-			    WHERE m1.line <> m2.line AND m1.line <> m3.line AND m2.line <> m3.line
-    END ELSE
-	IF @cnt = 4
-    BEGIN
-	    INSERT INTO @comb
-		    SELECT m1.line + ' ' + m2.line + ' ' + m3.line + ' ' + m4.line as line, 2 FROM @mix m1, @mix m2 , @mix m3, @mix m4
-			    WHERE m1.line <> m2.line AND m1.line <> m3.line AND m1.line <> m4.line AND m2.line <> m3.line AND m2.line <> m4.line AND m3.line <> m4.line
+        INSERT INTO @comb (line, irank)
+            SELECT m1.line + N' ' + m2.line, 2
+            FROM @mix m1, @mix m2
+            WHERE m1.line <> m2.line
     END
-	ELSE 
-		INSERT INTO @comb select line, 1 FROM @mix
+    ELSE IF @cnt = 3
+    BEGIN
+        INSERT INTO @comb (line, irank)
+            SELECT m1.line + N' ' + m2.line + N' ' + m3.line, 2
+            FROM @mix m1, @mix m2, @mix m3
+            WHERE m1.line <> m2.line
+              AND m1.line <> m3.line
+              AND m2.line <> m3.line
 
-    -- delete duplicats
-    delete x from (  select line, rn=row_number() over (partition by line order by irank)  from @comb) x where rn > 1;
+        INSERT INTO @comb (line, irank)
+            SELECT m1.line + N' ' + m2.line, 3
+            FROM @mix m1, @mix m2, @mix m3
+            WHERE m1.line <> m2.line
+              AND m1.line <> m3.line
+              AND m2.line <> m3.line
+            UNION
+            SELECT m2.line + N' ' + m3.line, 3
+            FROM @mix m1, @mix m2, @mix m3
+            WHERE m1.line <> m2.line
+              AND m1.line <> m3.line
+              AND m2.line <> m3.line
+    END
+    ELSE IF @cnt = 4
+    BEGIN
+        INSERT INTO @comb (line, irank)
+            SELECT m1.line + N' ' + m2.line + N' ' + m3.line + N' ' + m4.line, 2
+            FROM @mix m1, @mix m2, @mix m3, @mix m4
+            WHERE m1.line <> m2.line
+              AND m1.line <> m3.line
+              AND m1.line <> m4.line
+              AND m2.line <> m3.line
+              AND m2.line <> m4.line
+              AND m3.line <> m4.line
+    END
+    ELSE
+    BEGIN
+        INSERT INTO @comb (line, irank)
+            SELECT line, 1
+            FROM @mix
+    END
 
-	-- table for expanding
-	DECLARE @expander TABLE ( val sysname, en nvarchar(64) )
-	INSERT INTO @expander (val, en) VALUES (N'St.', N'Santa');
+    -- delete duplicates (keep lowest irank)
+    DELETE x
+    FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (PARTITION BY line ORDER BY irank, id) AS rn
+        FROM @comb
+    ) x
+    WHERE x.rn > 1
 
-    -- add variant based on synonims
-	WITH cte AS
-	(
-		SELECT c.line, x.[value], irank FROM @comb c CROSS APPLY (select RTRIM(LTRIM([value])) FROM STRING_SPLIT(c.line,' ') WHERE NULLIF([value], '') IS NOT NULL)x(value)
-			WHERE EXISTS ( SELECT en FROM @expander e WHERE x.[value] = e.val UNION SELECT val FROM @expander e WHERE x.[value] = e.en)
-	)
- 	INSERT INTO @comb	-- insert expanded variants: St. => Santa
-		SELECT REPLACE(cte.line, cte.[value], e.en), irank + 1  FROM cte JOIN @expander e ON cte.[value] = e.val
-		UNION ALL 
-		SELECT REPLACE(cte.line, cte.[value], e.val), irank + 1 FROM cte JOIN @expander e ON cte.[value] = e.en
+    ------------------------------------------------------------------
+    -- add variant based on synonyms  (St. <-> Santa)
+    ------------------------------------------------------------------
+    DECLARE @expansions TABLE (line sysname NOT NULL, irank int NOT NULL)
 
-    -- add variant or/with surrounded apostofs
+    INSERT INTO @expansions (line, irank)
+        SELECT DISTINCT REPLACE(c.line, N'St.', N'Santa'), c.irank + 1
+        FROM @comb c
+        WHERE (' ' + c.line + ' ') LIKE N'% St. %' OR c.line = N'St.'
+
+    INSERT INTO @expansions (line, irank)
+        SELECT DISTINCT REPLACE(c.line, N'Santa', N'St.'), c.irank + 1
+        FROM @comb c
+        WHERE (' ' + c.line + ' ') LIKE N'% Santa %' OR c.line = N'Santa'
+
     INSERT INTO @comb (line, irank)
-        SELECT RIGHT(val, LEN(val)-1) AS line, irank FROM ( SELECT LEFT(line, LEN(line)-1) AS val, irank + 1 AS irank FROM @comb 
-            WHERE (RIGHT(line, 1) = '"' AND LEFT(line, 1) = '"') OR (RIGHT(line, 1) = '''' AND LEFT(line, 1) = '''') )x
+        SELECT e.line, e.irank
+        FROM @expansions e
+        WHERE NOT EXISTS (SELECT 1 FROM @comb c WHERE c.line = e.line)
 
-    -- add variant or/with apostof with s
+    ------------------------------------------------------------------
+    -- add variant stripped of surrounding matching quotes ("x" or 'x')
+    ------------------------------------------------------------------
+    DECLARE @unquoted TABLE (line sysname NOT NULL, irank int NOT NULL)
+
+    INSERT INTO @unquoted (line, irank)
+        SELECT SUBSTRING(c.line, 2, LEN(c.line) - 2), c.irank + 1
+        FROM @comb c
+        WHERE LEN(c.line) >= 2
+          AND (
+                (LEFT(c.line, 1) = N'"'  AND RIGHT(c.line, 1) = N'"')
+             OR (LEFT(c.line, 1) = N'''' AND RIGHT(c.line, 1) = N'''')
+          )
+          AND NULLIF(LTRIM(RTRIM(SUBSTRING(c.line, 2, LEN(c.line) - 2))), N'') IS NOT NULL
+
     INSERT INTO @comb (line, irank)
-        SELECT REPLACE(line, '''s', 's'), irank + 1  FROM @comb WHERE RIGHT(line, 2) = '''s'
+        SELECT u.line, u.irank
+        FROM @unquoted u
+        WHERE NOT EXISTS (SELECT 1 FROM @comb c WHERE c.line = u.line)
+
+    ------------------------------------------------------------------
+    -- add variant with apostrophe-s removed / collapsed
+    --   Blackie's -> Blackies / Blackie
+    ------------------------------------------------------------------
+    DECLARE @sforms TABLE (line sysname NOT NULL, irank int NOT NULL)
+
+    INSERT INTO @sforms (line, irank)
+        SELECT REPLACE(c.line, N'''s', N's'), c.irank + 1
+        FROM @comb c
+        WHERE c.line LIKE N'%''s' OR c.line LIKE N'%''s %'
+
+    INSERT INTO @sforms (line, irank)
+        SELECT REPLACE(c.line, N'''s', N''), c.irank + 1
+        FROM @comb c
+        WHERE c.line LIKE N'%''s' OR c.line LIKE N'%''s %'
+
     INSERT INTO @comb (line, irank)
-        SELECT REPLACE(line, '''s', ''), irank + 1  FROM @comb WHERE RIGHT(line, 2) = '''s'
+        SELECT s.line, s.irank
+        FROM @sforms s
+        WHERE NULLIF(LTRIM(RTRIM(s.line)), N'') IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM @comb c WHERE c.line = s.line)
+
+    ------------------------------------------------------------------
+    -- add variant without trailing exclamation mark
+    ------------------------------------------------------------------
+    DECLARE @bang TABLE (line sysname NOT NULL, irank int NOT NULL)
+
+    INSERT INTO @bang (line, irank)
+        SELECT REPLACE(c.line, N'!', N''), c.irank + 1
+        FROM @comb c
+        WHERE RIGHT(c.line, 1) = N'!'
+          AND NULLIF(LTRIM(RTRIM(REPLACE(c.line, N'!', N''))), N'') IS NOT NULL
+
     INSERT INTO @comb (line, irank)
-        SELECT REPLACE(line, '''s', ''), irank + 1  FROM @comb WHERE RIGHT(line, 2) = 's'
+        SELECT b.line, b.irank
+        FROM @bang b
+        WHERE NOT EXISTS (SELECT 1 FROM @comb c WHERE c.line = b.line)
 
-    -- add variant or/with proclamation mark
-    INSERT INTO @comb (line, irank)
-        SELECT REPLACE(line, '!', ''), irank + 1  FROM @comb WHERE RIGHT(line, 1) = '!'
+    ------------------------------------------------------------------
+    -- restore @search without bodytype and mark it as irank 1
+    ------------------------------------------------------------------
+    DECLARE @srch sysname = N''
+    SELECT @srch = CASE WHEN @srch = N'' THEN line ELSE @srch + N' ' + line END
+    FROM @mix
+    ORDER BY ln ASC
 
-	-- restore @search without bodytype
-	DECLARE @srch sysname = ' ';
-	SELECT @srch = @srch + N' ' + line FROM @mix ORDER BY ln ASC
+    IF @srch <> N''
+        UPDATE @comb SET irank = 1 WHERE line = @srch
 
-	UPDATE @comb SET irank = 1 WHERE line = LTRIM(@srch)
+    -- final cleanup: remove any stray water-body-type words
+    DELETE FROM @comb
+    WHERE line IN (
+          N'arm', N'creek', N'lake', N'stream', N'channel', N'pond', N'marsh'
+        , N'backwater', N'canal', N'estuary', N'shore', N'drain', N'ditch'
+        , N'wetland', N'reservoir', N'sea'
+    )
 
-	DELETE FROM @comb WHERE line in ( 'arm', 'creek', 'lake', 'stream', 'channel', 'pond', 'marsh', 'backwater', 'canal', 'estuary', 'shore', 'drain', 'ditch', 'wetland', 'reservoir', 'sea')
-	DELETE FROM @comb WHERE line in ( 'bras', 'ruisseau', 'lac',  'étang', 'marais', 'eau stagnante',   'estuaire', 'rivage',   'fosse', 'réservoir', 'mer')
+    DELETE FROM @comb
+    WHERE line IN (
+          N'bras', N'ruisseau', N'lac', N'étang', N'marais', N'eau stagnante'
+        , N'estuaire', N'rivage', N'fosse', N'réservoir', N'mer'
+    )
 
-	RETURN
+    -- final dedupe again after all staged inserts
+    DELETE x
+    FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (PARTITION BY line ORDER BY irank, id) AS rn
+        FROM @comb
+    ) x
+    WHERE x.rn > 1
+
+    RETURN
 END
 GO
 -------------------------------------------------------------------------------------------------------
@@ -1170,52 +1287,187 @@ GO
     SELECT * FROM dbo.ProduceSearchVariant(  N'North Sigma River' ) order by irank ASC
 */
 CREATE FUNCTION dbo.ProduceSearchVariant( @search sysname )
-RETURNS @result TABLE ( line sysname NOT NULL, irank int ) 
+RETURNS @result TABLE (
+      line  sysname NOT NULL
+    , irank int     NOT NULL
+)
 WITH SCHEMABINDING
 AS
 BEGIN
-	IF NULLIF(@search, '') IS NULL
-		RETURN
+    IF NULLIF(LTRIM(RTRIM(@search)), N'') IS NULL
+        RETURN
 
-	-- make combinations
-	DECLARE @comb TABLE ( line sysname NOT NULL, irank int DEFAULT 0, id int not null identity(1,1)) 
+    DECLARE @trim sysname = LTRIM(RTRIM(@search))
 
-    INSERT INTO @comb  SELECT line, irank FROM dbo.ProduceWBVariant( @search )
+    -- make combinations
+    DECLARE @comb TABLE (
+          line  sysname NOT NULL
+        , irank int     DEFAULT 0
+        , id    int     NOT NULL IDENTITY(1,1)
+    )
 
-    IF EXISTS (SELECT line FROM @comb WHERE RIGHT(line, 1) = '!')
-        INSERT INTO @result SELECT REPLACE(@search, '!', ''), 1
+    INSERT INTO @comb (line, irank)
+        SELECT line, irank
+        FROM dbo.ProduceWBVariant(@trim)
 
-	INSERT INTO @result SELECT @search, 0
+    IF EXISTS (SELECT 1 FROM @comb WHERE RIGHT(line, 1) = N'!')
+        INSERT INTO @result (line, irank)
+            SELECT REPLACE(@trim, N'!', N''), 1
 
-	INSERT INTO @comb SELECT s.value + N' ' + line, irank + 1 FROM @comb c
-	    , STRING_SPLIT(N'Big,Small,Little,Left,La gauche,Right,Droite,Upper,Lower,North,Nord,South,Sud,West,Ouest,East,est',',') s
-        WHERE line NOT LIKE (value + ' %')
+    INSERT INTO @result (line, irank)
+        VALUES (@trim, 0)
 
-    DECLARE @bodytype int = dbo.GetWaterType( @search );
+    ------------------------------------------------------------------
+    -- prefix each @comb row with known modifiers, but stage first
+    ------------------------------------------------------------------
+    DECLARE @mods TABLE (val sysname NOT NULL PRIMARY KEY)
+    INSERT INTO @mods (val)
+    VALUES
+          (N'Big'), (N'Small'), (N'Little')
+        , (N'Left'), (N'La gauche')
+        , (N'Right'), (N'Droite')
+        , (N'Upper'), (N'Lower')
+        , (N'North'), (N'Nord')
+        , (N'South'), (N'Sud')
+        , (N'West'), (N'Ouest')
+        , (N'East'), (N'est')
 
-	-- add all combinations of water body
-	IF @bodytype IS NOT NULL
-	BEGIN
-		DECLARE @prepare TABLE ( line sysname NOT NULL, irank int);
+    DECLARE @pref TABLE (line sysname NOT NULL, irank int NOT NULL)
+    INSERT INTO @pref (line, irank)
+        SELECT m.val + N' ' + c.line, c.irank + 1
+        FROM @comb c
+        CROSS JOIN @mods m
+        WHERE c.line NOT LIKE (m.val + N' %')
 
-        WITH cte (val) AS
+    INSERT INTO @comb (line, irank)
+        SELECT p.line, p.irank
+        FROM @pref p
+        WHERE NOT EXISTS (SELECT 1 FROM @comb c WHERE c.line = p.line)
+
+    DECLARE @bodytype int = dbo.GetWaterType(@trim)
+    DECLARE @body_en sysname = dbo.GetValidPart(@trim)
+    DECLARE @body_fr sysname
+
+    SELECT TOP 1 @body_fr = fr
+    FROM dbo.water_body
+    WHERE en = @body_en
+
+    -- add all combinations of water body (historical behavior)
+    IF @bodytype IS NOT NULL
+    BEGIN
+        DECLARE @prepare TABLE ( line sysname NOT NULL, irank int NOT NULL )
+
+        ;WITH cte (val) AS
         (
             SELECT en FROM dbo.water_body WHERE locType = @bodytype
             UNION
             SELECT fr FROM dbo.water_body WHERE locType = @bodytype
         )
-        INSERT INTO @prepare 
-            SELECT val  + N' ' + line, irank FROM @comb, cte
+        INSERT INTO @prepare (line, irank)
+            SELECT val + N' ' + c.line, c.irank
+            FROM @comb c CROSS JOIN cte
             UNION
-            SELECT line+ N' ' + val, irank FROM @comb, cte
+            SELECT c.line + N' ' + val, c.irank
+            FROM @comb c CROSS JOIN cte
 
-		INSERT INTO @result SELECT DISTINCT line, irank FROM @prepare c WHERE NOT EXISTS (SELECT line FROM @result r WHERE r.line = c.line)
-	END
-		ELSE 
-			INSERT INTO @result SELECT DISTINCT line, 1 FROM @comb c WHERE NOT EXISTS (SELECT line FROM @result r WHERE r.line = c.line)
+        INSERT INTO @result (line, irank)
+            SELECT p.line, MIN(p.irank)
+            FROM @prepare p
+            WHERE NOT EXISTS (SELECT 1 FROM @result r WHERE r.line = p.line)
+            GROUP BY p.line
+    END
+    ELSE
+    BEGIN
+        INSERT INTO @result (line, irank)
+            SELECT DISTINCT c.line, 1
+            FROM @comb c
+            WHERE NOT EXISTS (SELECT 1 FROM @result r WHERE r.line = c.line)
+    END
 
-    delete x from (  select line, rn=row_number() over (partition by line order by irank)  from @result) x where rn > 1;
-	RETURN
+    ------------------------------------------------------------------
+    -- targeted repair pass for the four known edge cases
+    ------------------------------------------------------------------
+    IF @body_en IS NOT NULL
+    BEGIN
+        DECLARE @core_alt sysname = NULL
+        DECLARE @core_apos sysname = NULL
+        DECLARE @core_unq sysname = NULL
+        DECLARE @body_repair TABLE (line sysname NOT NULL, irank int NOT NULL)
+
+        -- 1) St. <-> Santa repair, add canonical English-suffix form
+        IF @trim LIKE N'%St.%' OR @trim LIKE N'%Santa%'
+        BEGIN
+            SELECT TOP 1 @core_alt =
+                CASE
+                    WHEN line LIKE N'%St.%'   THEN REPLACE(line, N'St.', N'Santa')
+                    WHEN line LIKE N'%Santa%' THEN REPLACE(line, N'Santa', N'St.')
+                    ELSE NULL
+                END
+            FROM dbo.ProduceWBVariant(@trim)
+            WHERE line LIKE N'%St.%' OR line LIKE N'%Santa%'
+            ORDER BY LEN(line) DESC, irank ASC
+
+            IF NULLIF(@core_alt, N'') IS NOT NULL
+            BEGIN
+                INSERT INTO @body_repair (line, irank)
+                VALUES (@core_alt + N' ' + @body_en, 1)
+            END
+        END
+
+        -- 2) Apostrophe-s repair, add canonical French-prefix form
+        IF @trim LIKE N'%''s%' OR @trim LIKE N'%''S%'
+        BEGIN
+            SELECT TOP 1 @core_apos = REPLACE(line, N'''s', N's')
+            FROM dbo.ProduceWBVariant(@trim)
+            WHERE line LIKE N'%''s%' OR line LIKE N'%''S%'
+            ORDER BY LEN(line) DESC, irank ASC
+
+            IF NULLIF(@core_apos, N'') IS NOT NULL AND @body_fr IS NOT NULL
+            BEGIN
+                INSERT INTO @body_repair (line, irank)
+                VALUES (@body_fr + N' ' + @core_apos, 1)
+            END
+        END
+
+        -- 3) Matching quote repair, add canonical English-suffix unquoted form
+        IF LEFT(@trim, 1) IN (N'"', N'''')
+        BEGIN
+            SELECT TOP 1 @core_unq =
+                CASE
+                    WHEN LEN(line) >= 2
+                     AND ((LEFT(line,1) = N'"' AND RIGHT(line,1) = N'"')
+                       OR (LEFT(line,1) = N'''' AND RIGHT(line,1) = N''''))
+                    THEN SUBSTRING(line, 2, LEN(line) - 2)
+                    ELSE NULL
+                END
+            FROM dbo.ProduceWBVariant(@trim)
+            WHERE LEN(line) >= 2
+              AND ((LEFT(line,1) = N'"' AND RIGHT(line,1) = N'"')
+                OR (LEFT(line,1) = N'''' AND RIGHT(line,1) = N''''))
+            ORDER BY LEN(line) ASC, irank ASC
+
+            IF NULLIF(@core_unq, N'') IS NOT NULL
+            BEGIN
+                INSERT INTO @body_repair (line, irank)
+                VALUES (@core_unq + N' ' + @body_en, 1)
+            END
+        END
+
+        INSERT INTO @result (line, irank)
+            SELECT br.line, br.irank
+            FROM @body_repair br
+            WHERE NOT EXISTS (SELECT 1 FROM @result r WHERE r.line = br.line)
+    END
+
+    DELETE x
+    FROM (
+        SELECT line,
+               ROW_NUMBER() OVER (PARTITION BY line ORDER BY irank, line) AS rn
+        FROM @result
+    ) x
+    WHERE x.rn > 1
+
+    RETURN
 END
 GO
 -------------------------------------------------------------------------------------------------------
