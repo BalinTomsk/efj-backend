@@ -139,6 +139,31 @@ class WaterDataRepositoryTest {
         assertInstanceOf(IllegalStateException.class, ex.getCause());
     }
 
+    @Test
+    void cleanWeatherWaterDataExecutesStoredProcedure() {
+        repository.cleanWeatherWaterData();
+
+        verify(jdbc).update("EXEC dbo.spCleanWeatherWaterData");
+    }
+
+    @Test
+    void pushSpeciesFromLakeToStationExecutesStoredProcedure() {
+        repository.pushSpeciesFromLakeToStation();
+
+        verify(jdbc).update("EXEC dbo.spPushSpeciesFromLakeToStation");
+    }
+
+    @Test
+    void fallbackProcedureWrapsOriginalException() {
+        RuntimeException ex = assertThrows(
+                RuntimeException.class,
+                () -> repository.fallbackProcedure(new IllegalStateException("sql failed"))
+        );
+
+        assertEquals("SQL stored procedure execution failed", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+    }
+
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
         Method method = WaterDataRepository.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);

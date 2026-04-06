@@ -101,11 +101,12 @@ class StationProcessorUSTest {
     }
 
     @Test
-    void processDisablesStationAfterThreeFailuresInOneDay() throws Exception {
+    void processDisablesStationAfterThreeConsecutiveFailedDays() throws Exception {
         doThrow(new RuntimeException("fetch failed")).when(fetcher).fetch("NM", "08313000");
+        Map<String, Object> states = failureStates();
 
         processor.process("08313000", "NM", -7);
-        processor.process("08313000", "NM", -7);
+        states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 2));
         processor.process("08313000", "NM", -7);
 
         verify(stationRepo, times(1)).disableStation("08313000");
@@ -164,9 +165,29 @@ class StationProcessorUSTest {
     }
 
     @Test
-    void incrementFailureCountResetsWhenDayChanges() throws Exception {
+    void incrementFailureCountDoesNotIncreaseTwiceOnSameDay() throws Exception {
         Map<String, Object> states = failureStates();
-        states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 7));
+        states.put("08313000", newFailureState(LocalDate.now(), 2));
+
+        int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
+
+        assertEquals(2, failures);
+    }
+
+    @Test
+    void incrementFailureCountIncreasesForConsecutiveDay() throws Exception {
+        Map<String, Object> states = failureStates();
+        states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 2));
+
+        int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
+
+        assertEquals(3, failures);
+    }
+
+    @Test
+    void incrementFailureCountResetsWhenDayGapExists() throws Exception {
+        Map<String, Object> states = failureStates();
+        states.put("08313000", newFailureState(LocalDate.now().minusDays(2), 7));
 
         int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
 

@@ -22,7 +22,8 @@ class StationWorkerCATest {
 
     private final WaterStationRepository repo = mock(WaterStationRepository.class);
     private final StationProcessorCA processor = mock(StationProcessorCA.class);
-    private final StationWorkerCA worker = new StationWorkerCA(repo, processor);
+    private final StationPostProcessingService postProcessingService = mock(StationPostProcessingService.class);
+    private final StationWorkerCA worker = new StationWorkerCA(repo, processor, postProcessingService);
 
     @Test
     void runDoesNothingInConsoleMode() {
@@ -58,6 +59,7 @@ class StationWorkerCATest {
         verify(processor).process("B", "ON", -5);
         verify(processor, never()).process("A", "QC", -5);
         verify(repo, times(1)).findSupported("CA");
+        verify(postProcessingService, times(1)).runAfterStationProcessing();
     }
 
     @Test
@@ -74,6 +76,7 @@ class StationWorkerCATest {
         verify(processor).process("A", "QC", -5);
         verify(processor).process("B", "ON", -5);
         verify(repo, times(1)).findSupported("CA");
+        verify(postProcessingService, times(1)).runAfterStationProcessing();
     }
 
     @Test

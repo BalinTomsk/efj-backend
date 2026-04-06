@@ -5,7 +5,8 @@ Goal
 - Download each CA station's hourly hydrometric CSV from Environment Canada.
 - Download each US station's WaterML payload from USGS.
 - Parse readings and upsert them into `dbo.WaterData`.
-- Disable a station after 3 fetch failures in the same calendar day.
+- After each worker pass, synchronously run `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`.
+- Disable a station after failures on 3 consecutive days.
 
 Tech stack
 - Java 21
@@ -57,6 +58,9 @@ Worker behavior
   - Load supported stations for its country from DB
   - Process stations one by one
   - Sleep 1 second between stations
+  - After the station pass completes, synchronously run post-processing procedures in this order:
+    - `dbo.spCleanWeatherWaterData`
+    - `dbo.spPushSpeciesFromLakeToStation`
   - Sleep until the next top-of-hour between full cycles when the cycle finishes early
   - Start the next cycle immediately when processing has already run past that hour boundary
 - Configurable properties:
@@ -69,17 +73,17 @@ Console mode
 - Optional arg: `--station=<MLI>`
 - In console mode, run exactly one processing pass for both country workers in parallel
 - If `--station` is provided, pass that filter to both workers and process only matching supported stations
+- Each worker still performs its own post-processing sequence after its pass completes
 
 WaterStation query rules
-- Read from table `WaterStation`
+- Read from view `vwWaterStation`
 - Select columns:
   - `mli`
   - `state`
-  - `tz` using `ISNULL(tz, 0)`
+  - `tz`
 - Filter:
   - `country = 'CA'` for the CA worker
   - `country = 'US'` for the US worker
-  - `supported = 1`
 - Ignore unsupported stations
 - Represent each row as a simple record like `StationRef(String mli, String state, int tz)`
 
@@ -121,47 +125,33 @@ US parse rules
 
 Failure handling
 - Track failures in memory per station
-- Failure counter resets when the date changes
+- Failure tracking is based on consecutive failed days
 - On any station processing exception:
-  - increment today's failure count for that station
-  - log the failure count
-- When a station reaches 3 failures in the same calendar day:
-  - execute `UPDATE WaterStation SET supported = 0 WHERE mli = ?`
+  - if the station already failed today, do not increment again
+  - if the station failed yesterday, increment the consecutive-day streak
+  - if one or more days were skipped, reset the streak to `1`
+  - log the current failure streak
+- When a station reaches failures on 3 consecutive days:
+  - execute `dbo.sp_DisableWaterStation`
   - remove that station from in-memory failure tracking
 
 WaterData persistence rules
 - Implement repository method `saveStationData(String mli, List<Reading> readings)`
-- Ignore blank `mli`
+- Reject blank `mli`
 - If readings list is null or empty, do nothing
 - Wrap save in one transaction
 - Apply Resilience4j retry and circuit breaker around SQL operations
-- Upsert each reading using `(mli, stamp)` as the natural key
-- Use SQL Server `MERGE`
+- Deduplicate readings by timestamp within the batch, keeping the last duplicate
+- Upsert each reading by executing legacy stored procedure `dbo.sp_UpdateWaterData`
 - Mapping:
   - CSV water level -> `dbo.WaterData.elevation`
   - CSV discharge -> `dbo.WaterData.discharge`
 - Store timestamp as SQL `datetime2`
 - Also implement `saveUsStationData(String mli, String state, List<UsSeriesReading> seriesList)`
 - Use the legacy stored procedure `dbo.sp_push_us_water_data`
-
-Expected SQL shape
-```sql
-MERGE dbo.WaterData AS trg
-USING (
-    SELECT
-        CAST(? AS varchar(64)) AS mli,
-        CAST(? AS datetime2)   AS stamp
-) AS src
-ON trg.mli = src.mli
-   AND trg.stamp = src.stamp
-WHEN MATCHED THEN
-    UPDATE SET
-        elevation = ?,
-        discharge = ?
-WHEN NOT MATCHED THEN
-    INSERT (mli, stamp, elevation, discharge)
-    VALUES (src.mli, src.stamp, ?, ?);
-```
+- Also implement post-processing repository methods:
+  - `cleanWeatherWaterData()` -> `dbo.spCleanWeatherWaterData`
+  - `pushSpeciesFromLakeToStation()` -> `dbo.spPushSpeciesFromLakeToStation`
 
 Important note about delete logic
 - There was earlier intent to delete old `WaterData` rows older than 15 days for a station.
@@ -193,6 +183,7 @@ Logging
   - CSV fetch success
   - USGS fetch success
   - save start/end with reading counts
+  - post-processing procedure execution
   - failures and station disable events
 
 Docker expectations
@@ -216,6 +207,7 @@ Files to include
 - `src/main/java/com/fishfind/water/service/StationWorkerCA.java`
 - `src/main/java/com/fishfind/water/service/StationWorkerUS.java`
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
+- `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
 - `src/main/resources/application.yml`
 - `src/main/resources/logback-spring.xml`
 - `.env.example`

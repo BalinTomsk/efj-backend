@@ -126,6 +126,26 @@ public class WaterDataRepository {
     }
 
     /**
+     * Deletes legacy weather and water rows that are no longer needed.
+     */
+    @Transactional
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
+    public void cleanWeatherWaterData() {
+        jdbc.update("EXEC dbo.spCleanWeatherWaterData");
+    }
+
+    /**
+     * Pushes lake species associations down to stations after station processing completes.
+     */
+    @Transactional
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
+    public void pushSpeciesFromLakeToStation() {
+        jdbc.update("EXEC dbo.spPushSpeciesFromLakeToStation");
+    }
+
+    /**
      * Collapses duplicate timestamps from a single CSV batch so each station/timestamp pair is saved once.
      *
      * @param readings raw parsed readings
@@ -170,6 +190,16 @@ public class WaterDataRepository {
     @SuppressWarnings("unused")
     public void fallbackUs(String mli, String state, List<UsSeriesReading> seriesList, Throwable ex) {
         throw new RuntimeException("SQL save failed for US station " + mli, ex);
+    }
+
+    /**
+     * Converts a stored-procedure fallback into an unchecked failure.
+     *
+     * @param ex original SQL-related exception
+     */
+    @SuppressWarnings("unused")
+    public void fallbackProcedure(Throwable ex) {
+        throw new RuntimeException("SQL stored procedure execution failed", ex);
     }
 
     /**

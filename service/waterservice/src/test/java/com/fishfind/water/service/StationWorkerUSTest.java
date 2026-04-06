@@ -22,7 +22,8 @@ class StationWorkerUSTest {
 
     private final WaterStationRepository repo = mock(WaterStationRepository.class);
     private final StationProcessorUS processor = mock(StationProcessorUS.class);
-    private final StationWorkerUS worker = new StationWorkerUS(repo, processor);
+    private final StationPostProcessingService postProcessingService = mock(StationPostProcessingService.class);
+    private final StationWorkerUS worker = new StationWorkerUS(repo, processor, postProcessingService);
 
     @Test
     void runDoesNothingInConsoleMode() {
@@ -58,6 +59,7 @@ class StationWorkerUSTest {
         verify(processor).process("08313000", "NY", -5);
         verify(processor, never()).process("08312000", "NM", -7);
         verify(repo, times(1)).findSupported("US");
+        verify(postProcessingService, times(1)).runAfterStationProcessing();
     }
 
     @Test
@@ -74,6 +76,7 @@ class StationWorkerUSTest {
         verify(processor).process("08312000", "NM", -7);
         verify(processor).process("08313000", "NY", -5);
         verify(repo, times(1)).findSupported("US");
+        verify(postProcessingService, times(1)).runAfterStationProcessing();
     }
 
     @Test

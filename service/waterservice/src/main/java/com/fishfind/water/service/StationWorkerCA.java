@@ -19,6 +19,7 @@ public class StationWorkerCA implements ApplicationRunner {
 
     private final WaterStationRepository repo;
     private final StationProcessorCA processorCA;
+    private final StationPostProcessingService postProcessingService;
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -29,9 +30,12 @@ public class StationWorkerCA implements ApplicationRunner {
      * @param repo repository used to load supported stations
      * @param processor processor used to handle individual stations
      */
-    public StationWorkerCA(WaterStationRepository repo, StationProcessorCA processorCA) {
+    public StationWorkerCA(WaterStationRepository repo,
+                           StationProcessorCA processorCA,
+                           StationPostProcessingService postProcessingService) {
         this.repo = repo;
         this.processorCA = processorCA;
+        this.postProcessingService = postProcessingService;
     }
 
     /**
@@ -136,6 +140,8 @@ public class StationWorkerCA implements ApplicationRunner {
                 Thread.sleep(pauseBetweenStationsMs);
             }
         }
+
+        postProcessingService.runAfterStationProcessing();
 
         return processed;
     }

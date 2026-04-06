@@ -42,7 +42,7 @@ public class StationProcessorCA {
 
     /**
      * Processes one station by downloading its CSV, parsing readings, and persisting them.
-     * Repeated failures are tracked per day and disable the station after three failures.
+     * Repeated failures are tracked as a consecutive-day streak and disable the station after three failed days.
      *
      * @param mli station identifier
      * @param state Canadian province code used in the CSV URL
@@ -64,29 +64,37 @@ public class StationProcessorCA {
             log.warn("Disabled station because source CSV was not found. station={} state={}", mli, state, ex);
         } catch (Exception ex) {
             int failures = incrementFailureCount(mli);
-            log.warn("Station processing failed. station={} state={} failuresToday={}", mli, state, failures, ex);
+            log.warn("Station processing failed. station={} state={} failureStreakDays={}", mli, state, failures, ex);
             if (failures >= 3) {
                 stationRepo.disableStation(mli);
                 failureStates.remove(mli);
-                log.error("Disabled station after repeated failures. station={} state={} failuresToday={}", mli, state, failures);
+                log.error("Disabled station after repeated failures. station={} state={} failureStreakDays={}", mli, state, failures);
             }
         }
     }
 
     /**
-     * Increments the per-day failure counter for a station.
+     * Updates the consecutive-day failure streak for a station.
      *
      * @param mli station identifier
-     * @return the updated number of failures for the current day
+     * @return the updated number of consecutive failed days
      */
     private int incrementFailureCount(String mli) {
         LocalDate today = LocalDate.now();
         return failureStates.compute(mli, (key, existing) -> {
-            if (existing == null || !existing.day().equals(today)) {
+            if (existing == null) {
                 return new FailureState(today, 1);
             }
 
-            return new FailureState(today, existing.count() + 1);
+            if (existing.day().equals(today)) {
+                return existing;
+            }
+
+            if (existing.day().plusDays(1).equals(today)) {
+                return new FailureState(today, existing.count() + 1);
+            }
+
+            return new FailureState(today, 1);
         }).count();
     }
 
@@ -151,10 +159,10 @@ public class StationProcessorCA {
     }
 
     /**
-     * Tracks failure count for a station on a specific calendar day.
+     * Tracks the current consecutive-day failure streak for a station.
      *
-     * @param day day the failures apply to
-     * @param count number of failures recorded on that day
+     * @param day most recent failed day for the station
+     * @param count number of consecutive failed days
      */
     private record FailureState(LocalDate day, int count) {
     }
