@@ -1576,7 +1576,7 @@ AS
 SET NOCOUNT ON
 BEGIN
 	DECLARE @type int,  @json nvarchar(max), @mli varchar(64), @WaterStation_id uniqueidentifier
-	SELECT TOP 1 @json = ows, @mli = mli, @WaterStation_id = WaterStation_id FROM INSERTED
+	SELECT TOP 1 @json = ows, @mli = mli, @WaterStation_id = WaterStation_id, @type = type FROM INSERTED
 	IF @type = 1
       EXEC sp_ows_meteo      @json, @mli, @WaterStation_id
     ELSE IF @type = 2

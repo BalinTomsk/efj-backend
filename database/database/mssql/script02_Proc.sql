@@ -1690,144 +1690,307 @@ IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_ows_meteo' AND type = '
     DROP PROCEDURE dbo.sp_ows_meteo
 GO
 
-/*
-	Procedure parse JSON doc and then insert into diffrent tables:
-	1. WaterStation - meteo from water station
-	2. weather_Forecast
 
-		called from [TR_ows_meteo]
-*/
-CREATE PROCEDURE dbo.sp_ows_meteo @js nvarchar(max), @mli varchar(64), @link uniqueidentifier
-AS
-SET NOCOUNT ON
-BEGIN TRY
-	IF @js IS NULL OR @mli IS NULL
-	RETURN
-
-declare @moonPhaseCode varchar(max) = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.moonPhaseCode'), '[',''), ']',''));
-declare @moonPhaseDay varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.moonPhaseDay'), '[',''), ']',''));
-declare @narrative varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.narrative'), '[',''), ']',''));
-declare @qpf varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.qpf'), '[',''), ']',''));
-declare @qpfSnow varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.qpfSnow'), '[',''), ']',''));
-declare @sunriseTimeLocal varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.sunriseTimeLocal'), '[',''), ']',''));
-declare @sunsetTimeLocal varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.sunsetTimeLocal'), '[',''), ']',''));
-declare @temperatureMax varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.temperatureMax'), '[',''), ']',''));
-declare @temperatureMin varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.temperatureMin'), '[',''), ']',''));
-declare @validTimeLocal varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.validTimeLocal'), '[',''), ']',''));
-declare @cloudCover varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].cloudCover'), '[',''), ']',''));
-declare @dayOrNight varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].dayOrNight'), '[',''), ']',''));
-declare @iconCode varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].iconCode'), '[',''), ']',''));
-declare @iconCodeExtend varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].iconCodeExtend'), '[',''), ']',''));
-declare @info varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].narrative'), '[',''), ']',''));
-declare @precipChance varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].precipChance'), '[',''), ']',''));
-declare @precipType varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].precipType'), '[',''), ']',''));
-declare @qpf0 varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].qpf'), '[',''), ']',''));
-declare @qpfSnow0 varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].qpfSnow'), '[',''), ']',''));
-declare @qualifierPhrase varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].qualifierPhrase'), '[',''), ']',''));
-declare @relativeHumidity varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].relativeHumidity'), '[',''), ']',''));
-declare @air_temperature varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].temperature'), '[',''), ']',''));
-declare @wind_degree varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].windDirection'), '[',''), ']',''));
-declare @win_dir_cardinal varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].windDirectionCardinal'), '[',''), ']',''));
-declare @wind_max_speed varchar(max)  = (SELECT  REPLACE(REPLACE(JSON_QUERY(@js,'$.daypart[0].windSpeed'), '[',''), ']',''));
-	
-declare @tbl TABLE (id int not null, narrative varchar(255), qpf float, qpfSnow float
-	, sunriseTimeLocal DATETIME2, sunsetTimeLocal DATETIME2, temperatureMax float, temperatureMin float, validTimeLocal DATETIME2
-	, cloudCover int, dayOrNight char(1), iconCode int, iconCodeExtend int, info varchar(255), precipChance int, precipType varchar(32)
-	, qpf0 float, qualifierPhrase varchar(32), relativeHumidity int, air_temperature int, wind_degree float, wind_max_speed int, win_dir_cardinal varchar(3))
-
-insert into @tbl (id) values (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15)
-
-update t set t.win_dir_cardinal = LEFT(COALESCE(x.win_dir_cardinal, ''), 3) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS win_dir_cardinal from STRING_SPLIT(@win_dir_cardinal, ','))x ON t.id = x.num
 
 /*
-update t set t.moonPhaseDay = x.moonPhaseDay FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS moonPhaseDay from STRING_SPLIT(@moonPhaseDay, ','))x ON t.id = x.num
-
-update t set t.moonPhaseCode = x.moonPhaseCode FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS moonPhaseCode from STRING_SPLIT(@moonPhaseCode, ','))x ON t.id = x.num
-	*/
-update t set t.narrative = x.narrative FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS narrative from STRING_SPLIT(@narrative, ','))x ON t.id = x.num
-
-update t set t.qpf = (CASE WHEN x.qpf = 'null' THEN 0.0 ELSE CAST(x.qpf AS float) END ) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS qpf from STRING_SPLIT(@qpf, ','))x ON t.id = x.num
-	
-update t set t.sunriseTimeLocal = convert(datetime2, replace(left(x.sunriseTimeLocal, 19), 'T', ' '), 21) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS sunriseTimeLocal from STRING_SPLIT(@sunriseTimeLocal, ','))x ON t.id = x.num
-
-update t set t.sunsetTimeLocal = convert(datetime2, replace(left(x.sunsetTimeLocal, 19), 'T', ' '), 21) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS sunsetTimeLocal from STRING_SPLIT(@sunsetTimeLocal, ','))x ON t.id = x.num
-
-update t set t.temperatureMax = (CASE WHEN x.temperatureMax = 'null' THEN NULL ELSE x.temperatureMax END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS temperatureMax from STRING_SPLIT(@temperatureMax, ','))x ON t.id = x.num
-
-update t set t.temperatureMin = (CASE WHEN x.temperatureMin = 'null' THEN NULL ELSE x.temperatureMin END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS temperatureMin from STRING_SPLIT(@temperatureMin, ','))x ON t.id = x.num
-
-update t set t.validTimeLocal = convert(datetime2, replace(left(x.validTimeLocal, 19), 'T', ' '), 21) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS validTimeLocal from STRING_SPLIT(@validTimeLocal, ','))x ON t.id = x.num
-
-update t set t.cloudCover = (CASE WHEN x.cloudCover = 'null' THEN NULL ELSE x.cloudCover END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS cloudCover from STRING_SPLIT(@cloudCover, ','))x ON t.id = x.num
-
-update t set t.dayOrNight = (CASE WHEN x.dayOrNight = 'null' THEN NULL ELSE x.dayOrNight END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS dayOrNight from STRING_SPLIT(@dayOrNight, ','))x ON t.id = x.num
-
-update t set t.iconCode = (CASE WHEN x.iconCode = 'null' THEN NULL ELSE x.iconCode END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS iconCode from STRING_SPLIT(@iconCode, ','))x ON t.id = x.num
-
-update t set t.iconCodeExtend = (CASE WHEN x.iconCodeExtend = 'null' THEN NULL ELSE x.iconCodeExtend END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS iconCodeExtend from STRING_SPLIT(@iconCodeExtend, ','))x ON t.id = x.num
-	
-update t set t.info = (CASE WHEN x.info = 'null' THEN NULL ELSE x.info END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS info from STRING_SPLIT(@info, ','))x ON t.id = x.num
-	
-update t set t.precipChance = (CASE WHEN x.precipChance = 'null' THEN NULL ELSE x.precipChance END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS precipChance from STRING_SPLIT(@precipChance, ','))x ON t.id = x.num
-	
-update t set t.precipType = (CASE WHEN x.precipType = 'null' THEN NULL ELSE x.precipType END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS precipType from STRING_SPLIT(@precipType, ','))x ON t.id = x.num
-	 
-update t set t.qpf0 = (CASE WHEN x.qpf0 = 'null' THEN 0.0 ELSE  CAST(x.qpf0 AS float) END)  FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS qpf0 from STRING_SPLIT(@qpf0, ','))x ON t.id = x.num
-		
-update t set t.qualifierPhrase = LEFT((CASE WHEN x.qualifierPhrase = 'null' THEN NULL ELSE x.qualifierPhrase END), 24) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS qualifierPhrase from STRING_SPLIT(@qualifierPhrase, ','))x ON t.id = x.num
-	 
-update t set t.relativeHumidity = (CASE WHEN x.relativeHumidity = 'null' THEN NULL ELSE x.relativeHumidity END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS relativeHumidity from STRING_SPLIT(@relativeHumidity, ','))x ON t.id = x.num
+    Procedure parse TWC (Weather Channel) JSON and upsert into weather_Forecast.
+    One row per day (max 6).  Latest daypart values win (night over day).
+    MERGE upserts on mli + dt.
+    Temperatures converted from °F to °C.
  
-update t set t.air_temperature = (CASE WHEN x.air_temperature = 'null' THEN NULL ELSE x.air_temperature END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS air_temperature from STRING_SPLIT(@air_temperature, ','))x ON t.id = x.num
---PrintWindDescription()
-update t set t.wind_degree = (CASE WHEN x.wind_degree = 'null' THEN NULL ELSE x.wind_degree END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS wind_degree from STRING_SPLIT(@wind_degree, ','))x ON t.id = x.num
-
-update t set t.wind_max_speed = (CASE WHEN x.wind_max_speed = 'null' THEN NULL ELSE x.wind_max_speed END) FROM @tbl t JOIN 
-	(SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) as num, REPLACE(value, '"', '') AS wind_max_speed from STRING_SPLIT(@wind_max_speed, ','))x ON t.id = x.num
-	 
-update @tbl set temperatureMin = (temperatureMin-32.0)*(5.0/9.0), temperatureMax = (temperatureMax-32.0)*(5.0/9.0), air_temperature = (air_temperature-32)*(5.0/9.0);
-
-DELETE FROM @tbl WHERE validTimeLocal IS NULL
-UPDATE @tbl SET temperatureMin = COALESCE(temperatureMin,air_temperature,temperatureMax), temperatureMax = COALESCE(temperatureMax,air_temperature,temperatureMin)
-  
-	MERGE INTO weather_Forecast AS t
-        USING @tbl AS source ON t.dt = CAST(source.validTimeLocal AS DATE ) AND t.mli = @mli  
-    WHEN MATCHED THEN 
-	UPDATE SET t.tmLow = source.temperatureMin, t.tmHigh = source.temperatureMax, t.rain_today = COALESCE(qpf0, qpf)
-	 , t.gpfDay = source.qpf, t.gpfNight = source.qpf0, t.air_temperature = source.air_temperature, t.weather_code = source.iconCode
-	 , t.wind_degree = source.wind_degree, t.wind_max_speed = source.wind_max_speed, t.wind_direction = source.win_dir_cardinal, t.shortText = LEFT(source.narrative, 64)
-    WHEN NOT MATCHED BY TARGET THEN  
-        INSERT ( link,  mli,  dt,                           tm,                           tmLow,          tmHigh,         gpfDay, gpfNight,            air_temperature, weather_code, wind_degree, wind_max_speed , wind_direction ) 
-		VALUES ( @link, @mli, CAST(validTimeLocal AS DATE), CAST(validTimeLocal AS TIME), temperatureMin, temperatureMax, qpf,   COALESCE(qpf0, qpf), air_temperature, iconCode    , wind_degree, wind_max_speed ,  win_dir_cardinal  );
-  
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
-END CATCH;     
-
+        called from [TR_ows_meteo]
+*/
+CREATE  PROCEDURE [dbo].[sp_ows_meteo]
+      @js   nvarchar(max)
+    , @mli  varchar(64)
+    , @link uniqueidentifier
+AS
+BEGIN
+    SET NOCOUNT ON;
+ 
+    BEGIN TRY
+ 
+        IF @js IS NULL OR @mli IS NULL OR @link IS NULL OR ISJSON(@js) <> 1
+            RETURN;
+ 
+        ;WITH
+        ---------- daily-level arrays ------------------
+        daily_time AS
+        (
+            SELECT
+                  CAST([key] AS int) AS idx
+                , TRY_CONVERT(datetime2(0), REPLACE(LEFT([value], 19), 'T', ' ')) AS validTimeLocal
+            FROM OPENJSON(@js, '$.validTimeLocal')
+        ),
+        daily_tmax AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS tmHigh
+            FROM OPENJSON(@js, '$.temperatureMax')
+        ),
+        daily_tmin AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS tmLow
+            FROM OPENJSON(@js, '$.temperatureMin')
+        ),
+        daily_qpf AS
+        (
+            SELECT CAST([key] AS int) AS idx, ISNULL(TRY_CONVERT(float, [value]), 0.0) AS qpf
+            FROM OPENJSON(@js, '$.qpf')
+        ),
+        daily_narrative AS
+        (
+            SELECT CAST([key] AS int) AS idx, [value] AS narrative
+            FROM OPENJSON(@js, '$.narrative')
+        ),
+        daily_data AS
+        (
+            SELECT
+                  t.idx
+                , t.validTimeLocal
+                , CAST(t.validTimeLocal AS date) AS dt
+                , mx.tmHigh
+                , mn.tmLow
+                , q.qpf
+                , n.narrative
+            FROM daily_time t
+            LEFT JOIN daily_tmax      mx ON mx.idx = t.idx
+            LEFT JOIN daily_tmin      mn ON mn.idx = t.idx
+            LEFT JOIN daily_qpf       q  ON q.idx  = t.idx
+            LEFT JOIN daily_narrative  n  ON n.idx  = t.idx
+            WHERE t.validTimeLocal IS NOT NULL
+        ),
+ 
+        /* ── daypart arrays (day/night pairs: idx/2 = daily row) */
+        dp_dayOrNight AS
+        (
+            SELECT CAST([key] AS int) AS idx, [value] AS dayOrNight
+            FROM OPENJSON(@js, '$.daypart[0].dayOrNight')
+        ),
+        dp_temperature AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS air_temperature
+            FROM OPENJSON(@js, '$.daypart[0].temperature')
+        ),
+        dp_humidity AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS humidity
+            FROM OPENJSON(@js, '$.daypart[0].relativeHumidity')
+        ),
+        dp_pop AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS pop
+            FROM OPENJSON(@js, '$.daypart[0].precipChance')
+        ),
+        dp_wind_speed AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS wind_max_speed
+            FROM OPENJSON(@js, '$.daypart[0].windSpeed')
+        ),
+        dp_wind_degree AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS wind_degree
+            FROM OPENJSON(@js, '$.daypart[0].windDirection')
+        ),
+        dp_wind_dir AS
+        (
+            SELECT CAST([key] AS int) AS idx, LEFT([value], 3) AS wind_direction
+            FROM OPENJSON(@js, '$.daypart[0].windDirectionCardinal')
+        ),
+        dp_iconCode AS
+        (
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS iconCode
+            FROM OPENJSON(@js, '$.daypart[0].iconCode')
+        ),
+        dp_wxShort AS
+        (
+            SELECT CAST([key] AS int) AS idx, [value] AS wxPhraseShort
+            FROM OPENJSON(@js, '$.daypart[0].wxPhraseShort')
+        ),
+        dp_wxLong AS
+        (
+            SELECT CAST([key] AS int) AS idx, [value] AS wxPhraseLong
+            FROM OPENJSON(@js, '$.daypart[0].wxPhraseLong')
+        ),
+        dp_qpf AS
+        (
+            SELECT CAST([key] AS int) AS idx, ISNULL(TRY_CONVERT(float, [value]), 0.0) AS dp_qpf
+            FROM OPENJSON(@js, '$.daypart[0].qpf')
+        ),
+        dp_narrative AS
+        (
+            SELECT CAST([key] AS int) AS idx, [value] AS dp_narrative
+            FROM OPENJSON(@js, '$.daypart[0].narrative')
+        ),
+ 
+        -----------combine all daypart fields, map to daily index --------------
+        daypart_data AS
+        (
+            SELECT
+                  dn.idx
+                , dn.idx / 2                AS daily_idx
+                , dn.dayOrNight
+                , tmp.air_temperature
+                , hum.humidity
+                , pp.pop
+                , ws.wind_max_speed
+                , wd.wind_degree
+                , wdir.wind_direction
+                , ic.iconCode
+                , wxs.wxPhraseShort
+                , wxl.wxPhraseLong
+                , dq.dp_qpf
+                , dpn.dp_narrative
+            FROM dp_dayOrNight dn
+            LEFT JOIN dp_temperature  tmp  ON tmp.idx  = dn.idx
+            LEFT JOIN dp_humidity     hum  ON hum.idx  = dn.idx
+            LEFT JOIN dp_pop          pp   ON pp.idx   = dn.idx
+            LEFT JOIN dp_wind_speed   ws   ON ws.idx   = dn.idx
+            LEFT JOIN dp_wind_degree  wd   ON wd.idx   = dn.idx
+            LEFT JOIN dp_wind_dir     wdir ON wdir.idx = dn.idx
+            LEFT JOIN dp_iconCode     ic   ON ic.idx   = dn.idx
+            LEFT JOIN dp_wxShort      wxs  ON wxs.idx  = dn.idx
+            LEFT JOIN dp_wxLong       wxl  ON wxl.idx  = dn.idx
+            LEFT JOIN dp_qpf          dq   ON dq.idx   = dn.idx
+            LEFT JOIN dp_narrative    dpn  ON dpn.idx  = dn.idx
+            WHERE dn.dayOrNight IS NOT NULL          -- skip JSON nulls
+        ),
+ 
+        ------------------ latest daypart per day (night > day by idx) ------------
+        dp_ranked AS
+        (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY daily_idx ORDER BY idx DESC) AS rn
+            FROM daypart_data
+        ),
+        latest_dp AS
+        (
+            SELECT * FROM dp_ranked WHERE rn = 1
+        ),
+ 
+        ------------ day/night precipitation split --------------------------
+        dp_precip AS
+        (
+            SELECT
+                  daily_idx
+                , SUM(CASE WHEN dayOrNight = 'D' THEN dp_qpf ELSE 0 END) AS gpfDay
+                , SUM(CASE WHEN dayOrNight = 'N' THEN dp_qpf ELSE 0 END) AS gpfNight
+            FROM daypart_data
+            GROUP BY daily_idx
+        ),
+ 
+        ------------- daytime temperature (D part only) for tmDay -----------
+        dp_day_temp AS
+        (
+            SELECT daily_idx, air_temperature AS tmDay
+            FROM daypart_data
+            WHERE dayOrNight = 'D'
+        ),
+ 
+        ------------- final source: 1 row per day ----------------------------
+        src AS
+        (
+            SELECT
+                  @link AS [link]
+                /* F → C;  COALESCE mirrors original fallback logic */
+                , ROUND((COALESCE(d.tmHigh, lp.air_temperature, d.tmLow) - 32.0) * (5.0/9.0), 1) AS tmHigh
+                , ROUND((COALESCE(d.tmLow,  lp.air_temperature, d.tmHigh) - 32.0) * (5.0/9.0), 1) AS tmLow
+                , ISNULL(pr.gpfDay, 0.0)   AS gpfDay
+                , ISNULL(pr.gpfNight, 0.0)  AS gpfNight
+                , lp.humidity
+                , lp.wind_max_speed
+                , lp.wind_degree
+                , lp.wind_direction
+                , LEFT(COALESCE(lp.wxPhraseShort, d.narrative), 64)              AS shortText
+                , LEFT(COALESCE(lp.wxPhraseLong, lp.dp_narrative, d.narrative), 255) AS longText
+                , CONCAT('wc_', ISNULL(CONVERT(varchar(12), lp.iconCode), 'na'), '.png') AS icon
+                , lp.pop
+                , d.dt
+                , CAST(d.validTimeLocal AS time(7)) AS tm
+                , @mli AS mli
+                , CAST(NULL AS int) AS city_id
+                , CAST(NULL AS int) AS pressure           -- not in TWC JSON
+                , TRY_CONVERT(int, ROUND(d.qpf, 0))      AS rain_today
+                , TRY_CONVERT(int, ROUND((lp.air_temperature - 32.0) * (5.0/9.0), 0)) AS air_temperature
+                , ROUND((dt_temp.tmDay - 32.0) * (5.0/9.0), 1) AS tmDay
+                , lp.iconCode AS weather_code
+            FROM daily_data d
+            LEFT JOIN latest_dp   lp      ON lp.daily_idx      = d.idx
+            LEFT JOIN dp_precip   pr      ON pr.daily_idx      = d.idx
+            LEFT JOIN dp_day_temp dt_temp ON dt_temp.daily_idx  = d.idx
+        )
+ 
+        MERGE dbo.weather_Forecast AS t
+        USING src
+           ON t.mli = src.mli
+          AND t.dt  = src.dt
+ 
+        WHEN MATCHED THEN
+            UPDATE SET
+                  t.[link]            = src.[link]
+                , t.tmHigh            = ISNULL(src.tmHigh, t.tmHigh)
+                , t.tmLow             = ISNULL(src.tmLow, t.tmLow)
+                , t.gpfDay            = src.gpfDay
+                , t.gpfNight          = src.gpfNight
+                , t.humidity          = src.humidity
+                , t.wind_max_speed    = src.wind_max_speed
+                , t.wind_degree       = src.wind_degree
+                , t.wind_direction    = src.wind_direction
+                , t.shortText         = src.shortText
+                , t.longText          = src.longText
+                , t.icon              = src.icon
+                , t.pop               = src.pop
+                , t.tm                = src.tm
+                , t.pressure          = src.pressure
+                , t.rain_today        = src.rain_today
+                , t.air_temperature   = src.air_temperature
+                , t.tmDay             = src.tmDay
+                , t.weather_code      = src.weather_code
+ 
+        WHEN NOT MATCHED BY TARGET THEN
+            INSERT
+            (
+                  [link], [tmHigh], [tmLow], [gpfDay], [gpfNight]
+                , [humidity], [wind_max_speed], [wind_degree], [wind_direction]
+                , [shortText], [longText], [icon], [pop]
+                , [dt], [tm], [mli], [city_id]
+                , [pressure], [rain_today], [air_temperature], [tmDay], [weather_code]
+            )
+            VALUES
+            (
+                  src.[link]
+                , ISNULL(src.tmHigh, 0)
+                , ISNULL(src.tmLow, 0)
+                , ISNULL(src.gpfDay, 0)
+                , ISNULL(src.gpfNight, 0)
+                , src.humidity
+                , src.wind_max_speed
+                , src.wind_degree
+                , src.wind_direction
+                , src.shortText
+                , src.longText
+                , src.icon
+                , src.pop
+                , src.dt
+                , src.tm
+                , src.mli
+                , src.city_id
+                , src.pressure
+                , src.rain_today
+                , src.air_temperature
+                , src.tmDay
+                , src.weather_code
+            );
+ 
+    END TRY
+    BEGIN CATCH
+        SELECT
+              ERROR_NUMBER()    AS ErrorNumber
+            , ERROR_SEVERITY()  AS ErrorSeverity
+            , ERROR_STATE()     AS ErrorState
+            , ERROR_PROCEDURE() AS ErrorProcedure
+            , ERROR_LINE()      AS ErrorLine
+            , ERROR_MESSAGE()   AS ErrorMessage;
+    END CATCH
+END
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1854,6 +2017,7 @@ BEGIN
             RETURN;
 
         ;WITH
+        -- ------------------- hourly arrays ----------------------
         hourly_time AS
         (
             SELECT
@@ -1863,58 +2027,42 @@ BEGIN
         ),
         hourly_temperature AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS air_temperature
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS air_temperature
             FROM OPENJSON(@js, '$.hourly.temperature_2m')
         ),
         hourly_humidity AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS humidity
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS humidity
             FROM OPENJSON(@js, '$.hourly.relative_humidity_2m')
         ),
         hourly_pop AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(int, [value]) AS pop
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS pop
             FROM OPENJSON(@js, '$.hourly.precipitation_probability')
         ),
         hourly_pressure AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(int, [value]) AS pressure
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS pressure
             FROM OPENJSON(@js, '$.hourly.pressure_msl')
         ),
         hourly_wind_speed AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS wind_max_speed
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS wind_max_speed
             FROM OPENJSON(@js, '$.hourly.wind_speed_10m')
         ),
         hourly_wind_degree AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS wind_degree
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS wind_degree
             FROM OPENJSON(@js, '$.hourly.wind_direction_10m')
         ),
         hourly_weather_code AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(int, [value]) AS weather_code
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(int, [value]) AS weather_code
             FROM OPENJSON(@js, '$.hourly.weather_code')
         ),
         hourly_rain AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS rain_mm
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS rain_mm
             FROM OPENJSON(@js, '$.hourly.rain')
         ),
         hourly_data AS
@@ -1943,38 +2091,45 @@ BEGIN
             LEFT JOIN hourly_rain         rn  ON rn.idx  = t.idx
             WHERE t.validTimeLocal IS NOT NULL
         ),
+
+        ------------------ pick latest hour per day ─────────----------
+        hourly_ranked AS
+        (
+            SELECT *
+                 , ROW_NUMBER() OVER (PARTITION BY dt ORDER BY validTimeLocal DESC) AS rn
+            FROM hourly_data
+        ),
+        latest_hourly AS
+        (
+            SELECT * FROM hourly_ranked WHERE rn = 1
+        ),
+
+        ------------------- daily arrays ───────────────────----------
         daily_time AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(date, [value]) AS dt
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(date, [value]) AS dt
             FROM OPENJSON(@js, '$.daily.time')
         ),
         daily_tmax AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS tmHigh
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS tmHigh
             FROM OPENJSON(@js, '$.daily.temperature_2m_max')
         ),
         daily_tmin AS
         (
-            SELECT
-                  CAST([key] AS int) AS idx
-                , TRY_CONVERT(float, [value]) AS tmLow
+            SELECT CAST([key] AS int) AS idx, TRY_CONVERT(float, [value]) AS tmLow
             FROM OPENJSON(@js, '$.daily.temperature_2m_min')
         ),
         daily_data AS
         (
-            SELECT
-                  d.dt
-                , mx.tmHigh
-                , mn.tmLow
+            SELECT d.dt, mx.tmHigh, mn.tmLow
             FROM daily_time d
             LEFT JOIN daily_tmax mx ON mx.idx = d.idx
             LEFT JOIN daily_tmin mn ON mn.idx = d.idx
             WHERE d.dt IS NOT NULL
         ),
+
+       ---- rain / daytime temp aggregated per day ─────------------
         rain_by_day AS
         (
             SELECT
@@ -1989,14 +2144,16 @@ BEGIN
             FROM hourly_data h
             GROUP BY h.dt
         ),
+
+        ---------------- final source: 1 row per day (max 7) ──────------------
         src AS
         (
             SELECT
                   @link AS [link]
                 , d.tmHigh
                 , d.tmLow
-                , ISNULL(r.gpfDay, 0.0) AS gpfDay
-                , ISNULL(r.gpfNight, 0.0) AS gpfNight
+                , ISNULL(r.gpfDay, 0.0)   AS gpfDay
+                , ISNULL(r.gpfNight, 0.0)  AS gpfNight
                 , h.humidity
                 , h.wind_max_speed
                 , h.wind_degree
@@ -2066,8 +2223,8 @@ BEGIN
                 , TRY_CONVERT(int, ROUND(h.air_temperature, 0)) AS air_temperature
                 , r.tmDay
                 , h.weather_code
-            FROM hourly_data h
-            LEFT JOIN daily_data d  ON d.dt = h.dt
+            FROM latest_hourly h
+            LEFT JOIN daily_data  d ON d.dt = h.dt
             LEFT JOIN rain_by_day r ON r.dt = h.dt
         )
 
@@ -2075,7 +2232,6 @@ BEGIN
         USING src
            ON t.mli = src.mli
           AND t.dt  = src.dt
-          AND ISNULL(t.tm, CAST('00:00:00' AS time)) = ISNULL(src.tm, CAST('00:00:00' AS time))
 
         WHEN MATCHED THEN
             UPDATE SET
@@ -2092,6 +2248,7 @@ BEGIN
                 , t.longText          = LEFT(src.longText, 255)
                 , t.icon              = LEFT(src.icon, 255)
                 , t.pop               = src.pop
+                , t.tm                = src.tm
                 , t.pressure          = src.pressure
                 , t.rain_today        = src.rain_today
                 , t.air_temperature   = src.air_temperature
@@ -2101,28 +2258,11 @@ BEGIN
         WHEN NOT MATCHED BY TARGET THEN
             INSERT
             (
-                  [link]
-                , [tmHigh]
-                , [tmLow]
-                , [gpfDay]
-                , [gpfNight]
-                , [humidity]
-                , [wind_max_speed]
-                , [wind_degree]
-                , [wind_direction]
-                , [shortText]
-                , [longText]
-                , [icon]
-                , [pop]
-                , [dt]
-                , [tm]
-                , [mli]
-                , [city_id]
-                , [pressure]
-                , [rain_today]
-                , [air_temperature]
-                , [tmDay]
-                , [weather_code]
+                  [link], [tmHigh], [tmLow], [gpfDay], [gpfNight]
+                , [humidity], [wind_max_speed], [wind_degree], [wind_direction]
+                , [shortText], [longText], [icon], [pop]
+                , [dt], [tm], [mli], [city_id]
+                , [pressure], [rain_today], [air_temperature], [tmDay], [weather_code]
             )
             VALUES
             (
