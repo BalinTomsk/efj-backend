@@ -1062,18 +1062,25 @@ AS
     WHERE EXISTS (select 1 from dbo.lake_fish f where f.lake_Id = w.lakeId)
     AND w.supported = 1
 GO
+
 -------------------------------------------------------------------------------------------------------
-IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vwWeatherForecast' AND type = 'V')
-    DROP VIEW dbo.vwWeatherForecast
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vwWeatherForecastToDay' AND type = 'V')
+    DROP VIEW dbo.vwWeatherForecastToDay
 GO
 
--- Used in OWMService to get list of waterstations not having yestoday wheather data
--------------------------------------------------------------------------------------------------------
-CREATE VIEW dbo.vwWeatherForecast 
+-- Used in OWMService to get list of waterstations not having current wheather data
+CREATE VIEW [dbo].[vwWeatherForecastToDay] 
 WITH SCHEMABINDING
 AS
-  SELECT mli, lat, lon, state from dbo.WaterStation w 
+    SELECT mli, lat, lon, country, state, sid, stamp from dbo.WaterStation w 
     WHERE EXISTS (select 1 from dbo.lake_fish f where f.lake_Id = w.lakeId)
-    AND w.supported = 1
+    AND w.supported = 1 
+    AND EXISTS (SELECT 1 FROM dbo.ows_meteo o WHERE o.mli=w.mli AND CAST(o.stamp AS DATE) < CAST(GETDATE() AS DATE))
+    UNION ALL
+    SELECT mli, lat, lon, country, state, sid, stamp from dbo.WaterStation w 
+    WHERE EXISTS (select 1 from dbo.lake_fish f where f.lake_Id = w.lakeId)
+    AND w.supported = 0
+    AND EXISTS (SELECT 1 FROM dbo.ows_meteo o WHERE o.mli=w.mli AND CAST(o.stamp AS DATE) < CAST(GETDATE() AS DATE))
 GO
 -------------------------------------------------------------------------------------------------------
+

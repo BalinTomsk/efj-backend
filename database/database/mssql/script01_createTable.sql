@@ -463,6 +463,9 @@ ALTER TABLE real_interval ADD CONSTRAINT CH_real_interval CHECK
 GO
 ALTER TABLE real_interval  WITH CHECK ADD FOREIGN KEY(ri_parent_id) REFERENCES fish_Rule (id)
 GO
+-- used in fn_get_koef_fish_station_temperature
+CREATE NONCLUSTERED INDEX IDX_real_interval ON [dbo].[real_interval] ([ri_type]) INCLUDE ([ri_min],[ri_max])
+GO
 
 --delete from real_interval where ri_parent_id not in (select id from fish_Rule)
 
@@ -1318,6 +1321,11 @@ CREATE INDEX IDX_WaterData_dt ON dbo.WaterData(stamp);
 GO
 
 CREATE UNIQUE NONCLUSTERED INDEX UK_WaterData_MLI_stamp ON dbo.WaterData(MLI, stamp);
+GO
+-- used in [spTotalUpdateProbability]  update fish probabilty based on water temperature
+CREATE NONCLUSTERED INDEX IDX_TM_WaterData ON [dbo].[WaterData] ([temperature]) INCLUDE ([mli])
+GO
+CREATE NONCLUSTERED INDEX IDX_PH_WaterData ON [dbo].[WaterData] ([ph]) INCLUDE ([mli])
 GO
 --------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------
