@@ -23,7 +23,7 @@
         /// <returns>A SQL command string for selecting Open-Meteo specific stations.</returns>
         public override string GetStationQuery()
         {
-            return $"select TOP {GetStationMaxLimitPerDay()} mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE country = 'US' ORDER BY CHECKSUM(NEWID(), sid)";
+            return $"select TOP {GetStationMaxLimitPerDay()} mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE country = 'US'";
         }
 
         /// <summary>

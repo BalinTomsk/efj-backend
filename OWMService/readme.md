@@ -195,9 +195,11 @@ Default location: `C:\ProgramData\OWMService\Logs\OWMService.log`
 |---|---|
 | Empty/null connection string | Returns `false` immediately |
 | SQL connection failure | Logged, returns `false` |
+| Station query failure | Logged with SQL query text, returns `false` |
 | **HTTP 401 Unauthorized** | Stops current worker, skips `ProcessFishState`, next worker still runs |
 | HTTP error (non-401) | Station skipped, processing continues |
 | Network timeout | Station skipped, processing continues |
+| Trigger failure on save | Logged, JSON payload saved to `Logs\failed_{mli}_{timestamp}.json` |
 | Stored procedure failure | Logged, does not fail the worker |
 | Unhandled exception in timer | Logged, sleeps until next day |
 

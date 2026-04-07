@@ -80,9 +80,20 @@ Path: `HKEY_LOCAL_MACHINE\SOFTWARE\FishFind\OWMService`
 
 ### 4.3 Connection String Format
 
-```plaintext
-Server={serverName}; Database={dbName}; User Id={userName}; Password={userPassword};
+Built using `SqlConnectionStringBuilder` to safely escape special characters in credentials:
+
+```csharp
+var builder = new SqlConnectionStringBuilder
+{
+    DataSource = Server,
+    InitialCatalog = DbName,
+    IntegratedSecurity = false,
+    UserID = UserName,
+    Password = UserPassword
+};
 ```
+
+Returns `string.Empty` if `Server` or `DbName` is null/whitespace.
 
 ---
 
@@ -143,9 +154,9 @@ Abstract class providing the full processing pipeline:
 
 #### Process(Settings, TimeSpan)
 
-1. Build connection string. Return `false` if empty.
-2. Open `SqlConnection`.
-3. `GetListOwsMeteo(cnn)` — execute `GetStationQuery()`, read `(mli, lat, lon, state)` into `List<StationData>`.
+1. Build connection string via `SqlConnectionStringBuilder`. Return `false` if empty.
+2. Open `SqlConnection`. Log `"Database connection opened."`.
+3. `GetListOwsMeteo(cnn)` — execute `GetStationQuery()`, read `(mli, lat, lon, state)` into `List<StationData>`. Wrapped in dedicated try/catch that logs the failing SQL query text on error.
 ---
 
 - `@type` comes from `GetSourceType()` (abstract).
@@ -245,10 +256,12 @@ If a worker fails early, the next one starts immediately. The remaining time bef
 |---|---|
 | Empty connection string | `Process()` returns `false` immediately |
 | SQL connection failure | Caught in outer try/catch, logged, returns `false` |
+| Station query failure | Caught in dedicated try/catch, logged with SQL query text, returns `false` |
 | HTTP 401 Unauthorized | `UnauthorizedAccessException` thrown → station loop breaks → `Process()` returns `false`, skips `ProcessFishState` |
 | HTTP non-200 (other) | Logged, returns empty JSON, station skipped |
 | Network/timeout error | Logged, returns empty JSON, station skipped |
 | Station processing exception | Logged with MLI and index, processing continues to next station |
+| `SaveJSONOWSData` trigger failure | Logged, failed JSON payload saved to `C:\ProgramData\OWMService\Logs\failed_{mli}_{timestamp}.json`, station skipped |
 | `ProcessFishState` exception | Logged, does not fail the entire process |
 | Unexpected `TimerElapsed` exception | Logged, still waits until next day |
 
@@ -403,7 +416,7 @@ All `Process` tests pass `TimeSpan.FromHours(8)` as the time budget.
 | Access modifiers | `protected` for base class methods meant for override/use in subclasses |
 | Regions | Used in test files (`#region Constructor Tests`, etc.) |
 | Formatting | 4-space indentation, braces on own line |
-| String interpolation | Preferred over `String.Format` except in `Settings.GetConnectionString()` |
+| String interpolation | Preferred over `String.Format`; `Settings.GetConnectionString()` uses `SqlConnectionStringBuilder` |
 
 ---
 
@@ -428,7 +441,7 @@ All `Process` tests pass `TimeSpan.FromHours(8)` as the time budget.
 
 ## 15. Key Design Decisions
 
-1. **Two workers, odd/even station split**: Stations are split by `sid % 2`. Worker Wg handles odd stations (1000), Worker Open handles even stations (1400). This ensures each station gets weather data from exactly one source per day.
+1. **Two workers, country-based station split**: Stations are split by `country`. Worker Wg handles Canadian stations (`country = 'CA'`, up to 1000), Worker Open handles US stations (`country = 'US'`, up to 1400). Order is randomized via `CHECKSUM(NEWID(), sid)`. This ensures each station gets weather data from exactly one source per day.
 
 2. **Sequential execution, not parallel**: Workers run one after the other to avoid overwhelming the database connection and to simplify error handling.
 

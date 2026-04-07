@@ -12,7 +12,7 @@ namespace OWMService.Workers
 
         public override string GetStationQuery()
         {
-            return $"select TOP {GetStationMaxLimitPerDay()} mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE country = 'CA' ORDER BY CHECKSUM(NEWID(), sid)";
+            return $"select TOP {GetStationMaxLimitPerDay()} mli, lat, lon, state from dbo.vwWeatherForecastToDay WHERE country = 'CA'";
         }
         protected override int GetStationMaxLimitPerDay() {  return 1000; }
 

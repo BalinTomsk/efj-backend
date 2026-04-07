@@ -312,12 +312,42 @@ namespace OWMService.Workers
                 catch (Exception ex)
                 {
                     m_logger.LogError($"SaveJSONOWSData: {ex.Message}");
+                    DumpFailedJson(mli, jsonData);
                     return false;
                 }
             }
 
             m_logger.LogInfo($"Processed {mli} station.");
             return true;
+        }
+
+        /// <summary>
+        /// Writes the JSON payload to a file in the log folder when SaveJSONOWSData fails.
+        /// File name: failed_{mli}_{timestamp}.json
+        /// </summary>
+        private void DumpFailedJson(string mli, string jsonData)
+        {
+            try
+            {
+                string logDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "OWMService", "Logs");
+
+                if (!Directory.Exists(logDir))
+                {
+                    Directory.CreateDirectory(logDir);
+                }
+
+                string fileName = $"failed_{mli}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+                string filePath = Path.Combine(logDir, fileName);
+
+                File.WriteAllText(filePath, jsonData);
+                m_logger.LogInfo($"Saved failed JSON for station {mli} to {filePath}");
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError($"DumpFailedJson: Could not save JSON for {mli}. {ex.Message}");
+            }
         }
     }
 }
