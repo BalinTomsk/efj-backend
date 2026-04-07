@@ -2589,4 +2589,21 @@ BEGIN
 END;
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spCleanWeatherWaterData' AND type = 'P')
+    DROP PROCEDURE dbo.spCleanWeatherWaterData
+GO
+
+CREATE PROCEDURE [dbo].[spCleanWeatherWaterData]  
+AS
+SET NOCOUNT ON
+	BEGIN TRY 
+	 delete from [dbo].[WaterData] where stamp < CAST(DATEADD(day, -15, GETDATE()) AS DATE);
+	 SELECT @@ROWCOUNT 
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;          
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------

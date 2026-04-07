@@ -8,8 +8,11 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.io.EOFException;
 
 /**
  * Downloads WaterML payloads from USGS for one station.
@@ -17,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class XmlFetcherUS {
     private static final Logger log = LoggerFactory.getLogger(XmlFetcherUS.class);
+    private static final int MAX_ATTEMPTS = 3;
 
     @Value("${water.worker.connect-timeout-ms:15000}")
     private int connectTimeout;
@@ -35,21 +39,48 @@ public class XmlFetcherUS {
     public String fetch(String state, String mli) throws IOException {
         String url = "https://waterservices.usgs.gov/nwis/iv/?sites=" + mli + "&period=P3D&format=waterml";
 
-        log.debug("Fetching USGS WaterML. station={} state={} url={}", mli, state, url);
+        IOException lastException = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpURLConnection conn = openConnection(url);
+            conn.setConnectTimeout(connectTimeout);
+            conn.setReadTimeout(readTimeout);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-        HttpURLConnection conn = openConnection(url);
-        conn.setConnectTimeout(connectTimeout);
-        conn.setReadTimeout(readTimeout);
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            try {
+                log.debug("Fetching USGS WaterML. station={} state={} url={} attempt={}", mli, state, url, attempt);
 
-        if (conn.getResponseCode() != 200) {
-            throw new IOException("HTTP error " + conn.getResponseCode());
+                if (conn.getResponseCode() != 200) {
+                    throw new IOException("HTTP error " + conn.getResponseCode());
+                }
+
+                try (InputStream inputStream = conn.getInputStream()) {
+                    String xml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                    log.debug("Fetched USGS WaterML. station={} state={} attempt={}", mli, state, attempt);
+                    return xml;
+                }
+            } catch (IOException ex) {
+                lastException = ex;
+                if (!isRetryable(ex) || attempt == MAX_ATTEMPTS) {
+                    throw ex;
+                }
+
+                log.warn("Retrying USGS WaterML fetch after transient failure. station={} state={} attempt={} maxAttempts={}",
+                        mli, state, attempt, MAX_ATTEMPTS, ex);
+            } finally {
+                conn.disconnect();
+            }
         }
-        log.debug("Fetched USGS WaterML. station={} state={}", mli, state);
 
-        try (InputStream inputStream = conn.getInputStream()) {
-            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        throw lastException == null ? new IOException("USGS fetch failed without a captured exception") : lastException;
+    }
+
+    private boolean isRetryable(IOException ex) {
+        if (ex instanceof EOFException || ex instanceof SocketTimeoutException || ex instanceof SocketException) {
+            return true;
         }
+
+        String message = ex.getMessage();
+        return message != null && message.contains("Premature EOF");
     }
 
     /**

@@ -4,11 +4,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.util.ArrayDeque;
+import java.util.Queue;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class XmlFetcherUSTest {
@@ -51,17 +55,56 @@ class XmlFetcherUSTest {
         assertEquals("HTTP error 500", ex.getMessage());
     }
 
+    @Test
+    void fetchRetriesPrematureEofAndReturnsBodyFromNextAttempt() throws Exception {
+        Queue<HttpURLConnection> connections = new ArrayDeque<>();
+        connections.add(new FakeHttpURLConnection(200, "<root>retry</root>", true));
+        connections.add(new FakeHttpURLConnection(200, "<root>ok</root>"));
+
+        XmlFetcherUS fetcher = new XmlFetcherUS() {
+            @Override
+            HttpURLConnection openConnection(String url) {
+                return connections.remove();
+            }
+        };
+
+        String xml = fetcher.fetch("TN", "03455000");
+
+        assertEquals("<root>ok</root>", xml);
+    }
+
+    @Test
+    void fetchThrowsAfterRetryBudgetIsExhausted() {
+        XmlFetcherUS fetcher = new XmlFetcherUS() {
+            @Override
+            HttpURLConnection openConnection(String url) {
+                return new FakeHttpURLConnection(200, "<root>bad</root>", true);
+            }
+        };
+
+        IOException ex = assertThrows(IOException.class, () -> fetcher.fetch("TN", "03455000"));
+
+        assertInstanceOf(IOException.class, ex);
+        assertEquals("Premature EOF", ex.getMessage());
+    }
+
     private static final class FakeHttpURLConnection extends HttpURLConnection {
         private final int responseCode;
         private final byte[] body;
+        private final boolean failOnRead;
         private String userAgent;
         private int connectTimeoutValue;
         private int readTimeoutValue;
 
         private FakeHttpURLConnection(int responseCode, String body) {
+            this(responseCode, body, false);
+        }
+
+        private FakeHttpURLConnection(int responseCode, String body, boolean failOnRead) {
             super(null);
             this.responseCode = responseCode;
             this.body = body.getBytes(StandardCharsets.UTF_8);
+            this.failOnRead = failOnRead;
         }
 
         @Override
@@ -84,7 +127,22 @@ class XmlFetcherUSTest {
 
         @Override
         public InputStream getInputStream() {
-            return new ByteArrayInputStream(body);
+            if (!failOnRead) {
+                return new ByteArrayInputStream(body);
+            }
+
+            return new InputStream() {
+                private boolean failed;
+
+                @Override
+                public int read() throws IOException {
+                    if (!failed) {
+                        failed = true;
+                        throw new IOException("Premature EOF");
+                    }
+                    return -1;
+                }
+            };
         }
 
         @Override
