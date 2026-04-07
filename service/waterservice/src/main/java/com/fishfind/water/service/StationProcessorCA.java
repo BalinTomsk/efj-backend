@@ -8,22 +8,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.FileNotFoundException;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Coordinates fetch, parse, save, and failure tracking for one station at a time.
  */
 @Service
-public class StationProcessorCA {
+public class StationProcessorCA extends StationProcessorBase {
     private static final Logger log = LoggerFactory.getLogger(StationProcessorCA.class);
-    private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
     private final CsvFetcherCA fetcher;
     private final WaterDataRepository dataRepo;
-    private final WaterStationRepository stationRepo;
 
     /**
      * Creates a processor with the collaborators required for station handling.
@@ -35,9 +31,9 @@ public class StationProcessorCA {
     public StationProcessorCA(CsvFetcherCA fetcher,
                               WaterDataRepository dataRepo,
                               WaterStationRepository stationRepo) {
+        super(stationRepo);
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
-        this.stationRepo = stationRepo;
     }
 
     /**
@@ -48,54 +44,41 @@ public class StationProcessorCA {
      * @param state Canadian province code used in the CSV URL
      * @param tz station timezone metadata from the database
      */
-    public void process(String mli, String state, int tz) {
-        try {
-            var csv = fetcher.fetch(state, mli);
-            var readings = parse(csv);
+    @Override
+    protected void processStation(String mli, String state, int tz) throws Exception {
+        var csv = fetcher.fetch(state, mli);
+        var readings = parse(csv);
 
-            log.debug("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
-            dataRepo.saveStationData(mli, readings);
-            failureStates.remove(mli);
-            log.debug("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
-
-        } catch (FileNotFoundException ex) {
-            failureStates.remove(mli);
-            stationRepo.disableStation(mli);
-            log.warn("Disabled station because source CSV was not found. station={} state={}", mli, state, ex);
-        } catch (Exception ex) {
-            int failures = incrementFailureCount(mli);
-            log.warn("Station processing failed. station={} state={} failureStreakDays={}", mli, state, failures, ex);
-            if (failures >= 3) {
-                stationRepo.disableStation(mli);
-                failureStates.remove(mli);
-                log.error("Disabled station after repeated failures. station={} state={} failureStreakDays={}", mli, state, failures);
-            }
-        }
+        log.debug("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
+        dataRepo.saveStationData(mli, readings);
+        log.debug("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
     }
 
-    /**
-     * Updates the consecutive-day failure streak for a station.
-     *
-     * @param mli station identifier
-     * @return the updated number of consecutive failed days
-     */
-    private int incrementFailureCount(String mli) {
-        LocalDate today = LocalDate.now();
-        return failureStates.compute(mli, (key, existing) -> {
-            if (existing == null) {
-                return new FailureState(today, 1);
-            }
+    @Override
+    protected Logger logger() {
+        return log;
+    }
 
-            if (existing.day().equals(today)) {
-                return existing;
-            }
+    @Override
+    protected String processingFailureMessage() {
+        return "Station processing failed. station={} state={} failureStreakDays={}";
+    }
 
-            if (existing.day().plusDays(1).equals(today)) {
-                return new FailureState(today, existing.count() + 1);
-            }
+    @Override
+    protected String disabledAfterFailuresMessage() {
+        return "Disabled station after repeated failures. station={} state={} failureStreakDays={}";
+    }
 
-            return new FailureState(today, 1);
-        }).count();
+    @Override
+    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
+        if (ex instanceof FileNotFoundException) {
+            clearFailureState(mli);
+            disableStation(mli);
+            log.warn("Disabled station because source CSV was not found. station={} state={}", mli, state, ex);
+            return;
+        }
+
+        super.handleProcessingException(mli, state, tz, ex);
     }
 
     /**
@@ -156,14 +139,5 @@ public class StationProcessorCA {
             return null;
         }
         return Double.parseDouble(s.trim());
-    }
-
-    /**
-     * Tracks the current consecutive-day failure streak for a station.
-     *
-     * @param day most recent failed day for the station
-     * @param count number of consecutive failed days
-     */
-    private record FailureState(LocalDate day, int count) {
     }
 }

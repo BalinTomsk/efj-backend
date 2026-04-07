@@ -22,19 +22,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Coordinates fetch, parse, save, and failure tracking for one US station at a time.
  */
 @Service
-public class StationProcessorUS {
+public class StationProcessorUS extends StationProcessorBase {
     private static final Logger log = LoggerFactory.getLogger(StationProcessorUS.class);
-    private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
     private final XmlFetcherUS fetcher;
     private final WaterDataRepository dataRepo;
-    private final WaterStationRepository stationRepo;
 
     /**
      * Creates a processor with the collaborators required for US station handling.
@@ -46,9 +43,9 @@ public class StationProcessorUS {
     public StationProcessorUS(XmlFetcherUS fetcher,
                               WaterDataRepository dataRepo,
                               WaterStationRepository stationRepo) {
+        super(stationRepo);
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
-        this.stationRepo = stationRepo;
     }
 
     /**
@@ -59,24 +56,29 @@ public class StationProcessorUS {
      * @param state US state code
      * @param tz station timezone metadata from the database
      */
-    public void process(String mli, String state, int tz) {
-        try {
-            String xml = fetcher.fetch(state, mli);
-            List<UsSeriesReading> seriesList = parse(xml);
+    @Override
+    protected void processStation(String mli, String state, int tz) throws Exception {
+        String xml = fetcher.fetch(state, mli);
+        List<UsSeriesReading> seriesList = parse(xml);
 
-            log.debug("Saving US station readings. station={} state={} series={}", mli, state, seriesList.size());
-            dataRepo.saveUsStationData(mli, state, seriesList);
-            failureStates.remove(mli);
-            log.debug("Saved US station readings. station={} state={} series={}", mli, state, seriesList.size());
-        } catch (Exception ex) {
-            int failures = incrementFailureCount(mli);
-            log.warn("US station processing failed. station={} state={} failureStreakDays={}", mli, state, failures, ex);
-            if (failures >= 3) {
-                stationRepo.disableStation(mli);
-                failureStates.remove(mli);
-                log.error("Disabled US station after repeated failures. station={} state={} failureStreakDays={}", mli, state, failures);
-            }
-        }
+        log.debug("Saving US station readings. station={} state={} series={}", mli, state, seriesList.size());
+        dataRepo.saveUsStationData(mli, state, seriesList);
+        log.debug("Saved US station readings. station={} state={} series={}", mli, state, seriesList.size());
+    }
+
+    @Override
+    protected Logger logger() {
+        return log;
+    }
+
+    @Override
+    protected String processingFailureMessage() {
+        return "US station processing failed. station={} state={} failureStreakDays={}";
+    }
+
+    @Override
+    protected String disabledAfterFailuresMessage() {
+        return "Disabled US station after repeated failures. station={} state={} failureStreakDays={}";
     }
 
     /**
@@ -206,37 +208,4 @@ public class StationProcessorUS {
                 .replace(">", "&gt;");
     }
 
-    /**
-     * Updates the consecutive-day failure streak for a station.
-     *
-     * @param mli station identifier
-     * @return the updated number of consecutive failed days
-     */
-    private int incrementFailureCount(String mli) {
-        LocalDate today = LocalDate.now();
-        return failureStates.compute(mli, (key, existing) -> {
-            if (existing == null) {
-                return new FailureState(today, 1);
-            }
-
-            if (existing.day().equals(today)) {
-                return existing;
-            }
-
-            if (existing.day().plusDays(1).equals(today)) {
-                return new FailureState(today, existing.count() + 1);
-            }
-
-            return new FailureState(today, 1);
-        }).count();
-    }
-
-    /**
-     * Tracks the current consecutive-day failure streak for a station.
-     *
-     * @param day most recent failed day for the station
-     * @param count number of consecutive failed days
-     */
-    private record FailureState(LocalDate day, int count) {
-    }
 }

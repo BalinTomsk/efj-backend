@@ -19,9 +19,8 @@ import static org.mockito.Mockito.doAnswer;
 
 class ConsoleDebugRunnerTest {
 
-    private final StationWorkerCA stationWorkerCA = mock(StationWorkerCA.class);
-    private final StationWorkerUS stationWorkerUS = mock(StationWorkerUS.class);
-    private final ConsoleDebugRunner runner = new ConsoleDebugRunner(stationWorkerCA, stationWorkerUS);
+    private final StationWorker stationWorker = mock(StationWorker.class);
+    private final ConsoleDebugRunner runner = new ConsoleDebugRunner(stationWorker);
 
     @Test
     void runDoesNothingWithoutConsoleFlag() throws Exception {
@@ -29,32 +28,31 @@ class ConsoleDebugRunnerTest {
 
         runner.run(args);
 
-        verify(stationWorkerCA, never()).runOnce(any());
-        verify(stationWorkerUS, never()).runOnce(any());
+        verify(stationWorker, never()).runOnce(any(), any());
     }
 
     @Test
     void runProcessesAllStationsWhenNoSpecificStationIsProvided() throws Exception {
         ApplicationArguments args = new DefaultApplicationArguments("--console");
-        when(stationWorkerCA.runOnce(null)).thenReturn(3);
-        when(stationWorkerUS.runOnce(null)).thenReturn(5);
+        when(stationWorker.runOnce("CA", null)).thenReturn(3);
+        when(stationWorker.runOnce("US", null)).thenReturn(5);
 
         runner.run(args);
 
-        verify(stationWorkerCA).runOnce(null);
-        verify(stationWorkerUS).runOnce(null);
+        verify(stationWorker).runOnce("CA", null);
+        verify(stationWorker).runOnce("US", null);
     }
 
     @Test
     void runProcessesRequestedStationWhenProvided() throws Exception {
         ApplicationArguments args = new DefaultApplicationArguments("--console", "--station=02JE025");
-        when(stationWorkerCA.runOnce("02JE025")).thenReturn(1);
-        when(stationWorkerUS.runOnce("02JE025")).thenReturn(0);
+        when(stationWorker.runOnce("CA", "02JE025")).thenReturn(1);
+        when(stationWorker.runOnce("US", "02JE025")).thenReturn(0);
 
         runner.run(args);
 
-        verify(stationWorkerCA).runOnce("02JE025");
-        verify(stationWorkerUS).runOnce("02JE025");
+        verify(stationWorker).runOnce("CA", "02JE025");
+        verify(stationWorker).runOnce("US", "02JE025");
     }
 
     @Test
@@ -69,14 +67,14 @@ class ConsoleDebugRunnerTest {
             assertTrue(usStarted.await(1, TimeUnit.SECONDS));
             assertTrue(releaseWorkers.await(1, TimeUnit.SECONDS));
             return 1;
-        }).when(stationWorkerCA).runOnce(null);
+        }).when(stationWorker).runOnce("CA", null);
 
         doAnswer(invocation -> {
             usStarted.countDown();
             assertTrue(caStarted.await(1, TimeUnit.SECONDS));
             assertTrue(releaseWorkers.await(1, TimeUnit.SECONDS));
             return 1;
-        }).when(stationWorkerUS).runOnce(null);
+        }).when(stationWorker).runOnce("US", null);
 
         Thread runnerThread = new Thread(() -> {
             try {
@@ -98,8 +96,8 @@ class ConsoleDebugRunnerTest {
     @Test
     void runPropagatesWorkerFailures() throws Exception {
         ApplicationArguments args = new DefaultApplicationArguments("--console");
-        when(stationWorkerCA.runOnce(null)).thenThrow(new InterruptedException("stop"));
-        when(stationWorkerUS.runOnce(null)).thenReturn(1);
+        when(stationWorker.runOnce("CA", null)).thenThrow(new InterruptedException("stop"));
+        when(stationWorker.runOnce("US", null)).thenReturn(1);
 
         InterruptedException thrown = assertThrows(InterruptedException.class, () -> runner.run(args));
 

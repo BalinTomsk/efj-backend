@@ -196,19 +196,20 @@ class StationProcessorUSTest {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> failureStates() throws Exception {
-        Field field = StationProcessorUS.class.getDeclaredField("failureStates");
+        Field field = StationProcessorBase.class.getDeclaredField("failureStates");
         field.setAccessible(true);
         return (Map<String, Object>) field.get(processor);
     }
 
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Method method = StationProcessorUS.class.getDeclaredMethod(name, parameterTypes);
+        Class<?> owner = "incrementFailureCount".equals(name) ? StationProcessorBase.class : StationProcessorUS.class;
+        Method method = owner.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(processor, args);
     }
 
     private Object newFailureState(LocalDate day, int count) throws Exception {
-        Class<?> type = Class.forName("com.fishfind.water.service.StationProcessorUS$FailureState");
+        Class<?> type = Class.forName("com.fishfind.water.service.StationProcessorBase$FailureState");
         var constructor = type.getDeclaredConstructor(LocalDate.class, int.class);
         constructor.setAccessible(true);
         return constructor.newInstance(day, count);

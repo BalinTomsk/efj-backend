@@ -18,18 +18,15 @@ import java.util.concurrent.CompletionException;
 public class ConsoleDebugRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(ConsoleDebugRunner.class);
 
-    private final StationWorkerCA stationWorkerCA;
-    private final StationWorkerUS stationWorkerUS;
+    private final StationWorker stationWorker;
 
     /**
      * Creates the console runner.
      *
-     * @param stationWorkerCA CA worker used to execute a single processing pass
-     * @param stationWorkerUS US worker used to execute a single processing pass
+     * @param stationWorker worker used to execute single processing passes
      */
-    public ConsoleDebugRunner(StationWorkerCA stationWorkerCA, StationWorkerUS stationWorkerUS) {
-        this.stationWorkerCA = stationWorkerCA;
-        this.stationWorkerUS = stationWorkerUS;
+    public ConsoleDebugRunner(StationWorker stationWorker) {
+        this.stationWorker = stationWorker;
     }
 
     /**
@@ -50,8 +47,8 @@ public class ConsoleDebugRunner implements ApplicationRunner {
 
         log.info("Running console debug mode. station={}", station == null ? "<all>" : station);
 
-        CompletableFuture<Integer> caRun = CompletableFuture.supplyAsync(() -> runWorker("CA", station, stationWorkerCA));
-        CompletableFuture<Integer> usRun = CompletableFuture.supplyAsync(() -> runWorker("US", station, stationWorkerUS));
+        CompletableFuture<Integer> caRun = CompletableFuture.supplyAsync(() -> runWorker("CA", station));
+        CompletableFuture<Integer> usRun = CompletableFuture.supplyAsync(() -> runWorker("US", station));
 
         try {
             CompletableFuture.allOf(caRun, usRun).join();
@@ -62,15 +59,9 @@ public class ConsoleDebugRunner implements ApplicationRunner {
         }
     }
 
-    private int runWorker(String country, String station, Object worker) {
+    private int runWorker(String country, String station) {
         try {
-            if (worker instanceof StationWorkerCA caWorker) {
-                return caWorker.runOnce(station);
-            }
-            if (worker instanceof StationWorkerUS usWorker) {
-                return usWorker.runOnce(station);
-            }
-            throw new IllegalArgumentException("Unsupported worker type for country " + country);
+            return stationWorker.runOnce(country, station);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new CompletionException(ex);
