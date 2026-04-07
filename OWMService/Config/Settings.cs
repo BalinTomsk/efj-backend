@@ -1,4 +1,5 @@
 using System;
+using System.Data.SqlClient;
 
 namespace OWMService.Config
 {
@@ -14,13 +15,21 @@ namespace OWMService.Config
 
         public string GetConnectionString()
         {
-            // Keep same formatting as original RWS.GetConnectionString
-            return string.Format(
-                @"Data Source={0};Initial Catalog={1};Integrated Security=False;User ID={2};Password={3}",
-                Server,
-                DbName,
-                UserName,
-                UserPassword);
+            if (string.IsNullOrWhiteSpace(Server) || string.IsNullOrWhiteSpace(DbName))
+            {
+                return string.Empty;
+            }
+
+            var builder = new SqlConnectionStringBuilder
+            {
+                DataSource = Server,
+                InitialCatalog = DbName,
+                IntegratedSecurity = false,
+                UserID = UserName ?? string.Empty,
+                Password = UserPassword ?? string.Empty
+            };
+
+            return builder.ConnectionString;
         }
     }
 }

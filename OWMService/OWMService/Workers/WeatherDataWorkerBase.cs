@@ -53,8 +53,19 @@ namespace OWMService.Workers
                 using (SqlConnection cnn = new SqlConnection(conStr))
                 {
                     cnn.Open();
+                    m_logger.LogInfo("Database connection opened.");
 
-                    List<StationData> stations = GetListOwsMeteo(cnn);
+                    string stationQuery = GetStationQuery();
+                    List<StationData> stations;
+                    try
+                    {
+                        stations = GetListOwsMeteo(cnn);
+                    }
+                    catch (Exception ex)
+                    {
+                        m_logger.LogError($"OWMService Failed to query stations. {ex.Message} Query: {stationQuery}");
+                        return false;
+                    }
                     m_logger.LogInfo($"Get {stations.Count} OWS stations.");
 
                     int delayMs = CalculateDelayMs(stations.Count, timeBudget);
