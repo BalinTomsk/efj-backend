@@ -215,97 +215,147 @@ GO
 create PROCEDURE dbo.spTotalUpdateProbability
 WITH EXEC AS CALLER
 AS
-BEGIN TRY    -- procedure called every hour by external caller
-  SET NOCOUNT ON
-   DECLARE @return_value int = -1
-   BEGIN TRAN T1a;
-    ;WITH cte (today, station_Id, fish_Id) AS 
-    (
-      SELECT ( probability + ( 33 * tm.koef ) ), t.station_Id, t.fish_Id
-            FROM [dbo].[fish_location] t WITH (NOLOCK)
-            JOIN [dbo].[WaterStation]  s WITH (NOLOCK) ON ( t.station_Id = s.id )  
-            JOIN [dbo].[fn_get_koef_fish_station_temperature] tm ON (tm.fish_Id = t.fish_Id AND tm.mli = s.mli)
-            JOIN [dbo].WaterData       d WITH (NOLOCK) ON ( d.mli = s.mli )  
-      WHERE d.temperature Is NOT NULL
-    ) 
-    -- probability cannot be bigger the 100%
-    UPDATE t SET t.stamp = getutcdate(), t.today = (CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END)
-        FROM cte JOIN fish_location t  WITH (NOLOCK) ON ( t.station_Id = cte.station_Id AND t.fish_Id = cte.fish_Id )
-        WHERE cte.today > 100;
-    SET @return_value = @@ROWCOUNT;
-   COMMIT TRAN T1a;
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
 
-   BEGIN TRAN T1b;
-    ;WITH cte (today, station_Id, fish_Id) AS 
-    (
-      SELECT ( probability + ( 33 * tm.koef ) ), t.station_Id, t.fish_Id
-            FROM [dbo].[fish_location] t WITH (NOLOCK)
-            JOIN [dbo].[WaterStation]  s WITH (NOLOCK) ON ( t.station_Id = s.id )  
-            JOIN [dbo].[fn_get_koef_fish_station_oxygen] tm ON (tm.fish_Id = t.fish_Id AND tm.mli = s.mli)
-            JOIN [dbo].WaterData       d WITH (NOLOCK) ON ( d.mli = s.mli )  
-      WHERE d.oxygen Is NOT NULL
-    ) 
-    -- probability cannot be bigger the 100%
-    UPDATE t SET t.stamp = getutcdate(), t.today = (CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END)
-        FROM cte JOIN fish_location t  WITH (NOLOCK) ON ( t.station_Id = cte.station_Id AND t.fish_Id = cte.fish_Id )
-        WHERE cte.today > 100;
-    SET @return_value = @return_value + @@ROWCOUNT;
-   COMMIT TRAN T1b;
+    DECLARE @return_value int = 0;
 
-   BEGIN TRAN T1c;
-    ;WITH cte (today, station_Id, fish_Id) AS 
-    (
-      SELECT ( probability + ( 25 * tm.koef ) ), t.station_Id, t.fish_Id
-            FROM [dbo].[fish_location] t WITH (NOLOCK)
-            JOIN [dbo].[WaterStation]  s WITH (NOLOCK) ON ( t.station_Id = s.id )  
-            JOIN [dbo].[fn_get_koef_fish_station_ph] tm ON (tm.fish_Id = t.fish_Id AND tm.mli = s.mli)
-            JOIN [dbo].WaterData       d WITH (NOLOCK) ON ( d.mli = s.mli )  
-      WHERE d.ph Is NOT NULL
-    ) 
-    -- probability cannot be bigger the 100%
-    UPDATE t SET t.stamp = getutcdate(), t.today = (CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END)
-        FROM cte JOIN fish_location t  WITH (NOLOCK) ON ( t.station_Id = cte.station_Id AND t.fish_Id = cte.fish_Id )
-        WHERE cte.today > 100;
-    SET @return_value = @return_value + @@ROWCOUNT;
-   COMMIT TRAN T1c;
+    BEGIN TRY
+        BEGIN TRANSACTION;
 
-   /*
-   BEGIN TRAN T2b;
+        -- update fish probability based on water temperature
+        ;WITH cte (today, station_Id, fish_Id) AS
+        (
+            SELECT
+                t.probability + (33 * tm.koef),
+                t.station_Id,
+                t.fish_Id
+            FROM dbo.fish_location t
+            JOIN dbo.WaterStation s
+                ON t.station_Id = s.id
+            JOIN dbo.fn_get_koef_fish_station_temperature tm
+                ON tm.fish_Id = t.fish_Id
+               AND tm.mli = s.mli
+            JOIN dbo.WaterData d
+                ON d.mli = s.mli
+            WHERE d.temperature IS NOT NULL
+        )
+        UPDATE t
+           SET t.stamp = GETUTCDATE(),
+               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
+        FROM dbo.fish_location t
+        JOIN cte
+          ON t.station_Id = cte.station_Id
+         AND t.fish_Id = cte.fish_Id
+        WHERE cte.today > 100;
+
+        SET @return_value = @return_value + @@ROWCOUNT;
+
+        -- update fish probability based on oxygen
+        ;WITH cte (today, station_Id, fish_Id) AS
+        (
+            SELECT
+                t.probability + (33 * tm.koef),
+                t.station_Id,
+                t.fish_Id
+            FROM dbo.fish_location t
+            JOIN dbo.WaterStation s
+                ON t.station_Id = s.id
+            JOIN dbo.fn_get_koef_fish_station_oxygen tm
+                ON tm.fish_Id = t.fish_Id
+               AND tm.mli = s.mli
+            JOIN dbo.WaterData d
+                ON d.mli = s.mli
+            WHERE d.oxygen IS NOT NULL
+        )
+        UPDATE t
+           SET t.stamp = GETUTCDATE(),
+               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
+        FROM dbo.fish_location t
+        JOIN cte
+          ON t.station_Id = cte.station_Id
+         AND t.fish_Id = cte.fish_Id
+        WHERE cte.today > 100;
+
+        SET @return_value = @return_value + @@ROWCOUNT;
+
+        -- update fish probability based on pH
+        ;WITH cte (today, station_Id, fish_Id) AS
+        (
+            SELECT
+                t.probability + (25 * tm.koef),
+                t.station_Id,
+                t.fish_Id
+            FROM dbo.fish_location t
+            JOIN dbo.WaterStation s
+                ON t.station_Id = s.id
+            JOIN dbo.fn_get_koef_fish_station_ph tm
+                ON tm.fish_Id = t.fish_Id
+               AND tm.mli = s.mli
+            JOIN dbo.WaterData d
+                ON d.mli = s.mli
+            WHERE d.ph IS NOT NULL
+        )
+        UPDATE t
+           SET t.stamp = GETUTCDATE(),
+               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
+        FROM dbo.fish_location t
+        JOIN cte
+          ON t.station_Id = cte.station_Id
+         AND t.fish_Id = cte.fish_Id
+        WHERE cte.today > 100;
+
+        SET @return_value = @return_value + @@ROWCOUNT;
+
+        /*
         -- cast date and leave only one value per hour
-        update WaterData set stamp = DATEADD(HOUR, datepart(HOUR, stamp), cast(cast(stamp as date)as datetime)) 
-            WHERE stamp between DATEADD( DAY, -2, getutcdate()) AND DATEADD( DAY, -1, getutcdate()) AND datepart(mi, stamp) BETWEEN 1 and 29 
-        update WaterData set stamp = DATEADD(HOUR, 1+datepart(HOUR, stamp), cast(cast(stamp as date)as datetime)) 
-            WHERE stamp between DATEADD( DAY, -2, getutcdate()) AND DATEADD( DAY, -1, getutcdate()) AND datepart(mi, stamp) BETWEEN 30 and 59 
-   COMMIT TRAN T2b;
+        UPDATE dbo.WaterData
+           SET stamp = DATEADD(HOUR, DATEPART(HOUR, stamp), CAST(CAST(stamp AS date) AS datetime))
+        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
+          AND DATEPART(MINUTE, stamp) BETWEEN 1 AND 29;
 
-   BEGIN TRAN T2c;
-            DECLARE @t TABLE(id int not null primary key)
-            INSERT INTO @t select max(id) from WaterData where stamp between DATEADD( DAY, -2, getutcdate()) AND DATEADD( DAY, -1, getutcdate()) and datepart(mi, stamp) = 0 group by mli  
+        UPDATE dbo.WaterData
+           SET stamp = DATEADD(HOUR, 1 + DATEPART(HOUR, stamp), CAST(CAST(stamp AS date) AS datetime))
+        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
+          AND DATEPART(MINUTE, stamp) BETWEEN 30 AND 59;
 
-        delete from WaterData where stamp between DATEADD( DAY, -2, getutcdate()) AND DATEADD( DAY, -1, getutcdate()) and datepart(mi, stamp) = 0
-            and id not in ( select id from @t )
-    COMMIT TRAN T2c;
-    */
+        DECLARE @t TABLE(id int NOT NULL PRIMARY KEY);
 
-   -------------------------------------------------------------------------------------------------------------
-   BEGIN TRAN T3;
-        DECLARE @dt DATE = DATEADD( DAY, -21, getutcdate() );
-        DELETE FROM WaterData WHERE stamp < @dt
-   COMMIT TRAN T3;
+        INSERT INTO @t
+        SELECT MAX(id)
+        FROM dbo.WaterData
+        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
+          AND DATEPART(MINUTE, stamp) = 0
+        GROUP BY mli;
 
-   BEGIN TRAN T4;
-        DECLARE @dt2 DATE = DATEADD( DAY, -21, getutcdate() );
-        DELETE FROM Weather_Forecast WHERE dt < @dt2
-   COMMIT TRAN T4;
+        DELETE FROM dbo.WaterData
+        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
+          AND DATEPART(MINUTE, stamp) = 0
+          AND id NOT IN (SELECT id FROM @t);
+        */
+        /*
+        -- cleanup old water data
+        DECLARE @dt date = DATEADD(DAY, -15, GETUTCDATE());
+        DELETE FROM dbo.WaterData
+        WHERE stamp < @dt;
 
+        -- cleanup old weather forecast
+        DECLARE @dt2 date = DATEADD(DAY, -21, GETUTCDATE());
+        DELETE FROM dbo.Weather_Forecast
+        WHERE dt < @dt2;
+        */
+        COMMIT TRANSACTION;
 
-   RETURN @return_value;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
-END CATCH;     
-GO               
+        RETURN @return_value;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        THROW;
+    END CATCH
+END              
 ------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_weather_save_city' AND xtype = 'P')
     DROP PROCEDURE dbo.sp_weather_save_city
