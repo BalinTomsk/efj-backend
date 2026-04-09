@@ -127,6 +127,30 @@
             <mxPoint x="609" y="82" as="targetPoint" />
           </mxGeometry>
         </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-1" parent="1" style="image;html=1;image=img/lib/atlassian/Jira_Service_Desk_Logo.svg;movable=1;resizable=1;rotatable=1;deletable=1;editable=1;locked=0;connectable=1;" value="" vertex="1">
+          <mxGeometry height="76" width="80" x="20" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-2" parent="1" style="rounded=1;fillColor=#F1F2F4;strokeColor=none;html=1;whiteSpace=wrap;fontColor=#596780;align=center;verticalAlign=middle;fontStyle=0;fontSize=12;sketch=0;movable=1;resizable=1;rotatable=1;deletable=1;editable=1;locked=0;connectable=1;" value="2.3K Canadian IO sensors" vertex="1">
+          <mxGeometry height="33" width="86" x="20" y="517" as="geometry" />
+        </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-3" parent="1" style="image;html=1;image=img/lib/atlassian/Jira_Service_Desk_Logo.svg;movable=1;resizable=1;rotatable=1;deletable=1;editable=1;locked=0;connectable=1;" value="" vertex="1">
+          <mxGeometry height="76" width="80" x="130" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-4" parent="1" style="rounded=1;fillColor=#F1F2F4;strokeColor=none;html=1;whiteSpace=wrap;fontColor=#596780;align=center;verticalAlign=middle;fontStyle=0;fontSize=12;sketch=0;movable=1;resizable=1;rotatable=1;deletable=1;editable=1;locked=0;connectable=1;" value="9.5K USA IO sensors" vertex="1">
+          <mxGeometry height="33" width="86" x="130" y="517" as="geometry" />
+        </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-6" edge="1" parent="1" style="edgeStyle=segmentEdgeStyle;endArrow=classic;html=1;curved=0;rounded=0;endSize=8;startSize=8;entryX=0.35;entryY=1.029;entryDx=0;entryDy=0;entryPerimeter=0;" target="CyiCl2J3uhburqJZAoNZ-4" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="60" y="460" as="sourcePoint" />
+            <mxPoint x="110" y="410" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="06HpYy084svY5PksQigc-7" edge="1" parent="1" style="edgeStyle=segmentEdgeStyle;endArrow=classic;html=1;curved=0;rounded=0;endSize=8;startSize=8;entryX=0.35;entryY=1.029;entryDx=0;entryDy=0;entryPerimeter=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="180" y="458" as="sourcePoint" />
+            <mxPoint x="230" y="390" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
