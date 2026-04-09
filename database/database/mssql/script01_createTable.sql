@@ -1433,7 +1433,7 @@ CREATE NONCLUSTERED INDEX idx_WaterStation_latlon ON [dbo].[WaterStation] ([lat]
 GO
 
 ALTER TABLE dbo.WaterStation  ADD CONSTRAINT FK_WaterStation_Lake FOREIGN KEY(lakeId) REFERENCES dbo.Lake (lake_id)
-
+GO
 -- select lakeId, lakename from WaterStation where lakeId not in (select lake_id from lake)
 
 -- select mli, lat, lon from WaterStation where lakeId is null
@@ -1442,6 +1442,67 @@ ALTER TABLE dbo.WaterStation  ADD CONSTRAINT FK_WaterStation_Lake FOREIGN KEY(la
 
 -- delete from WaterStation where mli = '02GH016'
 
+CREATE TRIGGER trg_WaterStation_AI_ows_meteo
+ON dbo.WaterStation
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    INSERT INTO dbo.ows_meteo (
+        WaterStation_id,
+        mli,
+        country,
+        state,
+        lat,
+        lon,
+        stamp,
+        type
+    )
+    SELECT
+        i.id,
+        i.mli,
+        i.country,
+        i.state,
+        i.lat,
+        i.lon,
+        GETDATE(),
+        0                  -- default type (change if needed)
+    FROM inserted i
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.ows_meteo o
+        WHERE o.WaterStation_id = i.id
+    );
+END;
+GO
+
+CREATE TRIGGER [dbo].[TR_WaterStation] ON [dbo].[WaterStation] 
+FOR UPDATE 
+NOT FOR REPLICATION
+AS 
+SET NOCOUNT ON
+BEGIN
+    DECLARE @lakeid uniqueidentifier, @mli varchar(64) 
+
+	IF UPDATE(lakeid)
+	BEGIN
+		SELECT TOP 1 @lakeid = lakeid, @mli=mli FROM INSERTED
+
+		IF @mli IS NOT NULL AND @lakeid IS NOT NULL 
+		BEGIN
+			UPDATE w  SET lakeName =  l.lake_name, stamp = getdate()  
+				FROM WaterStation w JOIN lake l ON l.lake_id = w.lakeId
+			  WHERE w.mli = @mli AND l.lake_id = @lakeid 
+
+			UPDATE l SET isWell =  1, l.stamp = getdate()  
+				FROM WaterStation w JOIN lake l ON l.lake_id = w.lakeId
+			  WHERE w.mli = @mli  AND l.lake_id = @lakeid
+
+		END
+	END
+END
+GO
 -------------------------------------------------------------------------------------------------------
 create table fish_location ( 
      station_Id uniqueidentifier not null
