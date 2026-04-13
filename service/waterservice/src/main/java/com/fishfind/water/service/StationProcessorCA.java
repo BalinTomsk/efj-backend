@@ -2,12 +2,10 @@ package com.fishfind.water.service;
 
 import com.fishfind.water.domain.Reading;
 import com.fishfind.water.repo.WaterDataRepository;
-import com.fishfind.water.repo.WaterStationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.FileNotFoundException;
 import java.time.OffsetDateTime;
 import java.util.*;
 
@@ -26,19 +24,16 @@ public class StationProcessorCA extends StationProcessorBase {
      *
      * @param fetcher CSV fetcher used to download source data
      * @param dataRepo repository used to persist parsed readings
-     * @param stationRepo repository used to disable failing stations
      */
     public StationProcessorCA(CsvFetcherCA fetcher,
-                              WaterDataRepository dataRepo,
-                              WaterStationRepository stationRepo) {
-        super(stationRepo);
+                              WaterDataRepository dataRepo) {
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
     }
 
     /**
      * Processes one station by downloading its CSV, parsing readings, and persisting them.
-     * Repeated failures are tracked as a consecutive-day streak and disable the station after three failed days.
+     * Repeated failures are tracked as a consecutive-day streak for logging.
      *
      * @param mli station identifier
      * @param state Canadian province code used in the CSV URL
@@ -62,23 +57,6 @@ public class StationProcessorCA extends StationProcessorBase {
     @Override
     protected String processingFailureMessage() {
         return "Station processing failed. station={} state={} failureStreakDays={}";
-    }
-
-    @Override
-    protected String disabledAfterFailuresMessage() {
-        return "Disabled station after repeated failures. station={} state={} failureStreakDays={}";
-    }
-
-    @Override
-    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
-        if (ex instanceof FileNotFoundException) {
-            clearFailureState(mli);
-            disableStation(mli);
-            log.warn("Disabled station because source CSV was not found. station={} state={}", mli, state, ex);
-            return;
-        }
-
-        super.handleProcessingException(mli, state, tz, ex);
     }
 
     /**

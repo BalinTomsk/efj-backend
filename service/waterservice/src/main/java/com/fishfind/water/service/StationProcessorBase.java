@@ -1,6 +1,5 @@
 package com.fishfind.water.service;
 
-import com.fishfind.water.repo.WaterStationRepository;
 import org.slf4j.Logger;
 
 import java.time.LocalDate;
@@ -12,11 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public abstract class StationProcessorBase {
     private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
-    private final WaterStationRepository stationRepo;
-
-    protected StationProcessorBase(WaterStationRepository stationRepo) {
-        this.stationRepo = stationRepo;
-    }
 
     public final void process(String mli, String state, int tz) {
         try {
@@ -33,20 +27,9 @@ public abstract class StationProcessorBase {
 
     protected abstract String processingFailureMessage();
 
-    protected abstract String disabledAfterFailuresMessage();
-
     protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
         int failures = incrementFailureCount(mli);
         logger().warn(processingFailureMessage(), mli, state, failures, ex);
-        if (failures >= 3) {
-            disableStation(mli);
-            clearFailureState(mli);
-            logger().error(disabledAfterFailuresMessage(), mli, state, failures);
-        }
-    }
-
-    protected final void disableStation(String mli) {
-        stationRepo.disableStation(mli);
     }
 
     protected final void clearFailureState(String mli) {

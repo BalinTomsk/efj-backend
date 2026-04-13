@@ -8,7 +8,7 @@
 - parses the readings
 - upserts them into `dbo.WaterData`
 - runs post-processing stored procedures after each worker pass
-- disables a station after repeated fetch failures across 3 consecutive days
+- logs repeated fetch failures across consecutive days
 
 This service has no HTTP API. It runs as a worker process.
 
@@ -40,7 +40,7 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
   Downloads WaterML payloads from USGS.
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
-  Loads supported stations and disables failing stations.
+  Loads supported stations.
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
   Upserts readings into `dbo.WaterData`.
 - `src/main/resources/application.yml`
@@ -294,7 +294,6 @@ Typical events:
 - save start and save finish
 - post-processing procedure start
 - failure counts
-- station disable after 3 consecutive failed days
 
 If you want more detail during debugging, you can temporarily override logging:
 

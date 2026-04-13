@@ -2,7 +2,6 @@ package com.fishfind.water.service;
 
 import com.fishfind.water.domain.UsSeriesReading;
 import com.fishfind.water.repo.WaterDataRepository;
-import com.fishfind.water.repo.WaterStationRepository;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -15,8 +14,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,8 +62,7 @@ class StationProcessorUSTest {
 
     private final XmlFetcherUS fetcher = mock(XmlFetcherUS.class);
     private final WaterDataRepository dataRepo = mock(WaterDataRepository.class);
-    private final WaterStationRepository stationRepo = mock(WaterStationRepository.class);
-    private final StationProcessorUS processor = new StationProcessorUS(fetcher, dataRepo, stationRepo);
+    private final StationProcessorUS processor = new StationProcessorUS(fetcher, dataRepo);
 
     @Test
     void processFetchesParsesAndSavesSeriesOnSuccess() throws Exception {
@@ -96,12 +92,11 @@ class StationProcessorUSTest {
                         "<root><a d=\"2026-03-22\" v=\"62.5\" /><a d=\"2026-03-23\" v=\"61.4\" /></root>"
                 )
         ));
-        verify(stationRepo, never()).disableStation("08313000");
         assertNull(failureStates().get("08313000"));
     }
 
     @Test
-    void processDisablesStationAfterThreeConsecutiveFailedDays() throws Exception {
+    void processRetainsFailureStateAfterThreeConsecutiveFailedDays() throws Exception {
         doThrow(new RuntimeException("fetch failed")).when(fetcher).fetch("NM", "08313000");
         Map<String, Object> states = failureStates();
 
@@ -109,8 +104,7 @@ class StationProcessorUSTest {
         states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 2));
         processor.process("08313000", "NM", -7);
 
-        verify(stationRepo, times(1)).disableStation("08313000");
-        assertNull(failureStates().get("08313000"));
+        assertEquals(3, failureCount(states.get("08313000")));
     }
 
     @Test
@@ -213,5 +207,11 @@ class StationProcessorUSTest {
         var constructor = type.getDeclaredConstructor(LocalDate.class, int.class);
         constructor.setAccessible(true);
         return constructor.newInstance(day, count);
+    }
+
+    private int failureCount(Object failureState) throws Exception {
+        Method method = failureState.getClass().getDeclaredMethod("count");
+        method.setAccessible(true);
+        return (int) method.invoke(failureState);
     }
 }

@@ -42,11 +42,4 @@ class WaterStationRepositoryTest {
                 any(RowMapper.class)
         );
     }
-
-    @Test
-    void disableStationUpdatesSupportedFlag() {
-        repository.disableStation("02JE025");
-
-        verify(jdbc).update(eq("EXEC dbo.sp_DisableWaterStation ?"), eq("02JE025"));
-    }
 }

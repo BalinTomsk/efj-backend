@@ -143,14 +143,20 @@ class WaterDataRepositoryTest {
     void cleanWeatherWaterDataExecutesStoredProcedure() {
         repository.cleanWeatherWaterData();
 
-        verify(jdbc).update("EXEC dbo.spCleanWeatherWaterData");
+        verify(jdbc).execute(
+                eq("EXEC dbo.spCleanWeatherWaterData"),
+                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
+        );
     }
 
     @Test
     void pushSpeciesFromLakeToStationExecutesStoredProcedure() {
         repository.pushSpeciesFromLakeToStation();
 
-        verify(jdbc).update("EXEC dbo.spPushSpeciesFromLakeToStation");
+        verify(jdbc).execute(
+                eq("EXEC dbo.spPushSpeciesFromLakeToStation"),
+                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
+        );
     }
 
     @Test

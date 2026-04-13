@@ -132,7 +132,7 @@ public class WaterDataRepository {
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
     public void cleanWeatherWaterData() {
-        jdbc.update("EXEC dbo.spCleanWeatherWaterData");
+        executeProcedureAllowingResults("EXEC dbo.spCleanWeatherWaterData");
     }
 
     /**
@@ -142,7 +142,7 @@ public class WaterDataRepository {
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
     public void pushSpeciesFromLakeToStation() {
-        jdbc.update("EXEC dbo.spPushSpeciesFromLakeToStation");
+        executeProcedureAllowingResults("EXEC dbo.spPushSpeciesFromLakeToStation");
     }
 
     /**
@@ -210,5 +210,23 @@ public class WaterDataRepository {
      */
     private Timestamp toTimestamp(Instant instant) {
         return Timestamp.from(instant);
+    }
+
+    /**
+     * Executes a stored procedure that may emit update counts and incidental result sets.
+     */
+    private void executeProcedureAllowingResults(String sql) {
+        jdbc.execute(sql, (PreparedStatementCallback<Void>) ps -> {
+            boolean hasResults = ps.execute();
+            while (hasResults || ps.getUpdateCount() != -1) {
+                if (hasResults) {
+                    try (var ignored = ps.getResultSet()) {
+                        // Drain any result set so SQL Server can finish the procedure cleanly.
+                    }
+                }
+                hasResults = ps.getMoreResults(Statement.CLOSE_CURRENT_RESULT);
+            }
+            return null;
+        });
     }
 }

@@ -2,7 +2,6 @@ package com.fishfind.water.service;
 
 import com.fishfind.water.domain.UsSeriesReading;
 import com.fishfind.water.repo.WaterDataRepository;
-import com.fishfind.water.repo.WaterStationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,19 +37,16 @@ public class StationProcessorUS extends StationProcessorBase {
      *
      * @param fetcher XML fetcher used to download source data
      * @param dataRepo repository used to persist parsed series
-     * @param stationRepo repository used to disable failing stations
      */
     public StationProcessorUS(XmlFetcherUS fetcher,
-                              WaterDataRepository dataRepo,
-                              WaterStationRepository stationRepo) {
-        super(stationRepo);
+                              WaterDataRepository dataRepo) {
         this.fetcher = fetcher;
         this.dataRepo = dataRepo;
     }
 
     /**
      * Processes one US station by downloading its WaterML document, parsing variables, and persisting them.
-     * Repeated failures are tracked as a consecutive-day streak and disable the station after three failed days.
+     * Repeated failures are tracked as a consecutive-day streak for logging.
      *
      * @param mli station identifier
      * @param state US state code
@@ -74,11 +70,6 @@ public class StationProcessorUS extends StationProcessorBase {
     @Override
     protected String processingFailureMessage() {
         return "US station processing failed. station={} state={} failureStreakDays={}";
-    }
-
-    @Override
-    protected String disabledAfterFailuresMessage() {
-        return "Disabled US station after repeated failures. station={} state={} failureStreakDays={}";
     }
 
     /**

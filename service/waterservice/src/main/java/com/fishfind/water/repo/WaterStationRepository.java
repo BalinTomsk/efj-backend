@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * Loads and updates station metadata stored in the {@code WaterStation} table.
+ * Loads station metadata stored in the {@code WaterStation} table.
  */
 @Repository
 public class WaterStationRepository {
@@ -39,14 +39,5 @@ public class WaterStationRepository {
                 rs.getInt("tz")
             )
         );
-    }
-
-    /**
-     * Disables a station after repeated failures so future worker cycles skip it.
-     *
-     * @param mli station identifier to disable
-     */
-    public void disableStation(String mli) {
-        jdbc.update("EXEC dbo.sp_DisableWaterStation ?", mli);
     }
 }
