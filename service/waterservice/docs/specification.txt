@@ -6,7 +6,7 @@ Goal
 - Download each US station's WaterML payload from USGS.
 - Parse readings and upsert them into `dbo.WaterData`.
 - After each worker pass, synchronously run `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`.
-- Disable a station after failures on 3 consecutive days.
+- Track repeated failures in memory for logging, but do not disable stations automatically.
 
 Tech stack
 - Java 21
@@ -51,9 +51,9 @@ Datasource config
 - Driver class: `com.microsoft.sqlserver.jdbc.SQLServerDriver`
 
 Worker behavior
-- Implement separate CA and US background workers started via `ApplicationRunner`.
+- Implement one `StationWorker` started via `ApplicationRunner` that launches separate CA and US background threads.
 - If app is started with `--console`, do not launch either background thread.
-- Otherwise start non-daemon threads named `water-station-worker` and `water-station-worker-us`.
+- Otherwise start non-daemon threads named `water-station-worker-ca` and `water-station-worker-us`.
 - Each worker loops forever:
   - Load supported stations for its country from DB
   - Process stations one by one
@@ -84,7 +84,6 @@ WaterStation query rules
 - Filter:
   - `country = 'CA'` for the CA worker
   - `country = 'US'` for the US worker
-- Ignore unsupported stations
 - Represent each row as a simple record like `StationRef(String mli, String state, int tz)`
 
 CSV fetch rules
@@ -96,6 +95,7 @@ CSV fetch rules
 - Set connect/read timeouts from config
 - Set a basic browser-like `User-Agent`
 - Non-200 response should be treated as failure
+- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped without incrementing the failure streak
 
 US fetch rules
 - URL pattern:
@@ -104,6 +104,7 @@ US fetch rules
 - Set connect/read timeouts from config
 - Set a basic browser-like `User-Agent`
 - Non-200 response should be treated as failure
+- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped without incrementing the failure streak
 
 CSV parse rules
 - Skip the first row as header
@@ -131,9 +132,11 @@ Failure handling
   - if the station failed yesterday, increment the consecutive-day streak
   - if one or more days were skipped, reset the streak to `1`
   - log the current failure streak
-- When a station reaches failures on 3 consecutive days:
-  - execute `dbo.sp_DisableWaterStation`
-  - remove that station from in-memory failure tracking
+- For CA or US source HTTP 404 responses:
+  - clear any in-memory failure state for that station
+  - log that the source feed is not published
+  - do not disable the station
+- Do not execute `dbo.sp_DisableWaterStation` in the current project state
 
 WaterData persistence rules
 - Implement repository method `saveStationData(String mli, List<Reading> readings)`
@@ -157,6 +160,7 @@ Important note about delete logic
 - There was earlier intent to delete old `WaterData` rows older than 15 days for a station.
 - In the current project state that delete is not active.
 - Recreate the current behavior as-is unless explicitly told to restore the cleanup query.
+- The cleanup now happens only through the post-processing procedure `dbo.spCleanWeatherWaterData`.
 
 Resilience4j settings
 - Retry instance name: `sqlRetry`
@@ -183,8 +187,8 @@ Logging
   - CSV fetch success
   - USGS fetch success
   - save start/end with reading counts
-  - post-processing procedure execution
-  - failures and station disable events
+- post-processing procedure execution
+- failures and skipped unpublished-source events
 
 Docker expectations
 - Multi-stage Dockerfile is acceptable
@@ -198,14 +202,14 @@ Files to include
 - `src/main/java/com/fishfind/water/WaterStationPusherApplication.java`
 - `src/main/java/com/fishfind/water/domain/Reading.java`
 - `src/main/java/com/fishfind/water/domain/StationRef.java`
+- `src/main/java/com/fishfind/water/domain/UsSeriesReading.java`
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
 - `src/main/java/com/fishfind/water/service/CsvFetcherCA.java`
 - `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
 - `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
 - `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
-- `src/main/java/com/fishfind/water/service/StationWorkerCA.java`
-- `src/main/java/com/fishfind/water/service/StationWorkerUS.java`
+- `src/main/java/com/fishfind/water/service/StationWorker.java`
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
 - `src/main/resources/application.yml`
@@ -220,3 +224,9 @@ Do not include
 - The real `.env` under `src/main/resources`
 
 If rebuilding from this specification, reproduce current behavior faithfully rather than improving architecture unless asked.
+
+Current implementation notes
+- `WaterDataRepository.cleanWeatherWaterData()` and `pushSpeciesFromLakeToStation()` must tolerate procedures that emit incidental result sets or update counts.
+- `saveStationData` deduplicates readings by timestamp within a batch and keeps the last duplicate.
+- `saveUsStationData` ignores empty variable payloads instead of failing the full station save.
+- Current code uses thread names `water-station-worker-ca` and `water-station-worker-us`.

@@ -8,7 +8,7 @@
 - parses the readings
 - upserts them into `dbo.WaterData`
 - runs post-processing stored procedures after each worker pass
-- logs repeated fetch failures across consecutive days
+- logs repeated fetch failures across consecutive days without disabling stations automatically
 
 This service has no HTTP API. It runs as a worker process.
 
@@ -23,10 +23,8 @@ This service has no HTTP API. It runs as a worker process.
 
 - `src/main/java/com/fishfind/water/WaterStationPusherApplication.java`
   Entry point. Loads credentials from environment variables or `.env` before Spring starts.
-- `src/main/java/com/fishfind/water/service/StationWorkerCA.java`
-  Starts the Canadian background worker thread in normal mode.
-- `src/main/java/com/fishfind/water/service/StationWorkerUS.java`
-  Starts the US background worker thread in normal mode.
+- `src/main/java/com/fishfind/water/service/StationWorker.java`
+  Starts and coordinates the CA and US background worker threads in normal mode.
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
   Runs exactly one processing pass for both country workers in parallel when `--console` is used.
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
@@ -40,7 +38,7 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
   Downloads WaterML payloads from USGS.
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
-  Loads supported stations.
+  Loads supported stations from `vwWaterStation`.
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
   Upserts readings into `dbo.WaterData`.
 - `src/main/resources/application.yml`
@@ -85,18 +83,26 @@ The service supports two modes.
 
 This is the default. The application starts Spring and then launches two non-daemon worker threads:
 
-- `water-station-worker` for CA stations
+- `water-station-worker-ca` for CA stations
 - `water-station-worker-us` for US stations
 
 Worker behavior:
 
 - loads all supported CA and US stations from `WaterStation`
+- loads all supported CA and US stations from `vwWaterStation`
 - processes each country list one station at a time
 - sleeps 1 second between station retrievals
 - after each worker pass finishes, synchronously runs `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`
 - after a full cycle, waits until the next top-of-hour before starting again only if the cycle finished early
 - starts the next cycle immediately if processing already ran past that hour boundary
 - keeps running until the process is stopped
+
+Failure behavior during worker runs:
+
+- processing failures are tracked in memory by station as consecutive failed days for logging
+- stations are no longer disabled automatically after repeated failures
+- CA stations returning HTTP 404 are treated as "no published hydrometric CSV" and skipped without growing the failure streak
+- US stations returning HTTP 404 are treated as "no published WaterML" and skipped without growing the failure streak
 
 ### Console mode
 
@@ -229,8 +235,7 @@ Recommended first breakpoint locations:
 
 - `WaterStationPusherApplication.main`
 - `ConsoleDebugRunner.run`
-- `StationWorkerCA.runOnce`
-- `StationWorkerUS.runOnce`
+- `StationWorker.runOnce`
 - `StationProcessorCA.process`
 - `StationProcessorUS.process`
 - `CsvFetcherCA.fetch`
@@ -294,6 +299,7 @@ Typical events:
 - save start and save finish
 - post-processing procedure start
 - failure counts
+- skipped 404 source responses for unpublished CA or US station feeds
 
 If you want more detail during debugging, you can temporarily override logging:
 
@@ -497,4 +503,8 @@ The current implementation uses legacy SQL Server procedures for persistence and
 - `dbo.spCleanWeatherWaterData` after each worker pass - delete water station data if older then 15 days
 - `dbo.spPushSpeciesFromLakeToStation` push fish probabilistic data if more fish assigned to water item 
 
-Supported station loading currently reads from `vwWaterStation`.
+Notes:
+
+- supported station loading currently reads from `vwWaterStation`
+- the application no longer calls `dbo.sp_DisableWaterStation`
+- post-processing procedures are executed in a way that tolerates incidental result sets or update counts returned by SQL Server
