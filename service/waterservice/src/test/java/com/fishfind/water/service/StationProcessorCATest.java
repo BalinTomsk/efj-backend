@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -51,12 +52,12 @@ class StationProcessorCATest {
     }
 
     @Test
-    void processTracksFailureStateWhenSourceCsvIsMissing() throws Exception {
+    void processDoesNotTrackFailureStateWhenSourceCsvIsMissing() throws Exception {
         doThrow(new java.io.FileNotFoundException("HTTP error 404")).when(fetcher).fetch("MB", "05MD011");
 
         processor.process("05MD011", "MB", -6);
 
-        assertEquals(1, failureCount(failureStates().get("05MD011")));
+        assertFalse(failureStates().containsKey("05MD011"));
     }
 
     @Test

@@ -6,11 +6,13 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.io.FileNotFoundException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -105,6 +107,15 @@ class StationProcessorUSTest {
         processor.process("08313000", "NM", -7);
 
         assertEquals(3, failureCount(states.get("08313000")));
+    }
+
+    @Test
+    void processDoesNotTrackFailureStateWhenSourceWaterMlIsMissing() throws Exception {
+        doThrow(new FileNotFoundException("HTTP error 404")).when(fetcher).fetch("NM", "08313000");
+
+        processor.process("08313000", "NM", -7);
+
+        assertFalse(failureStates().containsKey("08313000"));
     }
 
     @Test

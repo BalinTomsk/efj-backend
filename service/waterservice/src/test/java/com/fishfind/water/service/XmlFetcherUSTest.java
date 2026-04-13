@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -53,6 +54,20 @@ class XmlFetcherUSTest {
 
         Exception ex = assertThrows(Exception.class, () -> fetcher.fetch("NY", "08313000"));
         assertEquals("HTTP error 500", ex.getMessage());
+    }
+
+    @Test
+    void fetchThrowsFileNotFoundOn404() {
+        XmlFetcherUS fetcher = new XmlFetcherUS() {
+            @Override
+            HttpURLConnection openConnection(String url) {
+                return new FakeHttpURLConnection(404, "missing");
+            }
+        };
+
+        Exception ex = assertThrows(Exception.class, () -> fetcher.fetch("NY", "08313000"));
+        assertInstanceOf(FileNotFoundException.class, ex);
+        assertEquals("HTTP error 404", ex.getMessage());
     }
 
     @Test

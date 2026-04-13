@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -49,7 +50,11 @@ public class XmlFetcherUS {
             try {
                 log.debug("Fetching USGS WaterML. station={} state={} url={} attempt={}", mli, state, url, attempt);
 
-                if (conn.getResponseCode() != 200) {
+                if (conn.getResponseCode() == HttpURLConnection.HTTP_NOT_FOUND) {
+                    throw new FileNotFoundException("HTTP error " + conn.getResponseCode());
+                }
+
+                if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
                     throw new IOException("HTTP error " + conn.getResponseCode());
                 }
 

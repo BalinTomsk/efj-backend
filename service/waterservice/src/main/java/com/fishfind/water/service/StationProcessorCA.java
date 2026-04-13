@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.FileNotFoundException;
 import java.time.OffsetDateTime;
 import java.util.*;
 
@@ -57,6 +58,17 @@ public class StationProcessorCA extends StationProcessorBase {
     @Override
     protected String processingFailureMessage() {
         return "Station processing failed. station={} state={} failureStreakDays={}";
+    }
+
+    @Override
+    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
+        if (ex instanceof FileNotFoundException) {
+            clearFailureState(mli);
+            log.info("Skipping station with no published hydrometric CSV. station={} state={}", mli, state);
+            return;
+        }
+
+        super.handleProcessingException(mli, state, tz, ex);
     }
 
     /**

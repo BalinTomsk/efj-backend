@@ -13,6 +13,7 @@ import org.xml.sax.InputSource;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
+import java.io.FileNotFoundException;
 import java.io.StringReader;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -70,6 +71,17 @@ public class StationProcessorUS extends StationProcessorBase {
     @Override
     protected String processingFailureMessage() {
         return "US station processing failed. station={} state={} failureStreakDays={}";
+    }
+
+    @Override
+    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
+        if (ex instanceof FileNotFoundException) {
+            clearFailureState(mli);
+            log.info("Skipping US station with no published WaterML. station={} state={}", mli, state);
+            return;
+        }
+
+        super.handleProcessingException(mli, state, tz, ex);
     }
 
     /**
