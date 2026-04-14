@@ -13,7 +13,6 @@ import org.xml.sax.InputSource;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
-import java.io.FileNotFoundException;
 import java.io.StringReader;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -24,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Coordinates fetch, parse, save, and failure tracking for one US station at a time.
+ * Coordinates fetch, parse, save, and shared exception handling for one US station at a time.
  */
 @Service
 public class StationProcessorUS extends StationProcessorBase {
@@ -47,7 +46,6 @@ public class StationProcessorUS extends StationProcessorBase {
 
     /**
      * Processes one US station by downloading its WaterML document, parsing variables, and persisting them.
-     * Repeated failures are tracked as a consecutive-day streak for logging.
      *
      * @param mli station identifier
      * @param state US state code
@@ -58,9 +56,9 @@ public class StationProcessorUS extends StationProcessorBase {
         String xml = fetcher.fetch(state, mli);
         List<UsSeriesReading> seriesList = parse(xml);
 
-        log.debug("Saving US station readings. station={} state={} series={}", mli, state, seriesList.size());
+        log.debug("Saving station readings. country={} station={} state={} series={}", country(), mli, state, seriesList.size());
         dataRepo.saveUsStationData(mli, state, seriesList);
-        log.debug("Saved US station readings. station={} state={} series={}", mli, state, seriesList.size());
+        log.debug("Saved station readings. country={} station={} state={} series={}", country(), mli, state, seriesList.size());
     }
 
     @Override
@@ -69,19 +67,13 @@ public class StationProcessorUS extends StationProcessorBase {
     }
 
     @Override
-    protected String processingFailureMessage() {
-        return "US station processing failed. station={} state={} failureStreakDays={}";
+    protected String country() {
+        return "US";
     }
 
     @Override
-    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
-        if (ex instanceof FileNotFoundException) {
-            clearFailureState(mli);
-            log.info("Skipping US station with no published WaterML. station={} state={}", mli, state);
-            return;
-        }
-
-        super.handleProcessingException(mli, state, tz, ex);
+    protected String missingSourceDescription() {
+        return "WaterML";
     }
 
     /**

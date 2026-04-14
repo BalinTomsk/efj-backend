@@ -2,20 +2,16 @@ package com.fishfind.water.service;
 
 import org.slf4j.Logger;
 
-import java.time.LocalDate;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.io.FileNotFoundException;
 
 /**
- * Shared processing template and failure-state tracking for station processors.
+ * Shared processing template for station processors.
  */
 public abstract class StationProcessorBase {
-    private final Map<String, FailureState> failureStates = new ConcurrentHashMap<>();
 
     public final void process(String mli, String state, int tz) {
         try {
             processStation(mli, state, tz);
-            clearFailureState(mli);
         } catch (Exception ex) {
             handleProcessingException(mli, state, tz, ex);
         }
@@ -25,46 +21,25 @@ public abstract class StationProcessorBase {
 
     protected abstract Logger logger();
 
-    protected abstract String processingFailureMessage();
+    protected abstract String country();
+
+    protected abstract String missingSourceDescription();
 
     protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
-        int failures = incrementFailureCount(mli);
-        logger().warn(processingFailureMessage(), mli, state, failures, ex);
+        if (ex instanceof FileNotFoundException) {
+            logger().info(
+                    "Skipping {} with no published {}. station={} state={}",
+                    stationLabel(),
+                    missingSourceDescription(),
+                    mli,
+                    state
+            );
+            return;
+        }
+        logger().warn("{} processing failed. station={} state={}.", stationLabel(), mli, state, ex);
     }
 
-    protected final void clearFailureState(String mli) {
-        failureStates.remove(mli);
-    }
-
-    protected final int incrementFailureCount(String mli) {
-        LocalDate today = LocalDate.now();
-        return failureStates.compute(mli, (key, existing) -> {
-            if (existing == null) {
-                return new FailureState(today, 1);
-            }
-
-            if (existing.day().equals(today)) {
-                return existing;
-            }
-
-            if (existing.day().plusDays(1).equals(today)) {
-                return new FailureState(today, existing.count() + 1);
-            }
-
-            return new FailureState(today, 1);
-        }).count();
-    }
-
-    protected final Map<String, FailureState> failureStates() {
-        return failureStates;
-    }
-
-    /**
-     * Tracks the current consecutive-day failure streak for a station.
-     *
-     * @param day most recent failed day for the station
-     * @param count number of consecutive failed days
-     */
-    protected record FailureState(LocalDate day, int count) {
+    private String stationLabel() {
+        return country() + " station";
     }
 }

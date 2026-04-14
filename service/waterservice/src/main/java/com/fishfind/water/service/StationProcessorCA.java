@@ -6,12 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.FileNotFoundException;
 import java.time.OffsetDateTime;
 import java.util.*;
 
 /**
- * Coordinates fetch, parse, save, and failure tracking for one station at a time.
+ * Coordinates fetch, parse, save, and shared exception handling for one station at a time.
  */
 @Service
 public class StationProcessorCA extends StationProcessorBase {
@@ -34,7 +33,6 @@ public class StationProcessorCA extends StationProcessorBase {
 
     /**
      * Processes one station by downloading its CSV, parsing readings, and persisting them.
-     * Repeated failures are tracked as a consecutive-day streak for logging.
      *
      * @param mli station identifier
      * @param state Canadian province code used in the CSV URL
@@ -45,9 +43,9 @@ public class StationProcessorCA extends StationProcessorBase {
         var csv = fetcher.fetch(state, mli);
         var readings = parse(csv);
 
-        log.debug("Saving station readings. station={} state={} readings={}", mli, state, readings.size());
+        log.debug("Saving station readings. country={} station={} state={} readings={}", country(), mli, state, readings.size());
         dataRepo.saveStationData(mli, readings);
-        log.debug("Saved station readings. station={} state={} readings={}", mli, state, readings.size());
+        log.debug("Saved station readings. country={} station={} state={} readings={}", country(), mli, state, readings.size());
     }
 
     @Override
@@ -56,19 +54,13 @@ public class StationProcessorCA extends StationProcessorBase {
     }
 
     @Override
-    protected String processingFailureMessage() {
-        return "Station processing failed. station={} state={} failureStreakDays={}";
+    protected String country() {
+        return "CA";
     }
 
     @Override
-    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
-        if (ex instanceof FileNotFoundException) {
-            clearFailureState(mli);
-            log.info("Skipping station with no published hydrometric CSV. station={} state={}", mli, state);
-            return;
-        }
-
-        super.handleProcessingException(mli, state, tz, ex);
+    protected String missingSourceDescription() {
+        return "hydrometric CSV";
     }
 
     /**

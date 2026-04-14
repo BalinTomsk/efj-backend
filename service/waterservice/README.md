@@ -8,7 +8,7 @@
 - parses the readings
 - upserts them into `dbo.WaterData`
 - runs post-processing stored procedures after each worker pass
-- logs repeated fetch failures across consecutive days without disabling stations automatically
+- logs station failures and skipped unpublished source feeds without disabling stations automatically
 
 This service has no HTTP API. It runs as a worker process.
 
@@ -30,9 +30,9 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
   Runs synchronous post-processing procedures after a worker finishes its station pass.
 - `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
-  Fetches, parses, saves, and handles failure tracking for Canadian stations.
+  Fetches, parses, saves, and handles shared exception logging for Canadian stations.
 - `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
-  Fetches, parses, saves, and handles failure tracking for US stations.
+  Fetches, parses, saves, and handles shared exception logging for US stations.
 - `src/main/java/com/fishfind/water/service/CsvFetcherCA.java`
   Downloads CSV files from Environment Canada.
 - `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
@@ -99,10 +99,11 @@ Worker behavior:
 
 Failure behavior during worker runs:
 
-- processing failures are tracked in memory by station as consecutive failed days for logging
-- stations are no longer disabled automatically after repeated failures
-- CA stations returning HTTP 404 are treated as "no published hydrometric CSV" and skipped without growing the failure streak
-- US stations returning HTTP 404 are treated as "no published WaterML" and skipped without growing the failure streak
+- station processing failures are logged and the worker continues with the next station
+- stations are not disabled automatically after repeated failures
+- CA stations returning HTTP 404 are treated as "no published hydrometric CSV" and skipped
+- US stations returning HTTP 404 are treated as "no published WaterML" and skipped
+- transient USGS fetch failures such as timeouts, socket errors, or premature EOF are retried up to 3 attempts before surfacing the failure
 
 ### Console mode
 
@@ -298,7 +299,7 @@ Typical events:
 - USGS fetch success
 - save start and save finish
 - post-processing procedure start
-- failure counts
+- station failure warnings
 - skipped 404 source responses for unpublished CA or US station feeds
 
 If you want more detail during debugging, you can temporarily override logging:

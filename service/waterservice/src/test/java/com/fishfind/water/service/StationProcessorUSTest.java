@@ -4,16 +4,11 @@ import com.fishfind.water.domain.UsSeriesReading;
 import com.fishfind.water.repo.WaterDataRepository;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.io.FileNotFoundException;
-import java.time.LocalDate;
+import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -94,29 +89,22 @@ class StationProcessorUSTest {
                         "<root><a d=\"2026-03-22\" v=\"62.5\" /><a d=\"2026-03-23\" v=\"61.4\" /></root>"
                 )
         ));
-        assertNull(failureStates().get("08313000"));
     }
 
     @Test
-    void processRetainsFailureStateAfterThreeConsecutiveFailedDays() throws Exception {
+    void processDoesNotThrowWhenStationFetchFails() throws Exception {
         doThrow(new RuntimeException("fetch failed")).when(fetcher).fetch("NM", "08313000");
-        Map<String, Object> states = failureStates();
 
         processor.process("08313000", "NM", -7);
-        states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 2));
-        processor.process("08313000", "NM", -7);
-
-        assertEquals(3, failureCount(states.get("08313000")));
     }
 
     @Test
-    void processDoesNotTrackFailureStateWhenSourceWaterMlIsMissing() throws Exception {
+    void processDoesNotThrowWhenSourceWaterMlIsMissing() throws Exception {
         doThrow(new FileNotFoundException("HTTP error 404")).when(fetcher).fetch("NM", "08313000");
 
         processor.process("08313000", "NM", -7);
-
-        assertFalse(failureStates().containsKey("08313000"));
     }
+
 
     @Test
     void parseBuildsPayloadsFromRealUsgsSample() throws Exception {
@@ -169,60 +157,9 @@ class StationProcessorUSTest {
         ), series);
     }
 
-    @Test
-    void incrementFailureCountDoesNotIncreaseTwiceOnSameDay() throws Exception {
-        Map<String, Object> states = failureStates();
-        states.put("08313000", newFailureState(LocalDate.now(), 2));
-
-        int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
-
-        assertEquals(2, failures);
-    }
-
-    @Test
-    void incrementFailureCountIncreasesForConsecutiveDay() throws Exception {
-        Map<String, Object> states = failureStates();
-        states.put("08313000", newFailureState(LocalDate.now().minusDays(1), 2));
-
-        int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
-
-        assertEquals(3, failures);
-    }
-
-    @Test
-    void incrementFailureCountResetsWhenDayGapExists() throws Exception {
-        Map<String, Object> states = failureStates();
-        states.put("08313000", newFailureState(LocalDate.now().minusDays(2), 7));
-
-        int failures = (int) invokePrivate("incrementFailureCount", new Class<?>[]{String.class}, "08313000");
-
-        assertEquals(1, failures);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> failureStates() throws Exception {
-        Field field = StationProcessorBase.class.getDeclaredField("failureStates");
-        field.setAccessible(true);
-        return (Map<String, Object>) field.get(processor);
-    }
-
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Class<?> owner = "incrementFailureCount".equals(name) ? StationProcessorBase.class : StationProcessorUS.class;
-        Method method = owner.getDeclaredMethod(name, parameterTypes);
+        Method method = StationProcessorUS.class.getDeclaredMethod(name, parameterTypes);
         method.setAccessible(true);
         return method.invoke(processor, args);
-    }
-
-    private Object newFailureState(LocalDate day, int count) throws Exception {
-        Class<?> type = Class.forName("com.fishfind.water.service.StationProcessorBase$FailureState");
-        var constructor = type.getDeclaredConstructor(LocalDate.class, int.class);
-        constructor.setAccessible(true);
-        return constructor.newInstance(day, count);
-    }
-
-    private int failureCount(Object failureState) throws Exception {
-        Method method = failureState.getClass().getDeclaredMethod("count");
-        method.setAccessible(true);
-        return (int) method.invoke(failureState);
     }
 }

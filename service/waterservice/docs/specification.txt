@@ -6,7 +6,7 @@ Goal
 - Download each US station's WaterML payload from USGS.
 - Parse readings and upsert them into `dbo.WaterData`.
 - After each worker pass, synchronously run `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`.
-- Track repeated failures in memory for logging, but do not disable stations automatically.
+- Log processing failures and skipped unpublished-source events, but do not disable stations automatically.
 
 Tech stack
 - Java 21
@@ -95,16 +95,21 @@ CSV fetch rules
 - Set connect/read timeouts from config
 - Set a basic browser-like `User-Agent`
 - Non-200 response should be treated as failure
-- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped without incrementing the failure streak
+- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped
 
 US fetch rules
 - URL pattern:
-  - `https://waterservices.usgs.gov/nwis/iv/?format=waterml,2.0&sites={MLI}&stateCd={STATE}`
+  - `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
 - Use `HttpURLConnection`
 - Set connect/read timeouts from config
 - Set a basic browser-like `User-Agent`
 - Non-200 response should be treated as failure
-- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped without incrementing the failure streak
+- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped
+- Retry transient `IOException`s up to 3 attempts for:
+  - `EOFException`
+  - `SocketTimeoutException`
+  - `SocketException`
+  - messages containing `Premature EOF`
 
 CSV parse rules
 - Skip the first row as header
@@ -125,15 +130,10 @@ US parse rules
 - Reduce values to daily entries before building the stored-procedure payload
 
 Failure handling
-- Track failures in memory per station
-- Failure tracking is based on consecutive failed days
 - On any station processing exception:
-  - if the station already failed today, do not increment again
-  - if the station failed yesterday, increment the consecutive-day streak
-  - if one or more days were skipped, reset the streak to `1`
-  - log the current failure streak
+  - log a warning with country, station, and state
+  - continue processing remaining stations
 - For CA or US source HTTP 404 responses:
-  - clear any in-memory failure state for that station
   - log that the source feed is not published
   - do not disable the station
 - Do not execute `dbo.sp_DisableWaterStation` in the current project state
@@ -230,3 +230,4 @@ Current implementation notes
 - `saveStationData` deduplicates readings by timestamp within a batch and keeps the last duplicate.
 - `saveUsStationData` ignores empty variable payloads instead of failing the full station save.
 - Current code uses thread names `water-station-worker-ca` and `water-station-worker-us`.
+- `StationProcessorBase` centralizes the shared CA/US exception handling and formats messages as `{country} station`.
