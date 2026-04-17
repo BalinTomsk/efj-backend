@@ -22,9 +22,7 @@ I. OWMService is a Windows Service that periodically retrieves weather data and 
 4.  A trigger `[ows_meteo]` on `TR_ows_meteo` runs:  
     `EXEC sp_ows_meteo @json, @mli, @WaterStation_id`
 5.  `sp_ows_meteo` parses the passed JSON and updates/merges data into `[weather_Forecast]`
-6.  `spPushSpeciesFromLakeToStation` is executed to push fish data from lakes to station locations:  
-    `insert dbo.fish_location (station_Id, fish_Id, probability, today )`
-7.  `spTotalUpdateProbability` is executed to update fish probability
+6.  `spTotalUpdateProbability` is executed to update fish probability
 
 II. Water Data State
  1. 

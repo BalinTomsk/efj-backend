@@ -6,6 +6,7 @@ target/
 !**/src/main\resources\application.yml 
 
 ### IntelliJ IDEA ###
+.idea/
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
@@ -40,3 +41,6 @@ OWMService/Res/OWMService.reg
 
 database/database/mssql/ffi2.sql
 database/database/mssql/UNIT_TESTS/cleaned.txt
+service/docs/do-update.md
+service/weather/docs/do-update.md
+service/weather/docs/digitalocean.md

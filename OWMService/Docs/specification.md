@@ -317,15 +317,7 @@ On every `UPDATE` to `ows_meteo`, the trigger:
 
 Not directly defined in the codebase but referenced by both workers. Must return at minimum:
 
-### 10.6 `spPushSpeciesFromLakeToStation`
-
-Pushes fish species from lakes to water stations based on:
-- Lake-station relationships via `Tributaries`
-- Fish habitat rules (`fish_Rule`) matching current spawn period
-- Habitat type compatibility (`locType & habitat`)
-- Inserts into `fish_location(station_Id, fish_Id, today)` where not already present
-
-### 10.7 `spTotalUpdateProbability`
+### 10.6 `spTotalUpdateProbability`
 
 Updates fish catch probability in `fish_location` using:
 - **Temperature** coefficient from `fn_get_koef_fish_station_temperature`
