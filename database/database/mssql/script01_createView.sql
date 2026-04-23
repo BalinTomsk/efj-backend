@@ -685,12 +685,17 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vw_editor_fish_food' AND type 
     DROP VIEW dbo.vw_editor_fish_food
 GO
 
+/*
+     used in FishTracker.Editor.EditFood.LoadEditedFood()
+*/
 CREATE VIEW dbo.vw_editor_fish_food
 WITH SCHEMABINDING
 AS
   SELECT  fish_id, fish_name, fish_latin
         , food_habitat, terrestrial_insects
-        , crustaceans, terrestrial_animals, locked, node_food_habitat, stamp
+        , crustaceans, terrestrial_animals 
+        , ISNULL(locked, CONVERT(bit, 0)) AS locked
+        , node_food_habitat, stamp
         , (select userName from dbo.users where id=editor) AS editor 
   FROM dbo.fish
 GO

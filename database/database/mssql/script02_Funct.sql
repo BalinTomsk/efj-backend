@@ -2231,13 +2231,13 @@ GO
 -- Called from  FishTracker.Editor.FishGeneral.LoadGeneralFish
 -- SELECT * FROM [dbo].fn_edit_fish_general('a85ebf22-4ab9-4a91-a14a-cef6c8e64d97')
 -- SELECT TOP 1 fish_image_id FROM dbo.fish_image WHERE fish_id = '6b45fea3-5cbe-4982-89af-c241eb5c6a36'
-CREATE FUNCTION [dbo].[fn_edit_fish_general]( @fish_id varchar(36) )
+CREATE FUNCTION [dbo].fn_edit_fish_general( @fish_id varchar(36) )
 RETURNS TABLE
 WITH SCHEMABINDING
 AS
   RETURN
     SELECT TOP 1 fish_latin, fish_name, alt_name AS fish_alt_name, descrip AS fish_description 
-        , locked, stamp, (select userName from dbo.users where id=editor) AS editor 
+        , ISNULL(locked, CONVERT(bit, 0)) AS locked, stamp, (select userName from dbo.users where id=editor) AS editor 
         , (SELECT TOP 1 fish_image_id FROM dbo.fish_image WHERE fish_id = @fish_id ORDER BY fish_image_stamp DESC) AS fish_image_id
       FROM dbo.fish f WHERE f.fish_id = @fish_id
 GO
