@@ -44,3 +44,7 @@ database/database/mssql/UNIT_TESTS/cleaned.txt
 service/docs/do-update.md
 service/weather/docs/do-update.md
 service/weather/docs/digitalocean.md
+
+
+Skills/*
+docs/*

@@ -2657,3 +2657,111 @@ END CATCH;
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Drop existing procedure if it exists
+IF OBJECT_ID('dbo.sp_upsert_fish_catch_probability', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_upsert_fish_catch_probability;
+GO
+/*
+-- Example: Set catch probabilities for Salmon, Chinook
+EXEC dbo.sp_upsert_fish_catch_probability 
+    @fish_id = '5d069a33-6b36-4314-bd49-8a32a6c92245',
+    @probability_jan = 5,
+    @probability_feb = 5,
+    @probability_mar = 10,
+    @probability_apr = 30,
+    @probability_may = 100,
+    @probability_jun = 220,
+    @probability_jul = 380,
+    @probability_aug = 500,
+    @probability_sep = 480,
+    @probability_oct = 260,
+    @probability_nov = 80,
+    @probability_dec = 10;
+*/
+
+/*  stored procedure that accepts a fish ID and 12 probability values for storing the catch probability for each month. 
+The procedure will validate the input, then use a MERGE statement to insert or update the probabilities 
+in the fish_catch_probability table. It will return the number of rows affected.
+*/
+CREATE PROCEDURE dbo.sp_upsert_fish_catch_probability
+(
+    @fish_id            uniqueidentifier,
+    @probability_jan    smallint,
+    @probability_feb    smallint,
+    @probability_mar    smallint,
+    @probability_apr    smallint,
+    @probability_may    smallint,
+    @probability_jun    smallint,
+    @probability_jul    smallint,
+    @probability_aug    smallint,
+    @probability_sep    smallint,
+    @probability_oct    smallint,
+    @probability_nov    smallint,
+    @probability_dec    smallint
+)
+AS
+SET NOCOUNT ON
+	BEGIN TRY 
+ -- Validate fish_id exists
+    IF NOT EXISTS (SELECT 1 FROM dbo.fish WHERE fish_id = @fish_id)
+    BEGIN
+        RAISERROR('Fish ID does not exist in fish table', 16, 1);
+        RETURN;
+    END
+
+    -- Validate all probabilities are in valid range (0-500)
+    IF (@probability_jan NOT BETWEEN 0 AND 500 OR
+        @probability_feb NOT BETWEEN 0 AND 500 OR
+        @probability_mar NOT BETWEEN 0 AND 500 OR
+        @probability_apr NOT BETWEEN 0 AND 500 OR
+        @probability_may NOT BETWEEN 0 AND 500 OR
+        @probability_jun NOT BETWEEN 0 AND 500 OR
+        @probability_jul NOT BETWEEN 0 AND 500 OR
+        @probability_aug NOT BETWEEN 0 AND 500 OR
+        @probability_sep NOT BETWEEN 0 AND 500 OR
+        @probability_oct NOT BETWEEN 0 AND 500 OR
+        @probability_nov NOT BETWEEN 0 AND 500 OR
+        @probability_dec NOT BETWEEN 0 AND 500)
+    BEGIN
+        RAISERROR('All probability values must be between 0 and 500', 16, 1);
+        RETURN;
+    END
+
+    -- Create a table variable with all 12 months
+    DECLARE @MonthData TABLE (month tinyint, probability smallint);
+    
+    INSERT INTO @MonthData (month, probability)
+    VALUES 
+        (1,  @probability_jan),
+        (2,  @probability_feb),
+        (3,  @probability_mar),
+        (4,  @probability_apr),
+        (5,  @probability_may),
+        (6,  @probability_jun),
+        (7,  @probability_jul),
+        (8,  @probability_aug),
+        (9,  @probability_sep),
+        (10, @probability_oct),
+        (11, @probability_nov),
+        (12, @probability_dec);
+
+    -- Use MERGE to insert or update all 12 months
+    MERGE INTO dbo.fish_catch_probability AS target
+    USING @MonthData AS source
+    ON target.fish_id = @fish_id AND target.month = source.month
+    WHEN MATCHED THEN
+        UPDATE SET target.probability = source.probability
+    WHEN NOT MATCHED THEN
+        INSERT (fish_id, month, probability)
+        VALUES (@fish_id, source.month, source.probability);
+
+    -- Return success message with row count
+    SELECT @@ROWCOUNT AS RowsAffected;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;          
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------

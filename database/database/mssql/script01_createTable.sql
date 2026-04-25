@@ -492,6 +492,33 @@ CREATE TABLE fish_Spot
 GO
 ALTER TABLE fish_Spot ADD CONSTRAINT PK_fish_Spot PRIMARY KEY CLUSTERED (Spot_id);
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- fishing  catch probability based on spawn activity
+CREATE TABLE dbo.fish_catch_probability
+(
+    fish_id     uniqueidentifier NOT NULL,  -- fish id
+    month       tinyint NOT NULL,           -- month number 1..12 
+    probability smallint NOT NULL,          -- probability 0 - 500%
+    
+    -- Primary key constraint
+    CONSTRAINT PK_fish_catch_probability PRIMARY KEY CLUSTERED (fish_id, month),
+    
+    -- Foreign key to fish table
+    CONSTRAINT FK_fish_catch_probability_fish FOREIGN KEY (fish_id) 
+        REFERENCES dbo.fish(fish_id)
+        ON DELETE CASCADE 
+        ON UPDATE CASCADE,
+    
+    -- Check constraint for month (1-12)
+    CONSTRAINT CK_fish_catch_probability_month 
+        CHECK (month >= 1 AND month <= 12),
+    
+    -- Check constraint for probability (0-500)
+    CONSTRAINT CK_fish_catch_probability_probability 
+        CHECK (probability >= 0 AND probability <= 500)
+);
+GO
+------------------------------------------------------------------------------
 CREATE TABLE dbo.fishingAccessPoint
 (
     [OFGID] [int] NULL,

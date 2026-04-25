@@ -2116,43 +2116,50 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_map_fish_list_bylatlon' AND
     DROP function dbo.fn_map_fish_list_bylatlon
 GO
 -- Called from  FishTracker.Forecast.MapFrame.LoadInitialFishes
--- SELECT * FROM dbo.fn_map_fish_list_bylatlon( 40, -81, 3  )
-CREATE FUNCTION dbo.fn_map_fish_list_bylatlon( @lat real, @lon real, @dist real  )
+-- SELECT * FROM dbo.fn_map_fish_list_bylatlon( 32, -117, 'US', 3   )
+-- SELECT * FROM dbo.fn_map_fish_list_bylatlon( 50, -95, 'CA', 3   )
+CREATE FUNCTION dbo.fn_map_fish_list_bylatlon( @lat real, @lon real, @country char(2), @dist real  )
   RETURNS TABLE 
 WITH SCHEMABINDING
 AS
 RETURN
-SELECT fish_id, fish_name FROM dbo.fish v
-    WHERE ( v.fish_Type & 1 ) = 1 AND EXISTS         -- 1 - sport fish
+SELECT v.fish_id, v.fish_name FROM dbo.fish v
+    LEFT JOIN dbo.fish_zoo z ON z.fish_id = v.fish_id
+    WHERE ( v.fish_Type & 1 ) = 1 -- 1 - sport fish
+--	AND v.habitat = 1             -- 1 - freshwater
+    AND EXISTS         -- 1 - sport fish
     ( 
 		SELECT TOP 1 1 FROM dbo.fish_location f 
 			JOIN dbo.WaterStation w ON (f.station_Id = w.id)
-			WHERE f.fish_id = v.fish_id 
+			WHERE f.fish_id = v.fish_id AND w.country = @country
 			AND ( w.lat between (@lat-@dist) AND (@lat+@dist) )
 			AND ( w.lon between (@lon-@dist) AND (@lon+@dist) )
-    )      
+    ) AND z.fish_max_length > 25      
 GO
 ---------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_map_fish_list_bylatlon_trial' AND xtype = 'IF')
     DROP function dbo.fn_map_fish_list_bylatlon_trial
 GO
 -- Called from  FishTracker.Forecast.MapFrame.LoadInitialFishes
--- SELECT * FROM dbo.fn_map_fish_list_bylatlon_trial( 40, -81   )
-CREATE FUNCTION dbo.fn_map_fish_list_bylatlon_trial( @lat real, @lon real  )
+-- SELECT * FROM dbo.fn_map_fish_list_bylatlon_trial( 32, -117, 'US'   )
+-- SELECT * FROM dbo.fn_map_fish_list_bylatlon_trial( 50, -95, 'CA'   )
+CREATE FUNCTION dbo.fn_map_fish_list_bylatlon_trial( @lat real, @lon real, @country char(2) )
   RETURNS TABLE 
 WITH SCHEMABINDING
 AS
 RETURN
-SELECT v.fish_id, fish_name FROM dbo.fish v
+SELECT v.fish_id, v.fish_name FROM dbo.fish v
     LEFT JOIN dbo.fish_zoo z ON z.fish_id = v.fish_id
-    WHERE ( v.fish_Type & 1 ) = 1 AND EXISTS         -- 1 - sport fish
+    WHERE ( v.fish_Type & 1 ) = 1 -- 1 - sport fish
+--	AND v.habitat = 1             -- 1 - freshwater
+    AND EXISTS
     ( 
 		SELECT TOP 1 1 FROM dbo.fish_location f 
 			JOIN dbo.WaterStation w ON (f.station_Id = w.id)
-			WHERE f.fish_id = v.fish_id 
-			AND ( w.lat between (@lat-0.5) AND (@lat+0.5) )
-			AND ( w.lon between (@lon-0.5) AND (@lon+0.5) )
-    ) AND z.fish_max_length < 45
+			WHERE f.fish_id = v.fish_id AND w.country = @country
+--			AND ( w.lat between (@lat-0.5) AND (@lat+0.5) )
+--			AND ( w.lon between (@lon-0.5) AND (@lon+0.5) )
+    ) AND z.fish_max_length < 65
 GO
 ---------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_read_fish_edit_list' AND xtype = 'TF')
