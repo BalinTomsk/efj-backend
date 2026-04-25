@@ -519,6 +519,33 @@ CREATE TABLE dbo.fish_catch_probability
 );
 GO
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- fishing  catch probability based on spawn activity
+CREATE TABLE dbo.fish_lunar_catch_probability
+(
+    fish_id     uniqueidentifier NOT NULL,  -- fish id
+    day         tinyint          NOT NULL,  -- month number 1..28 
+    probability smallint         NOT NULL,  -- probability 0 - 100%
+    
+    -- Primary key constraint
+    CONSTRAINT PK_fish_lunar_catch_probability PRIMARY KEY CLUSTERED (fish_id, day),
+    
+    -- Foreign key to fish table
+    CONSTRAINT FK_fish_lunar_catch_probability_fish FOREIGN KEY (fish_id) 
+        REFERENCES dbo.fish(fish_id)
+        ON DELETE CASCADE 
+        ON UPDATE CASCADE,
+    
+    -- Check constraint for day (1-28)
+    CONSTRAINT CK_fish_lunar_catch_probability_day 
+        CHECK (day >= 1 AND day <= 28),
+    
+    -- Check constraint for probability (0-100)
+    CONSTRAINT CK_fish_lunar_catch_probability 
+        CHECK (probability >= 0 AND probability <= 100)
+);
+GO
+------------------------------------------------------------------------------
 CREATE TABLE dbo.fishingAccessPoint
 (
     [OFGID] [int] NULL,

@@ -2765,3 +2765,91 @@ END CATCH;
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Step 1: Create a User-Defined Table Type
+IF TYPE_ID('dbo.DailyProbabilityType') IS NOT NULL
+    DROP TYPE dbo.DailyProbabilityType;
+GO
+
+/*
+-- Declare and populate the table variable
+DECLARE @probs dbo.DailyProbabilityType;
+
+INSERT INTO @probs ([day], probability)
+VALUES 
+    (1, 30), (2, 35), (3, 40), (4, 45), (5, 50), (6, 55), (7, 60),
+    (8, 65), (9, 70), (10, 75), (11, 80), (12, 85), (13, 90), (14, 95),
+    (15, 100), (16, 95), (17, 90), (18, 85), (19, 80), (20, 75),
+    (21, 70), (22, 65), (23, 60), (24, 55), (25, 50), (26, 45), (27, 40), (28, 35);
+
+EXEC dbo.sp_upsert_fish_lunar_catch_probability 
+    @fish_id = '5d069a33-6b36-4314-bd49-8a32a6c92245',
+    @probabilities = @probs;    
+
+
+    Alternative procedure that accepts a fish ID and a table-valued parameter (TVP) containing day and probability values. 
+    The procedure will validate the input, then use a MERGE statement to insert or update the probabilities in the fish_lunar_catch_probability table. 
+    It will return the number of rows affected.
+*/
+
+CREATE TYPE dbo.DailyProbabilityType AS TABLE
+(
+    [day]       tinyint NOT NULL PRIMARY KEY,
+    probability smallint NOT NULL
+);
+GO
+
+-- Step 2: Create the stored procedure using TVP
+IF OBJECT_ID('dbo.sp_upsert_fish_lunar_catch_probability', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_upsert_fish_lunar_catch_probability;
+GO
+
+CREATE PROCEDURE dbo.sp_upsert_fish_lunar_catch_probability
+(
+    @fish_id uniqueidentifier,
+    @probabilities dbo.DailyProbabilityType READONLY
+)
+AS
+SET NOCOUNT ON
+BEGIN TRY
+
+    -- Validate fish_id exists
+    IF NOT EXISTS (SELECT 1 FROM dbo.fish WHERE fish_id = @fish_id)
+    BEGIN
+        RAISERROR('Fish ID does not exist in fish table', 16, 1);
+        RETURN;
+    END
+
+    -- Validate day range (1-28)
+    IF EXISTS (SELECT 1 FROM @probabilities WHERE [day] < 1 OR [day] > 28)
+    BEGIN
+        RAISERROR('Day values must be between 1 and 28', 16, 1);
+        RETURN;
+    END
+
+    -- Validate probability range (0-100)
+    IF EXISTS (SELECT 1 FROM @probabilities WHERE probability < 0 OR probability > 100)
+    BEGIN
+        RAISERROR('Probability values must be between 0 and 100', 16, 1);
+        RETURN;
+    END
+
+    -- MERGE to insert or update
+    MERGE INTO dbo.fish_lunar_catch_probability AS target
+    USING @probabilities AS source
+    ON target.fish_id = @fish_id AND target.[day] = source.[day]
+    WHEN MATCHED THEN
+        UPDATE SET target.probability = source.probability
+    WHEN NOT MATCHED THEN
+        INSERT (fish_id, [day], probability)
+        VALUES (@fish_id, source.[day], source.probability);
+
+    SELECT @@ROWCOUNT AS RowsAffected;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
