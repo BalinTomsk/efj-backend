@@ -1193,28 +1193,78 @@ BEGIN    -- single row
 END
 GO
 -------------------------------------------------------------------------------------------------------
-CREATE TABLE SessionHandler
+
+-- Created by GitHub Copilot in SSMS - review carefully before executing
+CREATE TABLE [dbo].[SessionHandler]
 (
-    id         uniqueidentifier  NOT NULL,
-    ipAddr     varchar(32) NOT NULL,
-    startSess  datetime2 NOT NULL,
-    endSess    datetime2,
-    userAgent  nvarchar(255) NOT NULL,
-    host       varchar(32) NOT NULL,
-    startPage  varchar(255) NULL,
-    userId     uniqueidentifier,
-    sid        bigint identity(1,128)    
-) 
+    [id]            UNIQUEIDENTIFIER NOT NULL,
+    [ip4]           VARCHAR(45) NULL,
+    [ip6]           VARCHAR(45) NULL,
+    [startSess]     DATETIME NOT NULL,
+    [userAgent]     VARCHAR(255) NOT NULL,
+    [host]          VARCHAR(255) NOT NULL,
+    [startPage]     VARCHAR(255) NULL,
+    [userId]        UNIQUEIDENTIFIER NULL,
+    [sid]           BIGINT IDENTITY(1,2) NOT NULL,
+    [counterPage]   INT NOT NULL,
+    [baned]         BIT NOT NULL,
+    [activityDate]  AS CONVERT([date], [startSess]) PERSISTED,
+
+    CONSTRAINT [PK_SessionHandler]
+        PRIMARY KEY CLUSTERED ([id] ASC),
+
+    CONSTRAINT [UQ_SessionHandler_sid]
+        UNIQUE NONCLUSTERED ([sid] ASC),
+
+    CONSTRAINT [CK_SessionHandler_counterPage]
+        CHECK ([counterPage] >= 0),
+
+    CONSTRAINT [CK_SessionHandler_IpRequired]
+        CHECK (ISNULL(NULLIF(LTRIM(RTRIM([ip4])), ''), NULLIF(LTRIM(RTRIM([ip6])), '')) IS NOT NULL)
+);
 GO
-ALTER TABLE SessionHandler ADD CONSTRAINT PK_SessionHandler PRIMARY KEY CLUSTERED (id)
+ALTER TABLE [dbo].[SessionHandler] ADD CONSTRAINT [DF_SessionHandler_Id] DEFAULT (NEWID()) FOR [id];
 GO
-ALTER TABLE SessionHandler add constraint df_SessionHandler_Id default NEWSEQUENTIALID() for [id]
+ALTER TABLE [dbo].[SessionHandler] ADD CONSTRAINT [DF_SessionHandler_startSess] DEFAULT (GETUTCDATE()) FOR [startSess];
 GO
-ALTER TABLE SessionHandler add constraint df_SessionHandler_startSess default getutcdate() for startSess
+ALTER TABLE [dbo].[SessionHandler] ADD CONSTRAINT [DF_SessionHandler_counterPage] DEFAULT ((0)) FOR [counterPage];
+GO
+ALTER TABLE [dbo].[SessionHandler] ADD CONSTRAINT [DF_SessionHandler_baned] DEFAULT ((0)) FOR [baned];
 GO
 
--- select * from SessionHandler
+CREATE UNIQUE NONCLUSTERED INDEX [UX_SessionHandler_ActivityDate_Ip4]
+ON [dbo].[SessionHandler] ([activityDate], [ip4])
+WHERE [ip4] IS NOT NULL AND [ip4] <> '';
+GO
 
+CREATE UNIQUE NONCLUSTERED INDEX [UX_SessionHandler_ActivityDate_Ip6]
+ON [dbo].[SessionHandler] ([activityDate], [ip6])
+WHERE [ip6] IS NOT NULL AND [ip6] <> '';
+GO
+
+CREATE NONCLUSTERED INDEX [IX_SessionHandler_Baned_Ip4]
+ON [dbo].[SessionHandler] ([baned], [ip4])
+INCLUDE ([activityDate], [counterPage], [host], [startPage], [userAgent], [startSess])
+WHERE [ip4] IS NOT NULL AND [ip4] <> '';
+GO
+
+CREATE NONCLUSTERED INDEX [IX_SessionHandler_Baned_Ip6]
+ON [dbo].[SessionHandler] ([baned], [ip6])
+INCLUDE ([activityDate], [counterPage], [host], [startPage], [userAgent], [startSess])
+WHERE [ip6] IS NOT NULL AND [ip6] <> '';
+GO
+
+CREATE NONCLUSTERED INDEX [IX_SessionHandler_Host_ActivityDate_Ip4]
+ON [dbo].[SessionHandler] ([host], [activityDate], [baned], [ip4])
+INCLUDE ([counterPage], [startPage], [userAgent], [startSess])
+WHERE [ip4] IS NOT NULL AND [ip4] <> '';
+GO
+
+CREATE NONCLUSTERED INDEX [IX_SessionHandler_Host_ActivityDate_Ip6]
+ON [dbo].[SessionHandler] ([host], [activityDate], [baned], [ip6])
+INCLUDE ([counterPage], [startPage], [userAgent], [startSess])
+WHERE [ip6] IS NOT NULL AND [ip6] <> '';
+GO
 
 -- update GlobalConfig table for number of visiters
 CREATE TRIGGER trg_UpdateGlobalConfig
@@ -1224,24 +1274,30 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Determine the current day
     DECLARE @currentDay DATE = CAST(GETDATE() AS DATE);
-
-    -- Check if the new IP addresses are already present for the current day
-    IF NOT EXISTS (
+    
+    -- Only update if we have NEW unique IP addresses for today
+    IF EXISTS (
         SELECT 1
-        FROM SessionHandler
-        WHERE CAST(startSess AS DATE) = @currentDay
-        AND ipAddr IN (SELECT ipAddr FROM inserted)
+        FROM inserted i
+        WHERE i.ip4 IS NOT NULL
+        AND NOT EXISTS (
+            SELECT 1
+            FROM SessionHandler sh
+            WHERE sh.ip4 = i.ip4
+            AND CAST(sh.startSess AS DATE) = @currentDay
+            AND sh.id <> i.id  -- Exclude the just-inserted row
+        )
     )
     BEGIN
-        -- Update the global configuration if the condition is met
+        -- Update the global configuration counter
         UPDATE global_configuration
         SET config_value = (
             SELECT 500000 + SUM(UniqueIPCount)
             FROM (
-                SELECT COUNT(DISTINCT ipAddr) AS UniqueIPCount
+                SELECT COUNT(DISTINCT ip4) AS UniqueIPCount
                 FROM SessionHandler
+                WHERE ip4 IS NOT NULL
                 GROUP BY CAST(startSess AS DATE)
             ) t
         )

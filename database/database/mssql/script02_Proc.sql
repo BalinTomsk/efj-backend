@@ -60,7 +60,7 @@ BEGIN TRY
   SET @sessionId = NULL
   DECLARE @tmp TABLE( id uniqueidentifier )
   IF @page NOT IN ('/Default.aspx', '/Resources/wfRiverViewer.aspx')
-	  INSERT INTO SessionHandler(  ipAddr,  userAgent,  host,  startPage ) 
+	  INSERT INTO SessionHandler(  ip4,  userAgent,  host,  startPage ) 
 		OUTPUT INSERTED.ID INTO @tmp( id ) VALUES ( @ipaddr, @agent, @host, @page )
   IF EXISTS (SELECT * FROM @tmp ) 
     SELECT TOP 1 @sessionId = id FROM @tmp
@@ -2754,9 +2754,6 @@ SET NOCOUNT ON
     WHEN NOT MATCHED THEN
         INSERT (fish_id, month, probability)
         VALUES (@fish_id, source.month, source.probability);
-
-    -- Return success message with row count
-    SELECT @@ROWCOUNT AS RowsAffected;
 END TRY
 BEGIN CATCH
     SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
@@ -2842,8 +2839,6 @@ BEGIN TRY
     WHEN NOT MATCHED THEN
         INSERT (fish_id, [day], probability)
         VALUES (@fish_id, source.[day], source.probability);
-
-    SELECT @@ROWCOUNT AS RowsAffected;
 
 END TRY
 BEGIN CATCH

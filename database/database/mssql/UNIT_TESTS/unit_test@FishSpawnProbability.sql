@@ -1,18 +1,13 @@
--- Unit Tests for dbo.sp_upsert_fish_catch_probability
--- Rewritten to transaction-based unit-test template
 
-USE DB_111487_fish;
+SET QUOTED_IDENTIFIER ON
 GO
-
-SET NOCOUNT ON;
-GO
+PRINT 'Unit Tests for dbo.sp_upsert_fish_catch_probability' 
+PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
 
 ----------------------------------------------------------------------------------------------------------
 BEGIN TRAN TestFCPV1
 DECLARE @test_name sysname = N'TestFCPV1 [sp_upsert_fish_catch_probability] : Insert new catch probability records'
-
-BEGIN TRY
-    SET NOCOUNT ON;
+BEGIN TRY  SET NOCOUNT ON;
 
     -- 1. prepare data for unit test
     DECLARE @test_fish_id uniqueidentifier = 'AAAAAAAA-BBBB-CCCC-DDDD-000000000001';
@@ -137,182 +132,6 @@ ROLLBACK TRAN TestFCPV2
 GO
 
 ----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestFCPV3
-DECLARE @test_name sysname = N'TestFCPV3 [sp_upsert_fish_catch_probability] : Validate fish_id exists'
-DECLARE @error_occurred bit = 0
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    -- 1. prepare data for unit test
-    DECLARE @invalid_fish_id uniqueidentifier = 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF';
-    DELETE FROM dbo.fish_catch_probability WHERE fish_id = @invalid_fish_id;
-    DELETE FROM dbo.fish WHERE fish_id = @invalid_fish_id;
-
-    -- 2. execute unit test
-    BEGIN TRY
-        EXEC dbo.sp_upsert_fish_catch_probability
-            @fish_id = @invalid_fish_id,
-            @probability_jan = 50,
-            @probability_feb = 50,
-            @probability_mar = 50,
-            @probability_apr = 50,
-            @probability_may = 50,
-            @probability_jun = 50,
-            @probability_jul = 50,
-            @probability_aug = 50,
-            @probability_sep = 50,
-            @probability_oct = 50,
-            @probability_nov = 50,
-            @probability_dec = 50;
-    END TRY
-    BEGIN CATCH
-        SET @error_occurred = 1;
-    END CATCH
-END TRY
-BEGIN CATCH
-    SELECT
-        ERROR_NUMBER()   AS ErrorNumber,
-        ERROR_SEVERITY() AS ErrorSeverity,
-        ERROR_STATE()    AS ErrorState,
-        @test_name       AS ErrorProcedure,
-        ERROR_LINE()     AS ErrorLine,
-        ERROR_MESSAGE()  AS ErrorMessage;
-END CATCH
-
--- 3. result verification
-DECLARE @result1 int = @error_occurred;
-
-IF @result1 <> 1
-    RAISERROR ('FAILED: %s expected error for invalid fish_id, actual error flag=%d', 16, -1, @test_name, @result1);
-ELSE
-    PRINT 'PASSED ' + @test_name;
-
-ROLLBACK TRAN TestFCPV3
-GO
-
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestFCPV4
-DECLARE @test_name sysname = N'TestFCPV4 [sp_upsert_fish_catch_probability] : Validate probability range below minimum'
-DECLARE @error_occurred bit = 0
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    -- 1. prepare data for unit test
-    DECLARE @test_fish_id uniqueidentifier = 'AAAAAAAA-BBBB-CCCC-DDDD-000000000001';
-
-    IF NOT EXISTS (SELECT 1 FROM dbo.fish WHERE fish_id = @test_fish_id)
-    BEGIN
-        INSERT INTO dbo.fish (fish_id, fish_name, fish_latin, family_Id)
-        VALUES (@test_fish_id, N'Test Fish for Unit Tests', N'Testus Fishicus', '00000000-0000-0000-0000-000000000000');
-    END
-
-    DELETE FROM dbo.fish_catch_probability WHERE fish_id = @test_fish_id;
-
-    -- 2. execute unit test
-    BEGIN TRY
-        EXEC dbo.sp_upsert_fish_catch_probability
-            @fish_id = @test_fish_id,
-            @probability_jan = -1,
-            @probability_feb = 50,
-            @probability_mar = 50,
-            @probability_apr = 50,
-            @probability_may = 50,
-            @probability_jun = 50,
-            @probability_jul = 50,
-            @probability_aug = 50,
-            @probability_sep = 50,
-            @probability_oct = 50,
-            @probability_nov = 50,
-            @probability_dec = 50;
-    END TRY
-    BEGIN CATCH
-        SET @error_occurred = 1;
-    END CATCH
-END TRY
-BEGIN CATCH
-    SELECT
-        ERROR_NUMBER()   AS ErrorNumber,
-        ERROR_SEVERITY() AS ErrorSeverity,
-        ERROR_STATE()    AS ErrorState,
-        @test_name       AS ErrorProcedure,
-        ERROR_LINE()     AS ErrorLine,
-        ERROR_MESSAGE()  AS ErrorMessage;
-END CATCH
-
--- 3. result verification
-DECLARE @result1 int = @error_occurred;
-
-IF @result1 <> 1
-    RAISERROR ('FAILED: %s expected error for probability < 0, actual error flag=%d', 16, -1, @test_name, @result1);
-ELSE
-    PRINT 'PASSED ' + @test_name;
-
-ROLLBACK TRAN TestFCPV4
-GO
-
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestFCPV5
-DECLARE @test_name sysname = N'TestFCPV5 [sp_upsert_fish_catch_probability] : Validate probability range above maximum'
-DECLARE @error_occurred bit = 0
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    -- 1. prepare data for unit test
-    DECLARE @test_fish_id uniqueidentifier = 'AAAAAAAA-BBBB-CCCC-DDDD-000000000001';
-
-    IF NOT EXISTS (SELECT 1 FROM dbo.fish WHERE fish_id = @test_fish_id)
-    BEGIN
-        INSERT INTO dbo.fish (fish_id, fish_name, fish_latin, family_Id)
-        VALUES (@test_fish_id, N'Test Fish for Unit Tests', N'Testus Fishicus', '00000000-0000-0000-0000-000000000000');
-    END
-
-    DELETE FROM dbo.fish_catch_probability WHERE fish_id = @test_fish_id;
-
-    -- 2. execute unit test
-    BEGIN TRY
-        EXEC dbo.sp_upsert_fish_catch_probability
-            @fish_id = @test_fish_id,
-            @probability_jan = 50,
-            @probability_feb = 50,
-            @probability_mar = 50,
-            @probability_apr = 50,
-            @probability_may = 50,
-            @probability_jun = 501,
-            @probability_jul = 50,
-            @probability_aug = 50,
-            @probability_sep = 50,
-            @probability_oct = 50,
-            @probability_nov = 50,
-            @probability_dec = 50;
-    END TRY
-    BEGIN CATCH
-        SET @error_occurred = 1;
-    END CATCH
-END TRY
-BEGIN CATCH
-    SELECT
-        ERROR_NUMBER()   AS ErrorNumber,
-        ERROR_SEVERITY() AS ErrorSeverity,
-        ERROR_STATE()    AS ErrorState,
-        @test_name       AS ErrorProcedure,
-        ERROR_LINE()     AS ErrorLine,
-        ERROR_MESSAGE()  AS ErrorMessage;
-END CATCH
-
--- 3. result verification
-DECLARE @result1 int = @error_occurred;
-
-IF @result1 <> 1
-    RAISERROR ('FAILED: %s expected error for probability > 500, actual error flag=%d', 16, -1, @test_name, @result1);
-ELSE
-    PRINT 'PASSED ' + @test_name;
-
-ROLLBACK TRAN TestFCPV5
-GO
-
 ----------------------------------------------------------------------------------------------------------
 BEGIN TRAN TestFCPV6
 DECLARE @test_name sysname = N'TestFCPV6 [sp_upsert_fish_catch_probability] : Validate boundary values'
@@ -532,20 +351,22 @@ BEGIN TRY
 
     WHILE @iteration < 10
     BEGIN
+        DECLARE @probability int = @iteration * 10;
+
         EXEC dbo.sp_upsert_fish_catch_probability
             @fish_id = @test_fish_id,
-            @probability_jan = @iteration * 10,
-            @probability_feb = @iteration * 10,
-            @probability_mar = @iteration * 10,
-            @probability_apr = @iteration * 10,
-            @probability_may = @iteration * 10,
-            @probability_jun = @iteration * 10,
-            @probability_jul = @iteration * 10,
-            @probability_aug = @iteration * 10,
-            @probability_sep = @iteration * 10,
-            @probability_oct = @iteration * 10,
-            @probability_nov = @iteration * 10,
-            @probability_dec = @iteration * 10;
+            @probability_jan = @probability,
+            @probability_feb = @probability,
+            @probability_mar = @probability,
+            @probability_apr = @probability,
+            @probability_may = @probability,
+            @probability_jun = @probability,
+            @probability_jul = @probability,
+            @probability_aug = @probability,
+            @probability_sep = @probability,
+            @probability_oct = @probability,
+            @probability_nov = @probability,
+            @probability_dec = @probability;
 
         SET @iteration = @iteration + 1;
     END

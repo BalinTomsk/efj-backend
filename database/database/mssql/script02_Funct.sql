@@ -3417,5 +3417,27 @@ AS
 	WHERE @col = num % 2
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
+/*
+    Calculates the current UTC-day page count from dbo.SessionHandler for the specified client IP address (IPv4 and/or IPv6) and host, 
+    excluding rows marked as banned, and returns the aggregated counterPage value as an integer.
+*/
 -----------------------------------------------------------------------------------------------------------------------------------------------
- 
+ CREATE FUNCTION dbo.fn_SessionHandlerTodayConsumedPages (@ip4 VARCHAR(45), @ip6 VARCHAR(45), @host VARCHAR(255) )
+    RETURNS INT
+    WITH SCHEMABINDING
+    AS
+    BEGIN
+        DECLARE @result INT;
+
+        SELECT @result = ISNULL(SUM(ISNULL(counterPage, 0)), 0)
+        FROM dbo.SessionHandler
+        WHERE CAST(startSess AS date) = CAST(GETUTCDATE() AS date)
+          AND host = @host
+          AND ISNULL(baned, 0) = 0
+          AND ((@ip4 <> '''' AND ip4 = @ip4) OR (@ip6 <> '''' AND ip6 = @ip6));
+
+        RETURN ISNULL(@result, 0);
+    END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
