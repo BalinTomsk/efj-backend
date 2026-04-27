@@ -2848,3 +2848,48 @@ END CATCH;
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spPersistIpBan' AND type = 'P')
+    DROP PROCEDURE dbo.spPersistIpBan
+GO
+
+CREATE PROCEDURE [dbo].spPersistIpBan (@counterPage int, @agent nvarchar(255), @host nvarchar(255), @ip4 varchar(15), @startPage nvarchar(255), @baned bit, @id uniqueidentifier)
+AS
+SET NOCOUNT ON
+	BEGIN TRY 
+	 UPDATE SessionHandler SET counterPage = @counterPage, userAgent = @agent, host = @host, baned = 1 WHERE (@ip4 <> '' AND ip4 = @ip4)
+     IF @@ROWCOUNT > 0
+     BEGIN
+        RETURN;
+     END
+     INSERT INTO SessionHandler (id, userAgent, host, startPage, baned, ip4, counterPage) VALUES (@id, @agent, @host, @startPage, @baned, @ip4, @counterPage)
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;          
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spRegisterPageHit' AND type = 'P')
+    DROP PROCEDURE dbo.spRegisterPageHit
+GO
+
+CREATE PROCEDURE [dbo].spRegisterPageHit(@counterPage int, @agent nvarchar(255), @host nvarchar(255), @ip4 varchar(15), @startPage nvarchar(255), @baned bit, @id uniqueidentifier)
+AS
+SET NOCOUNT ON
+	BEGIN TRY 
+	 UPDATE SessionHandler SET counterPage = ISNULL(counterPage, 0) + @counterPage, userAgent = @agent, host = @host, startPage = @startPage, baned = 0 WHERE activityDate = CAST(GETUTCDATE() AS date) AND (@ip4 <> '' AND ip4 = @ip4)
+     IF @@ROWCOUNT > 0
+     BEGIN
+        RETURN;
+     END
+     INSERT INTO SessionHandler (id, userAgent, host, startPage, baned, ip4, counterPage) VALUES (@id, @agent, @host, @startPage, @baned, @ip4, @counterPage)
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;          
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+

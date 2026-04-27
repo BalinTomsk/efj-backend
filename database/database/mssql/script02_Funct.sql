@@ -3422,7 +3422,11 @@ GO
     excluding rows marked as banned, and returns the aggregated counterPage value as an integer.
 */
 -----------------------------------------------------------------------------------------------------------------------------------------------
- CREATE FUNCTION dbo.fn_SessionHandlerTodayConsumedPages (@ip4 VARCHAR(45), @ip6 VARCHAR(45), @host VARCHAR(255) )
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_SessionHandlerTodayConsumedPages' AND xtype = 'FN')
+    DROP function dbo.fn_SessionHandlerTodayConsumedPages;
+GO
+
+CREATE FUNCTION dbo.fn_SessionHandlerTodayConsumedPages (@ip4 VARCHAR(45), @host VARCHAR(255) )
     RETURNS INT
     WITH SCHEMABINDING
     AS
@@ -3434,7 +3438,7 @@ GO
         WHERE CAST(startSess AS date) = CAST(GETUTCDATE() AS date)
           AND host = @host
           AND ISNULL(baned, 0) = 0
-          AND ((@ip4 <> '''' AND ip4 = @ip4) OR (@ip6 <> '''' AND ip6 = @ip6));
+          AND (@ip4 <> '''' AND ip4 = @ip4);
 
         RETURN ISNULL(@result, 0);
     END

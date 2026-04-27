@@ -1199,7 +1199,6 @@ CREATE TABLE [dbo].[SessionHandler]
 (
     [id]            UNIQUEIDENTIFIER NOT NULL,
     [ip4]           VARCHAR(45) NULL,
-    [ip6]           VARCHAR(45) NULL,
     [startSess]     DATETIME NOT NULL,
     [userAgent]     VARCHAR(255) NOT NULL,
     [host]          VARCHAR(255) NOT NULL,
@@ -1217,10 +1216,7 @@ CREATE TABLE [dbo].[SessionHandler]
         UNIQUE NONCLUSTERED ([sid] ASC),
 
     CONSTRAINT [CK_SessionHandler_counterPage]
-        CHECK ([counterPage] >= 0),
-
-    CONSTRAINT [CK_SessionHandler_IpRequired]
-        CHECK (ISNULL(NULLIF(LTRIM(RTRIM([ip4])), ''), NULLIF(LTRIM(RTRIM([ip6])), '')) IS NOT NULL)
+        CHECK ([counterPage] >= 0)
 );
 GO
 ALTER TABLE [dbo].[SessionHandler] ADD CONSTRAINT [DF_SessionHandler_Id] DEFAULT (NEWID()) FOR [id];
@@ -1237,33 +1233,16 @@ ON [dbo].[SessionHandler] ([activityDate], [ip4])
 WHERE [ip4] IS NOT NULL AND [ip4] <> '';
 GO
 
-CREATE UNIQUE NONCLUSTERED INDEX [UX_SessionHandler_ActivityDate_Ip6]
-ON [dbo].[SessionHandler] ([activityDate], [ip6])
-WHERE [ip6] IS NOT NULL AND [ip6] <> '';
-GO
-
 CREATE NONCLUSTERED INDEX [IX_SessionHandler_Baned_Ip4]
 ON [dbo].[SessionHandler] ([baned], [ip4])
 INCLUDE ([activityDate], [counterPage], [host], [startPage], [userAgent], [startSess])
 WHERE [ip4] IS NOT NULL AND [ip4] <> '';
 GO
 
-CREATE NONCLUSTERED INDEX [IX_SessionHandler_Baned_Ip6]
-ON [dbo].[SessionHandler] ([baned], [ip6])
-INCLUDE ([activityDate], [counterPage], [host], [startPage], [userAgent], [startSess])
-WHERE [ip6] IS NOT NULL AND [ip6] <> '';
-GO
-
 CREATE NONCLUSTERED INDEX [IX_SessionHandler_Host_ActivityDate_Ip4]
 ON [dbo].[SessionHandler] ([host], [activityDate], [baned], [ip4])
 INCLUDE ([counterPage], [startPage], [userAgent], [startSess])
 WHERE [ip4] IS NOT NULL AND [ip4] <> '';
-GO
-
-CREATE NONCLUSTERED INDEX [IX_SessionHandler_Host_ActivityDate_Ip6]
-ON [dbo].[SessionHandler] ([host], [activityDate], [baned], [ip6])
-INCLUDE ([counterPage], [startPage], [userAgent], [startSess])
-WHERE [ip6] IS NOT NULL AND [ip6] <> '';
 GO
 
 -- update GlobalConfig table for number of visiters
