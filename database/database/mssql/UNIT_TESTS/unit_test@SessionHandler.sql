@@ -821,4 +821,204 @@ ROLLBACK TRAN TestRPH6
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- Unit tests for dbo.IsIpBanned
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+-- TEST 1: Returns 0 when ip4 is NULL
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB1
+
+DECLARE @test_name SYSNAME = 'TestIIB1 [IsIpBanned] returns 0 when ip4 is NULL';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @result bit = dbo.IsIpBanned(NULL);
+
+    IF @result <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB1
+GO
+
+
+-- TEST 2: Returns 0 when ip4 is empty string
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB2
+
+DECLARE @test_name SYSNAME = 'TestIIB2 [IsIpBanned] returns 0 when ip4 is empty string';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @result bit = dbo.IsIpBanned('');
+
+    IF @result <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB2
+GO
+
+
+-- TEST 3: Returns 0 when no matching ip4 exists
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB3
+
+DECLARE @test_name SYSNAME = 'TestIIB3 [IsIpBanned] returns 0 when no matching ip4 exists';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.SessionHandler WHERE ip4 = '192.168.30.3';
+
+    DECLARE @result bit = dbo.IsIpBanned('192.168.30.3');
+
+    IF @result <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB3
+GO
+
+
+-- TEST 4: Returns 0 when matching ip4 exists but baned = 0
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB4
+
+DECLARE @test_name SYSNAME = 'TestIIB4 [IsIpBanned] returns 0 when matching ip4 exists but baned = 0';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.SessionHandler WHERE ip4 = '192.168.30.4';
+
+    INSERT INTO dbo.SessionHandler
+        (id, userAgent, host, startPage, baned, ip4, counterPage)
+    VALUES
+        (NEWID(), 'UT_AGENT_IIB_04', 'UT_HOST_IIB_04', '/not-banned', 0, '192.168.30.4', 1);
+
+    DECLARE @result bit = dbo.IsIpBanned('192.168.30.4');
+
+    IF @result <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB4
+GO
+
+
+-- TEST 5: Returns 1 when matching ip4 exists and baned = 1
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB5
+
+DECLARE @test_name SYSNAME = 'TestIIB5 [IsIpBanned] returns 1 when matching ip4 exists and baned = 1';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.SessionHandler WHERE ip4 = '192.168.30.5';
+
+    INSERT INTO dbo.SessionHandler
+        (id, userAgent, host, startPage, baned, ip4, counterPage)
+    VALUES
+        (NEWID(), 'UT_AGENT_IIB_05', 'UT_HOST_IIB_05', '/banned', 1, '192.168.30.5', 1);
+
+    DECLARE @result bit = dbo.IsIpBanned('192.168.30.5');
+
+    IF @result <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 1, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB5
+GO
+
+
+-- TEST 6: Returns 0 for different banned ip4
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestIIB6
+
+DECLARE @test_name SYSNAME = 'TestIIB6 [IsIpBanned] returns 0 for different banned ip4';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.SessionHandler WHERE ip4 IN ('192.168.30.6', '192.168.30.66');
+
+    INSERT INTO dbo.SessionHandler
+        (id, userAgent, host, startPage, baned, ip4, counterPage)
+    VALUES
+        (NEWID(), 'UT_AGENT_IIB_06', 'UT_HOST_IIB_06', '/banned-other-ip', 1, '192.168.30.66', 1);
+
+    DECLARE @result bit = dbo.IsIpBanned('192.168.30.6');
+
+    IF @result <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0, actual ' + CAST(@result AS varchar(1));
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestIIB6
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
 

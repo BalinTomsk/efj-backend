@@ -3445,3 +3445,30 @@ CREATE FUNCTION dbo.fn_SessionHandlerTodayConsumedPages (@ip4 VARCHAR(45), @host
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'IsIpBanned' AND xtype = 'FN')
+    DROP function dbo.IsIpBanned
+GO
+/*
+    SELECT TOP 1 id FROM SessionHandler WHERE baned = 1 AND (ip4 = '99.250.66.125')
+
+    Used in Global.aspx.cs
+*/
+CREATE FUNCTION dbo.IsIpBanned( @ip4 VARCHAR(45) )
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @result BIT = 0;
+
+    IF (@ip4 IS NULL OR @ip4 = '')
+        RETURN 0;
+
+    IF EXISTS (
+        SELECT 1 FROM dbo.SessionHandler WHERE baned = 1 AND ip4 = @ip4
+    )
+        SET @result = 1;
+
+    RETURN @result;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
