@@ -1593,12 +1593,17 @@ BEGIN
 END
 GO
 -------------------------------------------------------------------------------------------------------
+-- Stores probability of fish presence in the station based on lake fish list and station location. 
+-- Updated by spTotalUpdateProbability procedure based on water data and other factors. 
+-- Used for display and filtering of stations with fish presence.
+-- trusted probability if fish actualy was caught in the station or near it (lake, tributary) and for some other cases when we have a strong evidence of fish presence.
+-------------------------------------------------------------------------------------------------------
 create table fish_location ( 
-     station_Id uniqueidentifier not null
-   , fish_Id    uniqueidentifier  not null
+     station_Id uniqueidentifier not null             -- reference to WaterStation.id
+   , fish_Id    uniqueidentifier  not null            -- reference to fish.fish_id  
    , today      int default(0)                        -- current probability [0-100%]
-   , stamp      datetime2   not null default getutcdate()
-   , probability int default(0)                       -- original probabiliy from watershield 0 - means 100%
+   , stamp      datetime2   not null default getutcdate()  -- time the last update of probability
+   , probability int default(0)                       -- original probabiliy from watershield 0 - means 100% (not all media data inform about fish presence)
    , id         int
 );
 GO
@@ -1617,6 +1622,8 @@ GO
 CREATE NONCLUSTERED INDEX [idx_fish_location_st] ON fish_location (station_Id ASC)  
 GO
 CREATE NONCLUSTERED INDEX [idx_fish_location_id] ON fish_location (id ASC) 
+GO
+CREATE NONCLUSTERED INDEX IDX_fish_location_today ON [dbo].[fish_location] ([fish_Id]) INCLUDE ([today])
 
 ------------------------------------------------------------------------------
 /******************************************************************************

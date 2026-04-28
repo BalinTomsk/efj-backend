@@ -206,12 +206,95 @@ BEGIN CATCH
 END CATCH;     
 GO
 -- exec spGetPlaceByFish 'Burbot', 41, -82, 3
+
+----------------------------------------------------------------------------------------------------------------------------
+-- 1. update fish probability based on catch probability - used in spTotalUpdateProbability
+-- use fish_catch_probability to update probabilites in fish_location 
+----------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateCatch' AND xtype = 'P')
+    DROP PROCEDURE dbo.spTotalUpdateCatch
+GO
+----------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [dbo].[spTotalUpdateCatch]
+WITH EXEC AS CALLER
+AS
+SET NOCOUNT ON
+BEGIN TRY  
+    DECLARE @return_value int = 0;
+
+    ;WITH cte (today, station_Id, fish_Id) AS
+    (
+        SELECT
+            ISNULL(fcp.probability, t.probability),
+            t.station_Id,
+            t.fish_Id
+        FROM dbo.fish_location t
+        INNER JOIN dbo.fish_catch_probability fcp
+            ON t.fish_Id = fcp.fish_id
+            AND fcp.month = DATEPART(MONTH, GETUTCDATE())
+    )
+    UPDATE t
+        SET t.stamp = GETUTCDATE(),
+            t.today = cte.today
+    FROM dbo.fish_location t
+    JOIN cte
+        ON t.station_Id = cte.station_Id
+        AND t.fish_Id = cte.fish_Id
+    WHERE t.probability <> cte.today;
+
+    SET @return_value = @@ROWCOUNT;
+        
+    RETURN @return_value;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;   
+GO
+----------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateLunar' AND xtype = 'P')
+    DROP PROCEDURE dbo.spTotalUpdateLunar
+GO
+----------------------------------------------------------------------------------------------------------------------------
+-- Combined Probability Update (Monthly × Lunar)
+--  whatever day of the month it is today, pull that row's probability and use it as the multiplier. Everything else stays the same.
+----------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [dbo].[spTotalUpdateLunar]
+WITH EXEC AS CALLER
+AS
+SET NOCOUNT ON
+BEGIN TRY  
+    DECLARE @return_value int = 0;
+
+    UPDATE t
+        SET t.today = ROUND(
+                t.today * (lp.probability / 100.0)
+            , 0),
+            t.stamp = GETUTCDATE()
+    FROM dbo.fish_location t
+    INNER JOIN dbo.fish_lunar_catch_probability lp
+        ON lp.fish_id = t.fish_Id
+        AND lp.day    = DATEPART(DAY, GETUTCDATE())
+    WHERE t.today <> ROUND(t.today * (lp.probability / 100.0), 0);
+
+    SET @return_value = @@ROWCOUNT;
+        
+    RETURN @return_value;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;   
+GO
+----------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateProbability' AND xtype = 'P')
     DROP PROCEDURE dbo.spTotalUpdateProbability
 GO
 
 -- EXEC spTotalUpdateProbability
+----------------------------------------------------------------------------------------------------------------------------
 create PROCEDURE dbo.spTotalUpdateProbability
 WITH EXEC AS CALLER
 AS
@@ -223,6 +306,14 @@ BEGIN
 
     BEGIN TRY
         BEGIN TRANSACTION;
+        -- 1. reset probability to unknown state for week old probabilites
+        UPDATE fish_location SET today = -1 WHERE stamp < DATEADD(DAY, -7, GETUTCDATE()) AND probability <> -1
+
+        -- 2. update fish probability based on catch probability
+        EXEC [dbo].[spTotalUpdateCatch]
+
+        -- 3. update fish probability based on lunar
+        EXEC [dbo].[spTotalUpdateLunar]
 
         -- update fish probability based on water temperature
         ;WITH cte (today, station_Id, fish_Id) AS
@@ -356,7 +447,9 @@ BEGIN
         THROW;
     END CATCH
 END              
-------------------------------------------------------------------------------
+GO
+----------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_weather_save_city' AND xtype = 'P')
     DROP PROCEDURE dbo.sp_weather_save_city
 GO
@@ -2596,11 +2689,12 @@ END CATCH
 GO
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_UpdateWaterData' AND type = 'P')
     DROP PROCEDURE dbo.sp_UpdateWaterData
 GO
 
-CREATE OR ALTER PROCEDURE dbo.sp_UpdateWaterData
+CREATE PROCEDURE dbo.sp_UpdateWaterData
     @mli varchar(64),
     @stamp datetime2,
     @elevation float,
@@ -2636,7 +2730,7 @@ BEGIN
             END
         END CATCH
     END
-END;
+END
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spCleanWeatherWaterData' AND type = 'P')
