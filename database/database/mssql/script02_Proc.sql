@@ -46,6 +46,106 @@ BEGIN CATCH
 END CATCH;     
 GO
 -------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spOAuthLoginOrCreateUser' AND type = 'P')
+    DROP PROCEDURE dbo.spOAuthLoginOrCreateUser
+GO
+
+CREATE PROCEDURE dbo.spOAuthLoginOrCreateUser
+      @provider        NVARCHAR(100)
+    , @providerUserId  NVARCHAR(256)
+    , @email           NVARCHAR(255)
+    , @givenName       NVARCHAR(64) = NULL
+    , @familyName      NVARCHAR(64) = NULL
+    , @ipaddr          VARCHAR(32) = NULL
+    , @agent           VARCHAR(128) = NULL
+    , @addr            VARCHAR(32) = NULL
+    , @host            VARCHAR(255) = NULL
+    , @country         CHAR(2) = NULL
+    , @postal          VARCHAR(16) = NULL
+    , @userId          UNIQUEIDENTIFIER OUTPUT
+    , @userName        NVARCHAR(256) OUTPUT
+    , @isNewUser       BIT OUTPUT
+AS
+SET NOCOUNT ON
+BEGIN TRY
+    SET @userId = NULL;
+    SET @userName = NULL;
+    SET @isNewUser = 0;
+
+    SET @provider = NULLIF(LTRIM(RTRIM(@provider)), N'');
+    SET @providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'');
+    SET @email = NULLIF(LTRIM(RTRIM(@email)), N'');
+
+    IF @email IS NULL
+    BEGIN
+        RAISERROR('OAuth login requires an email claim.', 16, 1);
+        RETURN;
+    END
+
+    SELECT TOP 1
+          @userId = ID
+        , @userName = userName
+    FROM dbo.Users
+    WHERE email = @email;
+
+    IF @userId IS NOT NULL
+    BEGIN
+        SET @isNewUser = 0;
+        RETURN;
+    END
+
+    SET @userId = NEWID();
+    SET @userName = @email;
+
+    INSERT INTO dbo.Users
+    (
+          ID
+        , userName
+        , email
+        , ipaddr
+        , agent
+        , addr
+        , host
+        , country
+        , postal
+        , firstName
+        , lastName
+        , psw
+        , question
+        , answer
+    )
+    VALUES
+    (
+          @userId
+        , @userName
+        , @email
+        , ISNULL(@ipaddr, '')
+        , ISNULL(@agent, '')
+        , ISNULL(@addr, '')
+        , ISNULL(@host, '')
+        , ISNULL(@country, 'CA')
+        , ISNULL(@postal, '')
+        , ISNULL(@givenName, '')
+        , ISNULL(@familyName, '')
+        , HASHBYTES('MD5', CONVERT(VARCHAR(36), NEWID()) + '*oauth')
+        , 'oauth'
+        , 0x0024
+    );
+
+    SET @isNewUser = 1;
+END TRY
+BEGIN CATCH
+    SELECT
+          ERROR_NUMBER()    AS ErrorNumber
+        , ERROR_SEVERITY()  AS ErrorSeverity
+        , ERROR_STATE()     AS ErrorState
+        , ERROR_PROCEDURE() AS ErrorProcedure
+        , ERROR_LINE()      AS ErrorLine
+        , ERROR_MESSAGE()   AS ErrorMessage;
+END CATCH
+GO 
+-------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spSaveSession' AND type = 'P')
     DROP PROCEDURE dbo.spSaveSession
 GO

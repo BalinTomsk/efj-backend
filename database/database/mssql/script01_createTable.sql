@@ -1340,7 +1340,15 @@ CREATE TABLE Users
     addr       varchar(255) NULL,
     agent      varchar(128) NULL,
     host       varchar(1024) NULL,
-    country    char(2) NULL
+    country    char(2) NULL,
+    authType            varchar(16) not null default 'Local',
+    oauthProvider       varchar(64) null,
+    oauthProviderUserId varchar(256) null,
+    oauthEmailVerified  bit null,
+    oauthDisplayName    nvarchar(256) null,
+    oauthPictureUrl     nvarchar(1024) null,
+    oauthCreatedUtc     datetime2 null,
+    oauthLastLoginUtc   datetime2 null
 ) 
 GO
 
@@ -1353,12 +1361,14 @@ CREATE UNIQUE NONCLUSTERED INDEX UK_Users_Email ON Users(email);
 ALTER TABLE users ADD CONSTRAINT CH_users_email CHECK ( datalength(email) >= 6 and email not like '%@%@%' and email not like '%[^a-zA-Z0-9_.-@]%');
 ALTER TABLE users ADD CONSTRAINT CH_users_userName CHECK (DATALENGTH(userName) >= 3);
 ALTER TABLE users ADD CONSTRAINT CH_users_psw CHECK (DATALENGTH(psw) >= 6);
+CREATE UNIQUE NONCLUSTERED INDEX UX_Users_OAuthProvider_Sub on Users(oauthProvider, oauthProviderUserId);
 GO
 ---------------------------------------------------------------------------------------------------------------------------------------------
 INSERT INTO Users (userName, psw, titul, firstName, lastName, email, postal, subs, question, answer, cell, access) 
           VALUES  ('Lepsik', HashBytes('MD5', 'vertex*solt'), 'Mr.', 'Lepsik'
                    , 'Baralgeen', 'LBaralgeen@gmail.com', 'N2M5L4', 1, 'preved', HashBytes('MD5', 'medved+zuker'), 12266005162, 255)
 GO
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE USPost
 (
