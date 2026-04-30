@@ -67,13 +67,12 @@ CREATE PROCEDURE dbo.spOAuthLoginOrCreateUser
     , @isNewUser       BIT OUTPUT
 AS
 SET NOCOUNT ON
+
 BEGIN TRY
     SET @userId = NULL;
     SET @userName = NULL;
     SET @isNewUser = 0;
 
-    SET @provider = NULLIF(LTRIM(RTRIM(@provider)), N'');
-    SET @providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'');
     SET @email = NULLIF(LTRIM(RTRIM(@email)), N'');
 
     IF @email IS NULL
