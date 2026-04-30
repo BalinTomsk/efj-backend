@@ -1524,6 +1524,7 @@ CREATE NONCLUSTERED INDEX [idx_WaterStation_state] ON WaterStation (state) ON [P
 CREATE NONCLUSTERED INDEX [idx_WaterStation_city] ON WaterStation (city) ON [PRIMARY]
 CREATE NONCLUSTERED INDEX [idx_WaterStation_sid] ON WaterStation (sid) ON [PRIMARY]
 CREATE NONCLUSTERED INDEX [idx_WaterStation_mli] ON WaterStation (mli) ON [PRIMARY]
+CREATE NONCLUSTERED INDEX [idx_WaterStation_lake] ON [dbo].[WaterStation] ([country],[supported]) INCLUDE ([mli],[state],[lat],[lon],[lakeId])
 GO
 CREATE NONCLUSTERED INDEX idx_WaterStation_cll ON WaterStation (country,lat,lon) INCLUDE (id)
 GO
