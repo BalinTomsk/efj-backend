@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\weather -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(git -C C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\weather diff HEAD docs/specification.md)"
+    ]
+  }
+}

@@ -302,28 +302,44 @@ EXEC dbo.spTotalUpdateProbability
 
 ### 6.6 `StationProcessorBase`
 
-Shared exception handling wrapper.
+Shared exception handling wrapper using the template method pattern.
 
 Rules:
 
-- expose `process(StationRef station)`
+- expose `process(StationRef station)` as `final`
 - call `processStation(station)` inside a try/catch
-- if exception is `FileNotFoundException`, log a skip message
+- if exception is `FileNotFoundException`, log an info skip message
 - otherwise log a warning and continue
 
-Current message style:
+Abstract methods subclasses must implement:
+
+- `processStation(StationRef station)` — station-specific processing logic
+- `logger()` — returns the subclass logger
+- `country()` — returns the country label (e.g. `"US"`)
+- `missingSourceDescription()` — describes the missing data source (e.g. `"Open-Meteo source"`)
+
+Private helper:
+
+- `stationLabel()` — returns `country() + " station"`
+
+Current message style (rendered from template methods):
 
 - skip: `Skipping US station with no published Open-Meteo source. station={mli} state={state}`
 - failure: `US station processing failed. station={mli} state={state}`
 
 ### 6.7 `StationProcessorOpen`
 
-Open-Meteo worker implementation.
+Open-Meteo worker implementation. Extends `StationProcessorBase`.
+
+Template method implementations:
+
+- `country()` → `"US"`
+- `missingSourceDescription()` → `"Open-Meteo source"`
 
 Processing flow per station:
 
 1. fetch JSON from Open-Meteo using station latitude and longitude
-2. log save start
+2. log save start with payload byte count
 3. update `dbo.ows_meteo` via repository
 4. log station processed
 
