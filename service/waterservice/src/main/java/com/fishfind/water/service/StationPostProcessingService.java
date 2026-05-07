@@ -23,7 +23,7 @@ public class StationPostProcessingService {
      */
     public void runAfterStationProcessing() {
         log.info("Running post-processing procedure {}", "spCleanWeatherWaterData");
-        waterDataRepository.cleanWeatherWaterData();
+        // waterDataRepository.cleanWeatherWaterData();
 
         log.info("Running post-processing procedure {}", "spPushSpeciesFromLakeToStation");
         waterDataRepository.pushSpeciesFromLakeToStation();
