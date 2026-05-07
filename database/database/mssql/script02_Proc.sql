@@ -2813,6 +2813,10 @@ BEGIN
         BEGIN TRY
             INSERT INTO dbo.WaterData (mli, stamp, elevation, discharge)
             VALUES (@mli, @stamp, @elevation, @discharge);
+
+            -- Delete records older than 15 days after a successful insert
+            DELETE FROM dbo.WaterData
+            WHERE @mli = mli AND stamp < DATEADD(DAY, -15, GETDATE());
         END TRY
         BEGIN CATCH
             IF ERROR_NUMBER() IN (2601, 2627)

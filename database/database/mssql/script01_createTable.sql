@@ -1284,7 +1284,39 @@ BEGIN
     END
 END;
 GO
+-------------------------------------------------------------------------------------------------------
+/*
+    -- baned Flag records where userAgent matches known suspicious patterns:
+    -- 1. Firefox UA strings containing literal '{version}' placeholder (e.g. rv:{version}.0)
+    -- 2. Safari UA strings ending with suspicious build numbers:
+    --    Safari/170.1, Safari/172.1, Safari/180.1, Safari/184.1, Safari/260.1
+*/
+CREATE OR ALTER TRIGGER dbo.trg_SessionHandler_FlagSuspiciousUserAgent
+ON dbo.SessionHandler
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
 
+    UPDATE s
+    SET s.baned = 1
+    FROM dbo.SessionHandler s
+    INNER JOIN inserted i ON s.id = i.id  -- adjust join key to your PK column name
+    WHERE
+        -- Rule 1: Firefox UA with unresolved {version} placeholder
+        i.userAgent LIKE '%rv:{version}.%'
+
+        OR
+
+        -- Rule 2: Suspicious Safari build numbers
+        i.userAgent LIKE '%Safari/170.1%'
+        OR i.userAgent LIKE '%Safari/172.1%'
+        OR i.userAgent LIKE '%Safari/180.1%'
+        OR i.userAgent LIKE '%Safari/184.1%'
+        OR i.userAgent LIKE '%Safari/260.1%';
+END;
+GO
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE Spot
 (
@@ -1413,19 +1445,29 @@ CREATE TABLE dbo.WaterData
 );
 GO
 
+-- ALTER INDEX PK__WaterDat__3213E83F04273924 ON dbo.WaterData REBUILD;
+
 ALTER TABLE WaterData add constraint df_WaterData_DT default getdate() for stamp;
 GO
 
+-- DROP INDEX IDX_WaterData_dt ON dbo.WaterData
 CREATE INDEX IDX_WaterData_dt ON dbo.WaterData(stamp);
 GO
 
+-- DROP INDEX UK_WaterData_MLI_stamp ON dbo.WaterData
 CREATE UNIQUE NONCLUSTERED INDEX UK_WaterData_MLI_stamp ON dbo.WaterData(MLI, stamp);
 GO
+
 -- used in [spTotalUpdateProbability]  update fish probabilty based on water temperature
+-- DROP INDEX IDX_TM_WaterData ON dbo.WaterData
 CREATE NONCLUSTERED INDEX IDX_TM_WaterData ON [dbo].[WaterData] ([temperature]) INCLUDE ([mli])
 GO
+
+-- DROP INDEX IDX_PH_WaterData ON dbo.WaterData
 CREATE NONCLUSTERED INDEX IDX_PH_WaterData ON [dbo].[WaterData] ([ph]) INCLUDE ([mli])
 GO
+-- EXEC sp_updatestats;
+-- UPDATE STATISTICS dbo.WaterData 
 --------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------
 
