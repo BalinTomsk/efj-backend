@@ -1672,10 +1672,6 @@ ALTER TABLE fish_location ADD CONSTRAINT FK_fish_location_station FOREIGN KEY (s
 GO
 CREATE NONCLUSTERED INDEX [idx_fish_location_fish] ON fish_location (fish_Id ASC)  
 GO
-CREATE NONCLUSTERED INDEX [idx_fish_location_st] ON fish_location (station_Id ASC)  
-GO
-CREATE NONCLUSTERED INDEX [idx_fish_location_id] ON fish_location (id ASC) 
-GO
 CREATE NONCLUSTERED INDEX IDX_fish_location_today ON [dbo].[fish_location] ([fish_Id]) INCLUDE ([today])
 
 ------------------------------------------------------------------------------
