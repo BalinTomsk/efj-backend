@@ -41,6 +41,7 @@ OWMService/Res/OWMService.reg
 
 database/database/mssql/ffi2.sql
 database/database/mssql/UNIT_TESTS/cleaned.txt
+database/database/mssql/Data/*.sql
 service/docs/do-update.md
 service/weather/docs/do-update.md
 service/weather/docs/digitalocean.md

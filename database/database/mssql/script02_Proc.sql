@@ -308,7 +308,8 @@ GO
 
 ----------------------------------------------------------------------------------------------------------------------------
 -- 1. update fish probability based on catch probability - used in spTotalUpdateProbability
--- use fish_catch_probability to update probabilites in fish_location 
+-- use fish_catch_probability to update probabilites in fish_location based on by month fish's activity 
+-- by default we asume probability is 100% since it was registred in documents
 ----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateCatch' AND xtype = 'P')
     DROP PROCEDURE dbo.spTotalUpdateCatch
@@ -356,8 +357,9 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateLunar' AND xtype 
     DROP PROCEDURE dbo.spTotalUpdateLunar
 GO
 ----------------------------------------------------------------------------------------------------------------------------
--- Combined Probability Update (Monthly × Lunar)
---  whatever day of the month it is today, pull that row's probability and use it as the multiplier. Everything else stays the same.
+-- 2. Combined Probability Update (Monthly × Lunar) - must be called after 1. [spTotalUpdateCatch]
+-- whatever day of the month it is today, pull that row's probability and use it as the multiplier. Everything else stays the same.
+-- if probability over 100% on next step count it as 100%
 ----------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [dbo].[spTotalUpdateLunar]
 WITH EXEC AS CALLER
@@ -386,6 +388,131 @@ BEGIN CATCH
          , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
 END CATCH;   
 GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Drop existing procedure if it exists
+IF OBJECT_ID('dbo.sp_upsert_fish_temperature_probability', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_upsert_fish_temperature_probability;
+GO
+
+-- 3. update fish probability based on water temperature
+-- if fish not in most comfort  temperature zone drop probaility 33% and 5% if out of middle zone
+-- Update fish probability based on water temperature with bell curve (can only decrease)
+CREATE PROCEDURE dbo.sp_upsert_fish_temperature_probability
+AS
+SET NOCOUNT ON;
+BEGIN TRY
+    ;WITH fish_temp_habitat AS
+    (
+        SELECT f.fish_id, ri.ri_min AS tmL, ri.ri_low AS tmL90, ri.ri_avg AS tmOptimal, ri.ri_high AS tmH90, ri.ri_max AS tmH
+        FROM dbo.fish f
+        INNER JOIN dbo.fish_Rule r ON r.fish_Id = f.fish_id
+        INNER JOIN dbo.real_interval ri ON ri.ri_parent_id = r.id AND ri.ri_type = 17
+        WHERE r.periodStart = -1 AND r.periodEnd = -1
+    ),
+    temperature_coefficients AS
+    (
+        SELECT
+            fl.station_Id,
+            fl.fish_Id,
+            CAST(
+                CASE
+                    WHEN cws.temperature < fth.tmL OR cws.temperature > fth.tmH THEN 0.00
+                    WHEN cws.temperature >= fth.tmL AND cws.temperature < ISNULL(fth.tmL90, fth.tmOptimal) THEN
+                        0.80 + (0.10 * (CAST(cws.temperature AS FLOAT) - fth.tmL) / NULLIF(ISNULL(fth.tmL90, fth.tmOptimal) - fth.tmL, 0))
+                    WHEN cws.temperature >= ISNULL(fth.tmL90, fth.tmOptimal) AND cws.temperature < fth.tmOptimal THEN
+                        0.90 + (0.10 * (CAST(cws.temperature AS FLOAT) - ISNULL(fth.tmL90, fth.tmOptimal)) / NULLIF(fth.tmOptimal - ISNULL(fth.tmL90, fth.tmOptimal), 0))
+                    WHEN cws.temperature = fth.tmOptimal THEN 1.00
+                    WHEN cws.temperature > fth.tmOptimal AND cws.temperature <= ISNULL(fth.tmH90, fth.tmOptimal) THEN
+                        1.00 - (0.10 * (CAST(cws.temperature AS FLOAT) - fth.tmOptimal) / NULLIF(ISNULL(fth.tmH90, fth.tmOptimal) - fth.tmOptimal, 0))
+                    WHEN cws.temperature > ISNULL(fth.tmH90, fth.tmOptimal) AND cws.temperature <= fth.tmH THEN
+                        0.90 - (0.10 * (CAST(cws.temperature AS FLOAT) - ISNULL(fth.tmH90, fth.tmOptimal)) / NULLIF(fth.tmH - ISNULL(fth.tmH90, fth.tmOptimal), 0))
+                    ELSE 1.00
+                END AS DECIMAL(5,2)
+            ) AS koef
+        FROM dbo.fish_location fl
+        INNER JOIN dbo.WaterStation ws ON ws.id = fl.station_Id
+        INNER JOIN dbo.CurrentWaterState cws ON cws.mli = ws.mli
+        INNER JOIN fish_temp_habitat fth ON fth.fish_id = fl.fish_Id
+        WHERE cws.temperature IS NOT NULL
+          AND fth.tmL IS NOT NULL AND fth.tmH IS NOT NULL
+    )
+    UPDATE fl
+    SET 
+        fl.stamp = GETUTCDATE(),
+        fl.today = CAST(ROUND(fl.today * tc.koef, 0) AS INT)
+    FROM dbo.fish_location fl
+    INNER JOIN temperature_coefficients tc ON fl.station_Id = tc.station_Id AND fl.fish_Id = tc.fish_Id
+    WHERE tc.koef < 1.00;
+END TRY
+BEGIN CATCH
+    THROW;
+END CATCH;
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Drop existing procedure if it exists
+IF OBJECT_ID('dbo.sp_upsert_fish_oxygen_probability', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_upsert_fish_oxygen_probability;
+GO
+
+-- 3. update fish probability based on oxygen in water
+-- if fish not in most comfort  dissolved oxygen zone drop probaility 33% and 5% if out of middle zone
+-- Calculate oxygen coefficients with bell curve: 80% -> 90% -> 100% -> 90% -> 80%
+-- Update fish probability based on dissolved oxygen with bell curve (can only decrease)
+-- This design ensures safe, conditional updates - only applying oxygen adjustments 
+--    where both the environmental data exists AND the fish's oxygen tolerance is known.
+CREATE PROCEDURE dbo.sp_upsert_fish_oxygen_probability
+AS
+SET NOCOUNT ON;
+BEGIN TRY
+    ;WITH fish_oxygen_habitat AS
+    (
+        SELECT f.fish_id, ri.ri_min AS oxL, ri.ri_low AS oxL90, ri.ri_avg AS oxOptimal, ri.ri_high AS oxH90, ri.ri_max AS oxH
+        FROM dbo.fish f
+        INNER JOIN dbo.fish_Rule r ON r.fish_Id = f.fish_id
+        INNER JOIN dbo.real_interval ri ON ri.ri_parent_id = r.id AND ri.ri_type = 33
+        WHERE r.periodStart = -1 AND r.periodEnd = -1
+    ),
+    oxygen_coefficients AS
+    (
+        SELECT
+            fl.station_Id,
+            fl.fish_Id,
+            CAST(
+                CASE
+                    WHEN cws.oxygen < foh.oxL OR cws.oxygen > foh.oxH THEN 0.00
+                    WHEN cws.oxygen >= foh.oxL AND cws.oxygen < ISNULL(foh.oxL90, foh.oxOptimal) THEN
+                        0.80 + (0.10 * (CAST(cws.oxygen AS FLOAT) - foh.oxL) / NULLIF(ISNULL(foh.oxL90, foh.oxOptimal) - foh.oxL, 0))
+                    WHEN cws.oxygen >= ISNULL(foh.oxL90, foh.oxOptimal) AND cws.oxygen < foh.oxOptimal THEN
+                        0.90 + (0.10 * (CAST(cws.oxygen AS FLOAT) - ISNULL(foh.oxL90, foh.oxOptimal)) / NULLIF(foh.oxOptimal - ISNULL(foh.oxL90, foh.oxOptimal), 0))
+                    WHEN cws.oxygen = foh.oxOptimal THEN 1.00
+                    WHEN cws.oxygen > foh.oxOptimal AND cws.oxygen <= ISNULL(foh.oxH90, foh.oxOptimal) THEN
+                        1.00 - (0.10 * (CAST(cws.oxygen AS FLOAT) - foh.oxOptimal) / NULLIF(ISNULL(foh.oxH90, foh.oxOptimal) - foh.oxOptimal, 0))
+                    WHEN cws.oxygen > ISNULL(foh.oxH90, foh.oxOptimal) AND cws.oxygen <= foh.oxH THEN
+                        0.90 - (0.10 * (CAST(cws.oxygen AS FLOAT) - ISNULL(foh.oxH90, foh.oxOptimal)) / NULLIF(foh.oxH - ISNULL(foh.oxH90, foh.oxOptimal), 0))
+                    ELSE 1.00
+                END AS DECIMAL(5,2)
+            ) AS koef
+        FROM dbo.fish_location fl
+        INNER JOIN dbo.WaterStation ws ON ws.id = fl.station_Id
+        INNER JOIN dbo.CurrentWaterState cws ON cws.mli = ws.mli
+        INNER JOIN fish_oxygen_habitat foh ON foh.fish_id = fl.fish_Id
+        WHERE cws.oxygen IS NOT NULL
+          AND foh.oxL IS NOT NULL AND foh.oxH IS NOT NULL
+    )
+    UPDATE fl
+    SET 
+        fl.stamp = GETUTCDATE(),
+        fl.today = CAST(ROUND(fl.today * oc.koef, 0) AS INT)
+    FROM dbo.fish_location fl
+    INNER JOIN oxygen_coefficients oc ON fl.station_Id = oc.station_Id AND fl.fish_Id = oc.fish_Id
+    WHERE oc.koef < 1.00;
+END TRY
+BEGIN CATCH
+    THROW;
+END CATCH;
+GO
 ----------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'spTotalUpdateProbability' AND xtype = 'P')
@@ -394,7 +521,7 @@ GO
 
 -- EXEC spTotalUpdateProbability
 ----------------------------------------------------------------------------------------------------------------------------
-create PROCEDURE dbo.spTotalUpdateProbability
+CREATE PROCEDURE dbo.spTotalUpdateProbability
 WITH EXEC AS CALLER
 AS
 BEGIN
@@ -406,135 +533,26 @@ BEGIN
     BEGIN TRY
         BEGIN TRANSACTION;
         -- 1. reset probability to unknown state for week old probabilites
-        UPDATE fish_location SET today = -1 WHERE stamp < DATEADD(DAY, -7, GETUTCDATE()) AND probability <> -1
+        UPDATE fish_location SET today = 100 WHERE stamp < DATEADD(DAY, -7, GETUTCDATE())  
+        UPDATE [CurrentWaterState] SET temperature = NULL, oxygen = NULL
+            WHERE stamp < DATEADD(DAY, -7, GETUTCDATE())  
+
 
         -- 2. update fish probability based on catch probability
-        EXEC [dbo].[spTotalUpdateCatch]
+        EXEC dbo.spTotalUpdateCatch
 
         -- 3. update fish probability based on lunar
-        EXEC [dbo].[spTotalUpdateLunar]
+        EXEC dbo.spTotalUpdateLunar
 
         -- update fish probability based on water temperature
-        ;WITH cte (today, station_Id, fish_Id) AS
-        (
-            SELECT
-                t.probability + (33 * tm.koef),
-                t.station_Id,
-                t.fish_Id
-            FROM dbo.fish_location t
-            JOIN dbo.WaterStation s
-                ON t.station_Id = s.id
-            JOIN dbo.fn_get_koef_fish_station_temperature tm
-                ON tm.fish_Id = t.fish_Id
-               AND tm.mli = s.mli
-            JOIN dbo.WaterData d
-                ON d.mli = s.mli
-            WHERE d.temperature IS NOT NULL
-        )
-        UPDATE t
-           SET t.stamp = GETUTCDATE(),
-               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
-        FROM dbo.fish_location t
-        JOIN cte
-          ON t.station_Id = cte.station_Id
-         AND t.fish_Id = cte.fish_Id
-        WHERE cte.today > 100;
+        EXEC dbo.sp_upsert_fish_temperature_probability
 
-        SET @return_value = @return_value + @@ROWCOUNT;
 
         -- update fish probability based on oxygen
-        ;WITH cte (today, station_Id, fish_Id) AS
-        (
-            SELECT
-                t.probability + (33 * tm.koef),
-                t.station_Id,
-                t.fish_Id
-            FROM dbo.fish_location t
-            JOIN dbo.WaterStation s
-                ON t.station_Id = s.id
-            JOIN dbo.fn_get_koef_fish_station_oxygen tm
-                ON tm.fish_Id = t.fish_Id
-               AND tm.mli = s.mli
-            JOIN dbo.WaterData d
-                ON d.mli = s.mli
-            WHERE d.oxygen IS NOT NULL
-        )
-        UPDATE t
-           SET t.stamp = GETUTCDATE(),
-               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
-        FROM dbo.fish_location t
-        JOIN cte
-          ON t.station_Id = cte.station_Id
-         AND t.fish_Id = cte.fish_Id
-        WHERE cte.today > 100;
+        EXEC dbo.sp_upsert_fish_oxygen_probability
 
         SET @return_value = @return_value + @@ROWCOUNT;
 
-        -- update fish probability based on pH
-        ;WITH cte (today, station_Id, fish_Id) AS
-        (
-            SELECT
-                t.probability + (25 * tm.koef),
-                t.station_Id,
-                t.fish_Id
-            FROM dbo.fish_location t
-            JOIN dbo.WaterStation s
-                ON t.station_Id = s.id
-            JOIN dbo.fn_get_koef_fish_station_ph tm
-                ON tm.fish_Id = t.fish_Id
-               AND tm.mli = s.mli
-            JOIN dbo.WaterData d
-                ON d.mli = s.mli
-            WHERE d.ph IS NOT NULL
-        )
-        UPDATE t
-           SET t.stamp = GETUTCDATE(),
-               t.today = CASE WHEN cte.today > 100 THEN 100 ELSE cte.today END
-        FROM dbo.fish_location t
-        JOIN cte
-          ON t.station_Id = cte.station_Id
-         AND t.fish_Id = cte.fish_Id
-        WHERE cte.today > 100;
-
-        SET @return_value = @return_value + @@ROWCOUNT;
-
-        /*
-        -- cast date and leave only one value per hour
-        UPDATE dbo.WaterData
-           SET stamp = DATEADD(HOUR, DATEPART(HOUR, stamp), CAST(CAST(stamp AS date) AS datetime))
-        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
-          AND DATEPART(MINUTE, stamp) BETWEEN 1 AND 29;
-
-        UPDATE dbo.WaterData
-           SET stamp = DATEADD(HOUR, 1 + DATEPART(HOUR, stamp), CAST(CAST(stamp AS date) AS datetime))
-        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
-          AND DATEPART(MINUTE, stamp) BETWEEN 30 AND 59;
-
-        DECLARE @t TABLE(id int NOT NULL PRIMARY KEY);
-
-        INSERT INTO @t
-        SELECT MAX(id)
-        FROM dbo.WaterData
-        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
-          AND DATEPART(MINUTE, stamp) = 0
-        GROUP BY mli;
-
-        DELETE FROM dbo.WaterData
-        WHERE stamp BETWEEN DATEADD(DAY, -2, GETUTCDATE()) AND DATEADD(DAY, -1, GETUTCDATE())
-          AND DATEPART(MINUTE, stamp) = 0
-          AND id NOT IN (SELECT id FROM @t);
-        */
-        /*
-        -- cleanup old water data
-        DECLARE @dt date = DATEADD(DAY, -15, GETUTCDATE());
-        DELETE FROM dbo.WaterData
-        WHERE stamp < @dt;
-
-        -- cleanup old weather forecast
-        DECLARE @dt2 date = DATEADD(DAY, -21, GETUTCDATE());
-        DELETE FROM dbo.Weather_Forecast
-        WHERE dt < @dt2;
-        */
         COMMIT TRANSACTION;
 
         RETURN @return_value;
@@ -3043,6 +3061,7 @@ BEGIN CATCH
          , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
 END CATCH;
 GO
+
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spPersistIpBan' AND type = 'P')

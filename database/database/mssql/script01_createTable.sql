@@ -1656,7 +1656,8 @@ create table fish_location (
    , fish_Id    uniqueidentifier  not null            -- reference to fish.fish_id  
    , today      int default(0)                        -- current probability [0-100%]
    , stamp      datetime2   not null default getutcdate()  -- time the last update of probability
-   , probability int default(0)                       -- original probabiliy from watershield 0 - means 100% (not all media data inform about fish presence)
+   , probability int default(0)                       -- original probabiliy from watershield 0 
+                                                      -- means 100% (not all media data inform about fish presence)
    , id         int
 );
 GO

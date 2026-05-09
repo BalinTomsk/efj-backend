@@ -5,7 +5,8 @@
       "Bash(Select-Object FullName, PSIsContainer)",
       "Bash(Sort-Object FullName)",
       "Bash(Format-Table -AutoSize)",
-      "Bash(git -C C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\weather diff HEAD docs/specification.md)"
+      "Bash(git -C C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\weather diff HEAD docs/specification.md)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\weather\" -Recurse -File | ForEach-Object { $_.FullName } | Select-Object -First 30)"
     ]
   }
 }

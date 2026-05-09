@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\envoinx\\\\fishfind\\\\efj-backend\\\\service\\\\waterservice\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20 FullName)"
+    ]
+  }
+}
