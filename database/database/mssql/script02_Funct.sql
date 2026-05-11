@@ -921,6 +921,9 @@ GO
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'ProduceSearchVariant' AND xtype = 'TF')
     DROP function dbo.ProduceSearchVariant
 GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'ProduceWBVariant' AND xtype = 'TF')
+    DROP function dbo.ProduceWBVariant
+GO
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'GetWaterType' AND xtype = 'FN')
     DROP function dbo.GetWaterType
 GO
@@ -3056,24 +3059,56 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetTopNews' AND xtype = 'IF
     DROP function dbo.fn_GetTopNews
 GO
 /* 
- select * FROM dbo.fn_GetTopNews('4b3c2821-af05-4790-9fb8-37f6ba6abf7c')
+ select * FROM dbo.fn_GetTopNews('4b3c2821-af05-4790-9fb8-37f6ba6abf7c', 'CA')
  */
-CREATE FUNCTION dbo.fn_GetTopNews( @newsId uniqueidentifier )
-  RETURNS TABLE 
+CREATE FUNCTION [dbo].[fn_GetTopNews]
+(
+    @newsId  uniqueidentifier,
+    @country CHAR(2) = NULL   -- NULL or '' or '  ' → all countries
+)
+RETURNS TABLE
 AS
 RETURN
-    select news_id, news_stamp, country, news_title, news_author_link, news_author, news_source_link, news_source
-         , news_photo_author0, lake_id, news_paragraph0, news_paragraph1, news_photo0, 0 AS ORD, id
-         , (select fish_name from fish f where f.fish_id = fish1_id) AS fish1_name
-         , (select fish_name from fish f where f.fish_id = fish2_id) AS fish2_name
-         , (select fish_name from fish f where f.fish_id = fish3_id) AS fish3_name
-         , (select lake_name from lake l where l.lake_id = n.lake_id) AS lake_name
-         FROM news n WHERE news_id = @newsId AND news_title <> 'title' 
-    UNION 
-    select top 24 news_id, news_stamp, country, news_title, news_author_link, news_author, news_source_link, news_source
-         , news_photo_author0, lake_id, news_paragraph0, news_paragraph1, null AS news_photo0, 1, id 
-         , null, null, null, null
-        FROM news WHERE news_id <> @newsId AND news_title <> 'title' ORDER BY id DESC
+(
+    SELECT
+          n.news_id, n.news_stamp, n.country, n.news_title,
+          n.news_author_link, n.news_author,
+          n.news_source_link, n.news_source,
+          n.news_photo_author0, n.lake_id,
+          n.news_paragraph0, n.news_paragraph1, n.news_photo0,
+          0 AS ORD, n.id,
+          (SELECT f.fish_name FROM fish f WHERE f.fish_id = n.fish1_id) AS fish1_name,
+          (SELECT f.fish_name FROM fish f WHERE f.fish_id = n.fish2_id) AS fish2_name,
+          (SELECT f.fish_name FROM fish f WHERE f.fish_id = n.fish3_id) AS fish3_name,
+          (SELECT l.lake_name FROM lake l WHERE l.lake_id = n.lake_id) AS lake_name
+    FROM dbo.news n
+    WHERE n.news_id = @newsId
+      AND n.news_title <> 'title'
+      AND (
+            NULLIF(LTRIM(RTRIM(@country)), '') IS NULL
+            OR n.country = @country
+          )
+
+    UNION ALL
+
+    SELECT TOP (24)
+          n.news_id, n.news_stamp, n.country, n.news_title,
+          n.news_author_link, n.news_author,
+          n.news_source_link, n.news_source,
+          n.news_photo_author0, n.lake_id,
+          n.news_paragraph0, n.news_paragraph1,
+          CAST(NULL AS varbinary(max)) AS news_photo0,
+          1 AS ORD, n.id,
+          NULL, NULL, NULL, NULL
+    FROM dbo.news n
+    WHERE n.news_id <> @newsId
+      AND n.news_title <> 'title'
+      AND (
+            NULLIF(LTRIM(RTRIM(@country)), '') IS NULL
+            OR n.country = @country
+          )
+    ORDER BY n.id DESC
+);
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
