@@ -1161,6 +1161,7 @@ CREATE TABLE lake_fish
     note         nvarchar(1024),
 	status       tinyint,                      -- 1 - at risk
 	method       nvarchar(max),                -- how to fish
+    last_catch   datetime, 
     stamp        datetime2        CONSTRAINT DF_lake_fish_stamp DEFAULT(getdate())
 );
 GO

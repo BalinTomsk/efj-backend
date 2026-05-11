@@ -2531,9 +2531,9 @@ GO
  *    @lake uniqueidentifier        -- lake id
  *
  *    Usage:    
-                SELECT dbo.fn_lake_fish('fc0d917b-d053-11d8-92e2-080020a0f4c9');
+                SELECT dbo.fn_lake_fish('d3ddad1e-d054-11d8-92e2-080020a0f4c9');
  */
-CREATE function dbo.fn_lake_fish(@lake uniqueidentifier)
+CREATE  function dbo.fn_lake_fish(@lake uniqueidentifier)
 RETURNS XML
 WITH SCHEMABINDING
 AS
@@ -2544,10 +2544,10 @@ BEGIN
     , fish_id uniqueidentifier
     , link nvarchar(2048)
     , source_type int
-    , type int );
+    , type int, last_catch date );
 
     INSERT INTO @tbl
-    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type, null
+    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type, null, CAST(t.last_catch AS DATE)
         FROM dbo.lake_fish  t
         JOIN dbo.Lake l ON l.lake_id = t.Lake_id 
             JOIN dbo.fish v ON v.fish_id = t.fish_id
@@ -2572,8 +2572,8 @@ BEGIN
     UPDATE t SET type = fish_type FROM @TBL t JOIN dbo.fish ON t.fish_id = fish.fish_id
 
     DECLARE @result XML =
-    (SELECT noFish, is_fishing_prohibited, isFish, fishing, lake_name, Lake_id, Reviewed,
-        (SELECT sid, fish_name, fish_id, link, source_type, type FROM @TBL [fish] ORDER BY fish_name ASC FOR XML AUTO, TYPE)
+    (SELECT noFish, is_fishing_prohibited, isFish, fishing, lake_name, Lake_id, Reviewed, 
+        (SELECT sid, fish_name, fish_id, link, source_type, type, last_catch FROM @TBL [fish] ORDER BY fish_name ASC FOR XML AUTO, TYPE)
         FROM dbo.lake WHERE lake_id = @lake FOR XML AUTO); 
 
     RETURN @result;        
