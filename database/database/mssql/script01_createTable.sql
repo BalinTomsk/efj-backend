@@ -1,3 +1,4 @@
+---------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vw_NewID' AND type = 'V')
     DROP VIEW dbo.vw_NewID
 GO
@@ -66,9 +67,11 @@ BEGIN
 END
 GO
 
+------------------------------------------------------------------------------
+
 CREATE TABLE access_point
 (
-    uuid        uniqueidentifier NOT NULL CONSTRAINT DF_access_point_uuid DEFAULT(dbo.fn_newid()),
+    uuid        uniqueidentifier NOT NULL,
     OFGID       int NULL,
     pointType   nvarchar(255) NULL,
     lastVerif   nvarchar(255) NULL,
@@ -83,13 +86,19 @@ CREATE TABLE access_point
     photoUrl    nvarchar(255) NULL,
     country     char(2) NULL,
     state       char(2) NULL,
-    create_stamp  datetime2 NOT NULL   CONSTRAINT DF_access_point_stamp DEFAULT(CURRENT_TIMESTAMP),
+    create_stamp  datetime2 NOT NULL,
     update_stamp  datetime2,
     update_by  nvarchar(255),
     CONSTRAINT PK_access_point_uuid  PRIMARY KEY ( uuid ),
     CONSTRAINT UK_access_point       UNIQUE      ( country, state, siteName )
 );
 GO
+
+ALTER TABLE dbo.access_point ADD  CONSTRAINT DEF_access_point_create_stamp  DEFAULT (CURRENT_TIMESTAMP) FOR create_stamp
+GO
+ALTER TABLE dbo.access_point ADD  CONSTRAINT DEF_access_point_uuid           DEFAULT (dbo.fn_newid())   FOR uuid
+GO
+------------------------------------------------------------------------------
 
 -- alter table access_point add access_point_id UniqueIdentifier NOT NULL default newid() with values
 -- ALTER TABLE access_point ADD CONSTRAINT PK_access_point PRIMARY KEY (uuid);
@@ -105,27 +114,37 @@ GO
 ALTER TABLE CanPostLatLon ADD CONSTRAINT PK_CanPostLatLon PRIMARY KEY CLUSTERED (postal);
 GO
 
+------------------------------------------------------------------------------
+
 CREATE TABLE City
 (
-    City_id     int NOT NULL,
+    City_id     int           NOT NULL,
     place       nvarchar(128) NOT NULL,
-    county      nvarchar(64) NOT NULL,
-    [state]     varchar(16) NOT NULL,
-    lat         float not null default(0.0),
-    lon         float not null default(0.0),
+    county      nvarchar(64)  NOT NULL,
+    [state]     varchar(16)   NOT NULL,
+    lat         float         NOT NULL,
+    lon         float         NOT NULL,
     country     char(2),
-    region      int not null default(-1),                  -- region state like 'Eastern Ontario'
-    stamp       datetime2 NOT NULL DEFAULT( GETUTCDATE() ),
-    population  int
+    region      int           NOT NULL,  -- region state like 'Eastern Ontario'
+    stamp       datetime2     NOT NULL,
+    population  int           NULL
 );
 GO
-ALTER TABLE City ADD CONSTRAINT PK_City PRIMARY KEY CLUSTERED (City_id);
+ALTER TABLE dbo.City ADD CONSTRAINT PK_City PRIMARY KEY CLUSTERED (City_id);
+GO
+ALTER TABLE dbo.City ADD CONSTRAINT DEF_city_stamp  DEFAULT (GETUTCDATE()) FOR stamp
+GO
+ALTER TABLE dbo.City ADD CONSTRAINT DEF_city_region  DEFAULT (-1) FOR region
+GO
+ALTER TABLE dbo.City ADD CONSTRAINT DEF_city_lat  DEFAULT (0.0) FOR lat
+GO
+ALTER TABLE dbo.City ADD CONSTRAINT DEF_city_lon  DEFAULT (0.0) FOR lon
 GO
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE Country
 (
-    Country_id      char(4) NOT NULL,
-    Country_name    varchar(64) NOT NULL,
+    Country_id      char(4)        NOT NULL,
+    Country_name    varchar(64)    NOT NULL,
     picture         varbinary(max) NULL
 );
 GO
@@ -135,31 +154,38 @@ GO
 CREATE TABLE County
 (
    County       varchar(50) NOT NULL,
-   Country      char(2) NOT NULL DEFAULT(''),
-   State_Id     int   NOT NULL,
+   Country      char(2)     NOT NULL,
+   State_Id     int         NOT NULL,
    County_ID    int   ,
-   state        char(2)   NOT NULL,
+   state        char(2)     NOT NULL,
 );
 GO
+ALTER TABLE dbo.County ADD CONSTRAINT DEF_County_Country  DEFAULT ('') FOR Country
+GO
+
 ------------------------------keep current water state--------------------------------
 -- based on aggregation of latest 3 day's data from USWater.dbo.vUSWaterData
+
 CREATE TABLE CurrentWaterState
 (
     mli            varchar(64) NOT NULL,
-    stamp          datetime2 NOT NULL,    -- actual data reading on  site mli
+    stamp          datetime2   NOT NULL,    -- actual data reading on  site mli
     temperature    float,
     discharge      float,
     turbidity      float,
     oxygen         float,
     ph             float, 
     elevation      float,
-    sid            bigint not null,    -- sid comes from 
+    sid            bigint      NOT NULL,    -- sid comes from 
     velocity       float,
-    iterstamp      datetime2 NOT NULL DEFAULT(GETUTCDATE())
+    iterstamp      datetime2   NOT NULL
 );
 GO
 ALTER TABLE CurrentWaterState ADD CONSTRAINT PK_CurrentWaterState PRIMARY KEY CLUSTERED (mli);
 GO
+ALTER TABLE dbo.CurrentWaterState ADD CONSTRAINT DEF_CurrentWaterState_iterstamp  DEFAULT (GETUTCDATE()) FOR iterstamp
+GO
+
 --------------------------------------------------------------------------------------------
 if object_id('TR_CurrentWaterState') is not null drop TRIGGER TR_CurrentWaterState
 GO
@@ -191,9 +217,9 @@ CREATE TABLE fish_family
     created      datetime2 NOT NULL 
 )
 GO
-ALTER TABLE fish_family ADD CONSTRAINT PK_Family PRIMARY KEY CLUSTERED (Family_id) ;
-ALTER TABLE fish_family add constraint df_Family_Id default NEWSEQUENTIALID() for Family_id;
-ALTER TABLE fish_family add constraint df_Family_created default getdate() for created;
+ALTER TABLE fish_family ADD CONSTRAINT PK_Family         PRIMARY KEY CLUSTERED (Family_id) ;
+ALTER TABLE fish_family ADD CONSTRAINT df_Family_Id      DEFAULT NEWSEQUENTIALID() for Family_id;
+ALTER TABLE fish_family ADD CONSTRAINT df_Family_created DEFAULT getdate() for created;
 GO
 
 --insert into fish_family (Family_id, Family_name, fid, created) VALUES ('00000000-0000-0000-0000-000000000000', 'none', 100001, GETUTCDATE());
@@ -206,21 +232,21 @@ CREATE TABLE fish
     fish_latin      varchar (64) NOT NULL,
     alt_name        nvarchar(max),
     descrip         nvarchar(max) NULL,
-    family_Id       uniqueidentifier NOT NULL DEFAULT('00000000-0000-0000-0000-000000000000'),
+    family_Id       uniqueidentifier NOT NULL,
     img             varbinary(max),
-    fish_Type       int default(255),         -- 1 - sport, 2 - commercial, 4 - invading, 8 - aquarium
+    fish_Type       int             ,         -- 1 - sport, 2 - commercial, 4 - invading, 8 - aquarium
     water_type      int,                      -- 1 - Freshwater, 2 - Saltwater, 4 - Clear water, 8 - Low velocity, 16 - Moderate velocity, 32 - High velocity, 64 - Turbid waters, 128 - Moderately Turbid waters
-    food_Type       int default(0),           -- 1 - Aquatic Insects, 2 - Terrestrial Insects, 4- Fish eggs, 8 - Crustaceans, 16 - Small Fish, Terrestrial Animals - 32, 64 - Cannibals
-    react_color     int default(0),
+    food_Type       int,                      -- 1 - Aquatic Insects, 2 - Terrestrial Insects, 4- Fish eggs, 8 - Crustaceans, 16 - Small Fish, Terrestrial Animals - 32, 64 - Cannibals
+    react_color     int,
     food_habitat    int,
-    terrestrial_insects int default(0),       -- 1 - Silverfish, 2 - Dragonflies, 4 - Crickets, 8 - Earwigs, 16 - Cicadas, 32 - True Bugs, 64 - Lacewings, 128 - Beetles, 256 - Butterflies, 512 - Flies, 1024 - Sawflies
-    crustaceans     int default(0),           -- 1 - Crabs, 2 - Lobsters, 4 - Crayfish, 8 - Shrimp, 16 - Krill, 32 - Barnacles, 64 - Larvae, 128 - Woodlice, 256 - Sandhoppers, 512 - Amphipods, 1024 - Conchostraca
-    terrestrial_animals int default(0),       -- 1 - Birds, 2 - Snakes, 4 - Snails, 8 - Slugs 
+    terrestrial_insects int,                  -- 1 - Silverfish, 2 - Dragonflies, 4 - Crickets, 8 - Earwigs, 16 - Cicadas, 32 - True Bugs, 64 - Lacewings, 128 - Beetles, 256 - Butterflies, 512 - Flies, 1024 - Sawflies
+    crustaceans     int,                      -- 1 - Crabs, 2 - Lobsters, 4 - Crayfish, 8 - Shrimp, 16 - Krill, 32 - Barnacles, 64 - Larvae, 128 - Woodlice, 256 - Sandhoppers, 512 - Amphipods, 1024 - Conchostraca
+    terrestrial_animals int,                  -- 1 - Birds, 2 - Snakes, 4 - Snails, 8 - Slugs 
     node_food_habitat nvarchar(max),
     synonims        nvarchar (255) NULL,
     numRuls         int,                      -- 1 - temperature, 2 - turbidity, 4 - oxygen, 8 - ph
     pic             varbinary(max),
-    aquatic_insects int default(0),           -- 1 - Collembola, 2 - Ephemeroptera, 4 - Odonata, 8 - Plecoptera, 16 - Megaloptera, 32- Neuroptera, 64 - Coleoptera, 128 - Hemiptera, 256 - Hymenoptera, 512 - Diptera, 1024 - Mecoptera, 2048 - Lepidoptera, 4096 - Trichoptera
+    aquatic_insects int,                      -- 1 - Collembola, 2 - Ephemeroptera, 4 - Odonata, 8 - Plecoptera, 16 - Megaloptera, 32- Neuroptera, 64 - Coleoptera, 128 - Hemiptera, 256 - Hymenoptera, 512 - Diptera, 1024 - Mecoptera, 2048 - Lepidoptera, 4096 - Trichoptera
     food            nvarchar(255),
     periodStartII   datetime2,
     periodEndII     datetime2,
@@ -230,12 +256,12 @@ CREATE TABLE fish
     habitat         nvarchar(255),
     fish_moon_sensitive bit,
     fish_migrate_pattern bit,
-    locked          bit default(0),
+    locked          bit,                      -- if administrator set this flag then do not allow to edit for editors
     editor          uniqueidentifier,
     sid             int not null identity(1,1),
-    fish_home_range float,                -- [km]
-    created         datetime2 not null default(getutcdate()),
-    stamp           datetime2 not null default(getutcdate())
+    fish_home_range float,                    -- [km]
+    created         datetime2 not null,
+    stamp           datetime2 not null
 );
 GO
 
@@ -249,6 +275,29 @@ CREATE UNIQUE NONCLUSTERED INDEX UK_fish_name  ON fish(fish_name)
 GO
 ALTER TABLE fish ADD CONSTRAINT FK_fish_Family FOREIGN KEY (family_Id) REFERENCES fish_family(family_Id) ON DELETE CASCADE ON UPDATE CASCADE;
 GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_family_Id  DEFAULT ('00000000-0000-0000-0000-000000000000') FOR family_Id
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_created  DEFAULT (GETUTCDATE()) FOR created
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_stamp    DEFAULT (GETUTCDATE()) FOR stamp
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_food_Type    DEFAULT (0) FOR food_Type
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_fish_Type    DEFAULT (0) FOR fish_Type
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_react_color  DEFAULT (0) FOR react_color
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_terrestrial_insects  DEFAULT (0) FOR terrestrial_insects
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_crustaceans DEFAULT (0) FOR crustaceans
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_terrestrial_animals DEFAULT (0) FOR terrestrial_animals
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_aquatic_insects DEFAULT (0) FOR aquatic_insects
+GO
+ALTER TABLE dbo.fish ADD CONSTRAINT DEF_fish_locked DEFAULT (0) FOR locked
+GO
+
 
 CREATE TRIGGER TR_ins_Fish ON fish
  FOR INSERT
@@ -283,13 +332,14 @@ CREATE TABLE fish_image
     fish_image_tag      nvarchar(256) NULL,
     fish_image_hash     varbinary(256) NOT NULL CONSTRAINT UK_fish_image UNIQUE,  -- hash to prevent duplicates
     fish_image_stamp    datetime2 not null      CONSTRAINT df_fish_image_stamp DEFAULT GETUTCDATE(),
-    PRIMARY KEY CLUSTERED (    fish_image_id ASC ) ON [PRIMARY]
+    CONSTRAINT PK_fish_image PRIMARY KEY CLUSTERED (    fish_image_id ASC ) ON [PRIMARY]
 ) 
 GO
 CREATE NONCLUSTERED INDEX UK_fish_image_ID ON fish_image(fish_id)    
 GO
-ALTER TABLE fish_image  WITH CHECK ADD FOREIGN KEY(fish_id) REFERENCES fish(fish_id)
+ALTER TABLE fish_image  WITH CHECK ADD CONSTRAINT FK_fish_image_id FOREIGN KEY(fish_id) REFERENCES fish(fish_id)
 GO
+
 ------------------------------------------------------------------------------
 if object_id('TR_fish_image') is not null drop TRIGGER TR_fish_image
 GO
@@ -303,6 +353,7 @@ BEGIN
    UPDATE t SET t.fish_image_hash = HASHBYTES('SHA1', t.fish_image_pic) FROM fish_image t JOIN INSERTED i ON t.fish_id = i.fish_id
 END
 GO
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 CREATE TABLE fish_zoo
 (
@@ -320,19 +371,22 @@ CREATE TABLE fish_zoo
     shape  [nvarchar](max) NULL,               -- Moderately compressed, elongate body; large mouth 
     external_morphology [nvarchar](max) NULL,  -- : Shortest dorsal fin spine contained 1.1 to 2.5 times in longest dorsal spine
     internal_morphology [nvarchar](max) NULL,  -- Pyloric caecae not branched
-    natural_color int default(0),
-    fish_zoo_image    int,              -- index id for fish image    
-    [link] [nvarchar](256) NULL,
-    stamp datetime2 not null CONSTRAINT df_fish_zoo_stamp DEFAULT GETUTCDATE(),
+    natural_color int,
+    fish_zoo_image    int,                     -- index id for fish image    
+    link              nvarchar(256) NULL,               -- http link 
+    stamp             datetime2 not null CONSTRAINT df_fish_zoo_stamp DEFAULT GETUTCDATE(),
     PRIMARY KEY CLUSTERED (    [fish_id] ASC ) ON [PRIMARY]
 ) 
 GO
 ALTER TABLE [dbo].fish_zoo  WITH CHECK ADD FOREIGN KEY([fish_id]) REFERENCES [dbo].[fish] ([fish_id])
 GO
-ALTER TABLE dbo.fish_zoo  WITH CHECK ADD FOREIGN KEY(fish_zoo_image) REFERENCES dbo.fish_image (fish_image_id)
+ALTER TABLE dbo.fish_zoo  WITH CHECK ADD CONSTRAINT FK_fish_zoo_fish_image  FOREIGN KEY(fish_zoo_image) REFERENCES dbo.fish_image (fish_image_id)
 GO
 CREATE NONCLUSTERED INDEX idx_fish_zoo_len ON [dbo].fish_zoo (fish_max_length ASC ) ON [PRIMARY]
 GO
+ALTER TABLE dbo.fish_zoo ADD CONSTRAINT DEF_fish_zoo_natural_color DEFAULT (0) FOR natural_color
+GO
+
 ------------------------------------------------------------------------------
 CREATE TABLE fish_spawn
 (
@@ -344,29 +398,34 @@ CREATE TABLE fish_spawn
     reproductive_strategy   nvarchar(max),
     fish_spawn_age_male     int,  -- years when can spawn
     fish_spawn_age_female   int,  -- years when can spawn
-    fish_spawn_stamp datetime2 not null CONSTRAINT df_fish_spawn_stamp DEFAULT GETUTCDATE(),
-    PRIMARY KEY CLUSTERED (    [fish_id] ASC ) ON [PRIMARY]
+    fish_spawn_stamp        datetime2 not null,
+    PRIMARY KEY CLUSTERED ( [fish_id] ASC ) ON [PRIMARY]
 ) 
 GO
-ALTER TABLE fish_spawn  WITH CHECK ADD FOREIGN KEY(fish_id) REFERENCES fish (fish_id)
+ALTER TABLE fish_spawn  WITH CHECK ADD CONSTRAINT FK_fish_spawn_fish_id FOREIGN KEY(fish_id) REFERENCES fish (fish_id)
 GO
+ALTER TABLE dbo.fish_spawn ADD CONSTRAINT DEF_fish_spawn_fish_spawn_stamp DEFAULT (GETUTCDATE()) FOR fish_spawn_stamp
+GO
+
 -------------------------------------------------------------------------------------------------------------------------
 CREATE TABLE fish_predator
 (
     fish_id     uniqueidentifier NOT NULL,
     predator_id uniqueidentifier NOT NULL,
-    age_year int,
-    stamp datetime2 not null default (getdate()),
-    PRIMARY KEY CLUSTERED (    fish_id, predator_id ASC ) ON [PRIMARY],
+    age_year    int,
+    stamp       datetime2 not null,
+    PRIMARY KEY CLUSTERED ( fish_id, predator_id ASC ) ON [PRIMARY],
 ) 
 GO
-ALTER TABLE fish_predator  WITH CHECK ADD FOREIGN KEY([fish_id]) REFERENCES fish ([fish_id])
+ALTER TABLE dbo.fish_predator  WITH CHECK ADD CONSTRAINT FK_fish_predator_fish_id FOREIGN KEY([fish_id]) REFERENCES fish ([fish_id])
 GO
 
-ALTER TABLE fish_predator  WITH CHECK ADD FOREIGN KEY(predator_id) REFERENCES fish ([fish_id])
+ALTER TABLE dbo.fish_predator  WITH CHECK ADD CONSTRAINT FK_fish_predator_predator_id_fish_id FOREIGN KEY(predator_id) REFERENCES fish ([fish_id])
 GO
 
-ALTER TABLE fish_predator ADD CONSTRAINT CH_fish_predator CHECK (fish_id != predator_id)
+ALTER TABLE dbo.fish_predator ADD CONSTRAINT CH_fish_predator CHECK (fish_id != predator_id)
+GO
+ALTER TABLE dbo.fish_predator ADD CONSTRAINT DEF_fish_predator_stamp DEFAULT (GETUTCDATE()) FOR stamp
 GO
 
 ------------------------------------------------------------------------------
@@ -377,18 +436,19 @@ CREATE TABLE fish_Rule
     id          uniqueidentifier not null,
     parent_id   uniqueidentifier,
     lake_id     uniqueidentifier,
-    periodStart int NOT NULL default(-1),  -- -1 default period or if positive then month
-    periodEnd   int NOT NULL default(-1),  -- -1 default period
-    habitat     int  default(0),             
-    feedsOver   int default(0),  -- 1 - rock, 2 - gravel, 4 - sand, 8- mud, 16 - grass, 32 - rubble,
-                                -- 64 - boulder, 128 - silt,  256 - cobble, 1024 - LimeStone, 2048 -     threatened   int,           --   status(1=non-threatened, 2=threatened)
-    react_color int default(0),
-    spawnsOver  int default(0),           -- 1 - rock, 2 - gravel, 4 - sand, 8- mud, 16 - grass
-    spawnsIn    int default(0),           -- as     
+    periodStart int NOT NULL,   -- -1 default period or if positive then month
+    periodEnd   int NOT NULL,   -- -1 default period
+    habitat     int,
+    feedsOver   int,            -- 1 - rock, 2 - gravel, 4 - sand, 8- mud, 16 - grass, 32 - rubble,
+                                -- 64 - boulder, 128 - silt,  256 - cobble, 1024 - LimeStone, 2048 -     threatened   int, 
+                                --   status(1=non-threatened, 2=threatened)
+    react_color int,
+    spawnsOver  int,           -- 1 - rock, 2 - gravel, 4 - sand, 8- mud, 16 - grass
+    spawnsIn    int,           -- as     
     hatch_egg_month tinyint,               -- Eggs hatch in March. [1-12]
-    stamp       datetime2 not null default(getutcdate()),
+    stamp       datetime2 not null,
     editor      uniqueidentifier,
-    locked      bit default(0),
+    locked      bit,
     link        nvarchar(255)
 )
 GO
@@ -399,9 +459,27 @@ ALTER TABLE fish_Rule add constraint df_fish_Rule_id default NEWSEQUENTIALID() f
 GO
 ALTER TABLE fish_Rule ADD CONSTRAINT UK_fish_Rule UNIQUE NONCLUSTERED (fish_Id, periodStart, periodEnd);
 GO
-ALTER TABLE fish_Rule ADD CONSTRAINT FK_fish_Rule_Fish FOREIGN KEY (fish_Id) 
-   REFERENCES fish(fish_id)
+ALTER TABLE fish_Rule ADD CONSTRAINT FK_fish_Rule_Fish FOREIGN KEY (fish_Id) REFERENCES fish(fish_id)
 GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_periodStart DEFAULT (-1) FOR periodStart
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_periodEnd DEFAULT (-1)   FOR periodEnd
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_habitat DEFAULT (0)   FOR habitat
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_feedsOver DEFAULT (0)   FOR feedsOver
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_react_color DEFAULT (0)   FOR react_color
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_spawnsOver DEFAULT (0)   FOR spawnsOver
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_spawnsIn DEFAULT (0)   FOR spawnsIn
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_stamp DEFAULT (getutcdate())   FOR stamp
+GO
+ALTER TABLE dbo.fish_Rule ADD CONSTRAINT DEF_fish_Rule_locked DEFAULT (0)   FOR locked
+GO
+
 CREATE NONCLUSTERED INDEX IDX_fish_rule ON [dbo].[fish_Rule] ([periodStart],[periodEnd]) INCLUDE ([fish_Id],[habitat])
 GO
 ------------------------------------------------------------------------------
@@ -421,6 +499,7 @@ BEGIN
 END
 GO
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 -- select r.* from real_interval r join fish_rule f on f.id=r.ri_parent_id where f.fish_Id='6b45fea3-5cbe-4982-89af-c241eb5c6a36'
 CREATE TABLE real_interval
 (
@@ -433,12 +512,14 @@ CREATE TABLE real_interval
     ri_avg       float,
     ri_high      float,
     ri_max       float,
-    ri_stamp     datetime2 not null CONSTRAINT df_real_interval_stamp DEFAULT GETUTCDATE()
+    ri_stamp     datetime2 not null
 )
 GO
-ALTER TABLE real_interval ADD CONSTRAINT PK_real_interval_parent_id PRIMARY KEY CLUSTERED (ri_parent_id, ri_type);
+ALTER TABLE dbo.real_interval ADD CONSTRAINT PK_real_interval_parent_id PRIMARY KEY CLUSTERED (ri_parent_id, ri_type);
 GO
-ALTER TABLE real_interval ADD CONSTRAINT CH_real_interval CHECK 
+ALTER TABLE dbo.real_interval ADD CONSTRAINT DEF_real_interval_ri_stamp DEFAULT (GETUTCDATE())   FOR ri_stamp
+GO
+ALTER TABLE dbo.real_interval ADD CONSTRAINT CH_real_interval CHECK 
 (
     ( CASE WHEN ri_min IS NULL  OR ri_low IS NULL  THEN 0 WHEN ri_min >  ri_low THEN 1 ELSE 0 END)   = 0
     AND
@@ -473,24 +554,36 @@ GO
 -- insert into real_interval (ri_parent_id, ri_type, ri_min, ri_low, ri_avg, ri_high, ri_max) select id, 57, saltL, null, null, null, saltH from fish_Rule where periodStart=-1 and periodEnd=-1
 
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 -- fishing  spot
 CREATE TABLE fish_Spot
 (
-    Spot_id     uniqueidentifier default NEWSEQUENTIALID() NOT NULL,
+    Spot_id     uniqueidentifier NOT NULL,
     fish_id     uniqueidentifier NOT NULL,
-    lat         float NOT NULL DEFAULT(0),
-    lon         float NOT NULL DEFAULT(0),
+    lat         float NOT NULL,
+    lon         float NOT NULL,
     lake_id     uniqueidentifier,
     author      varchar(64),
     length      float,                                  -- in sm
     weight      float,                                  -- in gramm
-    created     datetime2 NOT NULL DEFAULT getdate(),
+    created     datetime2 NOT NULL,
     comment     nvarchar(max),
     picId       varbinary(max),
     spot_sid    int not null identity(1,1)
 );
 GO
-ALTER TABLE fish_Spot ADD CONSTRAINT PK_fish_Spot PRIMARY KEY CLUSTERED (Spot_id);
+
+ALTER TABLE fish_Spot     ADD CONSTRAINT PK_fish_Spot PRIMARY KEY CLUSTERED (Spot_id);
+GO
+ALTER TABLE dbo.fish_Spot ADD CONSTRAINT DEF_fish_Spot_lat DEFAULT (0.0)   FOR lat
+GO
+ALTER TABLE dbo.fish_Spot ADD CONSTRAINT DEF_fish_Spot_lon DEFAULT (0.0)   FOR lon
+GO
+ALTER TABLE dbo.fish_Spot ADD CONSTRAINT DEF_fish_Spot_created DEFAULT (GETUTCDATE())   FOR created
+GO
+ALTER TABLE dbo.fish_Spot ADD CONSTRAINT DEF_fish_Spot_id DEFAULT (NEWSEQUENTIALID())   FOR Spot_id
+GO
+
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 -- fishing  catch probability based on spawn activity
@@ -580,15 +673,21 @@ CREATE TABLE GeoIP
     postal varchar(16) NOT NULL,
     latitude float NOT NULL,
     longitude float NOT NULL,
-    ip4 binary(4) NOT NULL  DEFAULT(0)
+    ip4 binary(4) NOT NULL
 )
 GO 
 ALTER TABLE GeoIP ADD CONSTRAINT PK_GeoIP PRIMARY KEY CLUSTERED ([ID] ASC) ON [PRIMARY]    
 GO
 CREATE NONCLUSTERED INDEX [idx_GeoIP_lat] ON GeoIP (latitude ASC)  
+GO
 CREATE NONCLUSTERED INDEX [idx_GeoIP_lon] ON GeoIP (longitude ASC) 
+GO
 CREATE NONCLUSTERED INDEX [idx_GeoIP_ip4] ON GeoIP (ip4 ASC) 
+GO
+ALTER TABLE dbo.GeoIP ADD CONSTRAINT DEF_GeoIP_ip4 DEFAULT (0)   FOR ip4
+GO
 
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 CREATE TABLE dbo.lake_image
 (
@@ -606,12 +705,17 @@ CREATE TABLE dbo.lake_image
 	lake_image_map      int,                -- 1 - map 
     lake_image_tag		nvarchar(256) NULL,
     lake_image_hash		varbinary(256) NOT NULL CONSTRAINT UK_lake_image UNIQUE,  -- hash to prevent duplicates
-    lake_image_stamp	datetime2 not null  CONSTRAINT df_lake_image_stamp DEFAULT GETUTCDATE(),
-    PRIMARY KEY CLUSTERED (    lake_image_id ASC ) ON [PRIMARY]
+    lake_image_stamp	datetime2 not null
 ) 
 GO
 CREATE UNIQUE INDEX [UX_lake_image_ownerid] ON lake_image (lake_image_ownerid) 
 GO
+ALTER TABLE dbo.lake_image ADD CONSTRAINT DEF_lake_image_lake_image_stamp DEFAULT (GETUTCDATE())   FOR lake_image_stamp
+GO
+ALTER TABLE lake_image ADD CONSTRAINT PK_lake_image PRIMARY KEY CLUSTERED (lake_image_id ASC) ON [PRIMARY]    
+GO
+
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 --  1 - lake, 2 - river,  4 - stream, 8 - pond, 16 - marsh, 32 - backwater, 64 - creek
 --  128 - canal, 256 - Estuary, 512 - shore, 1024 - drain, 2048 - ditch, 4096 = Wetland,  8192 - Reservoir, 16385 - Sea
@@ -622,10 +726,12 @@ CREATE TABLE water_body
 	locType		int  NOT NULL,				-- 1, 2, 4, 8, ...
 	speed		int  NOT NULL,				-- 0 - lake, 1 - slow moving, 4 - normal moving, 8 - stream, 16- fast stream
 	description varchar(255),
-    gw			nvarchar(32),		        -- for example: Viteetshìk
-    PRIMARY KEY CLUSTERED ( en )
+    gw			nvarchar(32) 		        -- for example: Viteetshìk
 ) 
 GO
+ALTER TABLE water_body ADD CONSTRAINT PK_water_body PRIMARY KEY CLUSTERED (en ASC) ON [PRIMARY]    
+GO
+
 /*
 INSERT INTO Lake (Lake_id, stamp, locType, lake_name, Alt_Name, french_name, native, source, mouth, link, length, depth, width, locked, old_id
     , editor, basin, descript, watershield, regulations, link_reg, drainage, Discharge, fishing, Volume, Shoreline, surface
@@ -637,11 +743,12 @@ INSERT INTO Lake (Lake_id, stamp, locType, lake_name, Alt_Name, french_name, nat
 */
 -- update Lake set locType = 64 where lake_name like '% Greek'
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 CREATE TABLE Lake
 (
     Lake_id     uniqueidentifier   NOT NULL,
     stamp       DATETIME2,
-    locType     int NOT NULL DEFAULT(0),     
+    locType     int NOT NULL,
     lake_name   nvarchar (64) NOT NULL,
     Alt_Name    nvarchar (64),              -- alternative name
     french_name nvarchar (128),             -- alternative name
@@ -687,9 +794,11 @@ GO
 --delete from lake where lake_id = '67ECB996-F1A3-41C6-B0DF-AB512B732E60'
 --delete from Tributaries where lake_id = '67ECB996-F1A3-41C6-B0DF-AB512B732E60'
 
-ALTER TABLE Lake add constraint df_Lake_Id default NEWSEQUENTIALID() for Lake_id
+ALTER TABLE Lake add constraint DF_lake_locType default(0) for locType
+GO
+ALTER TABLE Lake add constraint df_Lake_Id default( NEWSEQUENTIALID() ) for Lake_id
 GO  
-ALTER TABLE Lake add constraint DF_lake_stamp default getutcdate() for stamp
+ALTER TABLE Lake add constraint DF_lake_stamp default(getutcdate()) for stamp
 GO
 CREATE NONCLUSTERED INDEX [idx_Lake_sid] ON Lake (sid)
 GO
@@ -702,7 +811,7 @@ CREATE INDEX [idx_Lake_native] ON Lake (native) INCLUDE (lake_id)  WHERE [native
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_lake_CGNDB ON LAKE(CGNDB) WHERE CGNDB IS NOT NULL
 GO
-CREATE INDEX IDX_LAKE_TYPE ON Lake (locType) INCLUDE (lake_name, alt_Name, french_name, native, IsFish);
+CREATE NONCLUSTERED INDEX [IX_Lake_symbol] ON [dbo].[Lake] ([symbol]) INCLUDE ([lake_name], [IsFish], [isWell]); 
 GO
 
 CREATE TRIGGER TR_UPD_Lakes ON Lake
@@ -730,6 +839,8 @@ BEGIN
     DELETE FROM Lake WHERE lake_id IN (SELECT lake_id FROM DELETED)
 END
 GO
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 
 CREATE TABLE Lake_State
 (
@@ -754,12 +865,13 @@ CREATE TABLE Lake_State
     air_degree   float,
 	cold_cool    bit,                          -- 0 - cold, 1 - cool
 	flow_stand   bit,                          -- 0 - flow, 1 - stand
-    stamp       DATETIME2 NOT NULL DEFAULT(getdate()),
-	PRIMARY KEY CLUSTERED ( Lake_id, month ),
+    stamp       DATETIME2 NOT NULL,
+	CONSTRAINT PK_Lake_State PRIMARY KEY CLUSTERED ( Lake_id, month ),
 	CONSTRAINT FK_Lake_State FOREIGN KEY (Lake_id) REFERENCES Lake(Lake_id) ON DELETE CASCADE ON UPDATE CASCADE
 ); 
 GO
-
+ALTER TABLE Lake_State add constraint DF_Lake_State_stamp default(GETUTCDATE()) for stamp
+GO
 ------------------------------------------------------------------------------
 if object_id('TR_ui_Lake_State') is not null drop TRIGGER dbo.TR_ui_Lake_State
 GO
@@ -793,7 +905,7 @@ CREATE TABLE Lake_Shape
     Lake_Shape_id       int not null identity,
     Lake_Shape_shape    geography NOT NULL,
     Lake_Shape_type     int,
-    Lake_Shape_stamp    datetime2 NOT NULL default getutcdate(),
+    Lake_Shape_stamp    datetime2 NOT NULL,
     Lake_Shape_idx      geometry,                  -- store box with boundaries
     Lake_Shape_hash     bigint,
     CONSTRAINT PK_Lake_Shape PRIMARY KEY CLUSTERED (Lake_id, Lake_Shape_id)
@@ -808,6 +920,9 @@ CREATE UNIQUE NONCLUSTERED INDEX UK_Lake_Shape ON Lake_Shape(Lake_Shape_hash)
 GO
 -- ALTER TABLE Lake_Shape ADD CONSTRAINT PK_Lake_Shape PRIMARY KEY CLUSTERED (lake_id, Lake_Shape_id);
 GO
+ALTER TABLE Lake_Shape add constraint DF_Lake_Shape_Lake_Shape_stamp default(GETUTCDATE()) for Lake_Shape_stamp
+GO
+------------------------------------------------------------------------------
 
 CREATE TRIGGER TR_UPD_Lake_Shape ON Lake_Shape
  FOR  INSERT, UPDATE 
@@ -830,6 +945,7 @@ DECLARE @g geography;
 SET @g = geography::STGeomFromText('LINESTRING(-122.360 47.656, -122.343 47.656)', 4326);  
 SELECT @g.ToString();  
 */
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 CREATE TABLE news
 (
@@ -916,6 +1032,7 @@ BEGIN
 END
 GO
 ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 -- each object from lake has mouth record with side=32 and source record with side=16 and Main_Lake_id=Lake_id
 -- ion insert into lake trigger insert pare od records into Tributaries
 -- each entry in lake always has 2 entries for Tributaries: 16 and 32
@@ -941,11 +1058,13 @@ CREATE TABLE Tributaries
     zone            int,
     side            int NOT NULL,                      -- 1 - link, 2 - lake Throw, 4 - Inflow Lake, 8 - outflow Lake, 16 - source, 32 - mouth, 64 - joined
 	coast           varchar(1),                       -- L - left, R- right
-    Tributaries_stamp DATETIME2 DEFAULT GETDATE(),
+    Tributaries_stamp DATETIME2,
     CONSTRAINT PK_Tributaries PRIMARY KEY CLUSTERED (id)
 );
 GO
 
+ALTER TABLE Tributaries add constraint DF_Tributaries_Tributaries_stamp default(getutcdate()) for Tributaries_stamp
+GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_Tributaries_Source ON Tributaries(Main_Lake_id, side)   WHERE side = 16
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_Tributaries_Mouth ON Tributaries(Main_Lake_id, side)    WHERE side = 32
@@ -1031,7 +1150,8 @@ BEGIN
 	END
 END
 GO
------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 CREATE TABLE zone_regulations
 (
     regulations_id          uniqueidentifier NOT NULL,
@@ -1057,7 +1177,8 @@ ALTER TABLE zone_regulations add constraint df_zone_regulations default NEWSEQUE
 GO
 ALTER TABLE zone_regulations add constraint df_zone_regulations_stamp default getutcdate() for regulations_stamp
 GO
- ------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
   -- http://files.ontario.ca/environment-and-energy/fishing/mnr_e001331.pdf
 --  drop function fn_river_view_regulations
 --  drop function fn_GetLakeRegulations
@@ -1140,7 +1261,8 @@ GO
 ALTER TABLE fish_record ADD CONSTRAINT UK_fish_record UNIQUE NONCLUSTERED ( fish_id, lake_id, stamp );
 GO
 
------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
 
 -- has reletations between list of species and lakes
 CREATE TABLE lake_fish
@@ -1157,18 +1279,22 @@ CREATE TABLE lake_fish
     sid          int,
     tributaries  int,
     forbidden    int,
-    Distribution char(1) NULL DEFAULT ('N'),
+    Distribution char(1) NULL,
     note         nvarchar(1024),
 	status       tinyint,                      -- 1 - at risk
 	method       nvarchar(max),                -- how to fish
     last_catch   datetime, 
-    stamp        datetime2        CONSTRAINT DF_lake_fish_stamp DEFAULT(getdate())
+    stamp        datetime2
 );
 GO
 
 ALTER TABLE lake_fish ADD PRIMARY KEY (lake_Id, fish_Id, probability);
 GO
 ALTER TABLE lake_fish add constraint DF_lake_fish_created default getutcdate() for created
+GO
+ALTER TABLE lake_fish add constraint DF_lake_fish_Distribution default('N') for Distribution
+GO
+ALTER TABLE lake_fish add constraint DF_lake_fish_stamp default(getutcdate()) for stamp
 GO
 CREATE NONCLUSTERED INDEX IDX_lake_fish_p4f ON [dbo].[lake_fish] ([fish_id]) INCLUDE ([created],[link],[probability_source_type],[spawn],[sid],[tributaries],[forbidden],[Distribution],[note],[status],[method],[stamp])
 GO
@@ -1193,6 +1319,7 @@ BEGIN    -- single row
   UPDATE l SET [IsFish] = 1 FROM lake l JOIN INSERTED i ON l.lake_id=i.lake_id
 END
 GO
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 
 -- Created by GitHub Copilot in SSMS - review carefully before executing
@@ -1323,14 +1450,22 @@ CREATE TABLE Spot
 (
     spot_lat  float NULL,
     spot_lon  float NULL,
-    lake_Id   uniqueidentifier NOT NULL DEFAULT ('00000000-0000-0000-0000-000000000000'),
-    spot_id uniqueidentifier NOT NULL DEFAULT (NEWSEQUENTIALID()),
+    lake_Id   uniqueidentifier NOT NULL,
+    spot_id uniqueidentifier NOT NULL,
     spot_sid  int not null identity(1,1),
-    spot_created datetime2 NOT NULL DEFAULT (getdate()),
+    spot_created datetime2 NOT NULL,
     spot_link nvarchar(255),
-    PRIMARY KEY CLUSTERED (    spot_id ASC)
+    CONSTRAINT PK_Spot PRIMARY KEY CLUSTERED ( spot_id ASC )
 ) 
 GO
+ALTER TABLE dbo.Spot ADD CONSTRAINT DF_Spot_spot_created DEFAULT (GETUTCDATE()) FOR spot_created;
+GO
+ALTER TABLE dbo.Spot ADD CONSTRAINT DF_Spot_spot_id DEFAULT (NEWSEQUENTIALID()) FOR spot_id;
+GO
+ALTER TABLE dbo.Spot ADD CONSTRAINT DF_Spot_lake_Id DEFAULT ('00000000-0000-0000-0000-000000000000') FOR lake_Id;
+GO
+
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 --alter TABLE States add park_rules nvarchar(512)
 CREATE TABLE States
@@ -1338,7 +1473,7 @@ CREATE TABLE States
    state            char(2) not null,
    country          char(2) not null,
    name             nvarchar(64),
-   shift            int     not null default(0),
+   shift            int     not null,
    lat              float,
    lon              float,
    rules            nvarchar(512),
@@ -1349,6 +1484,10 @@ CREATE TABLE States
 GO
 ALTER TABLE States ADD CONSTRAINT PK_States PRIMARY KEY CLUSTERED (state, country)
 GO
+ALTER TABLE dbo.States ADD CONSTRAINT DF_States_shift DEFAULT (0) FOR shift;
+GO
+
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE Users
 (
@@ -1367,14 +1506,14 @@ CREATE TABLE Users
     question   nvarchar(64) NOT NULL,
     answer     binary(16) NOT NULL,
     cell       bigint,
-    access     int NOT NULL,               -- 255 superAdmin
+    access     int NOT NULL,                     -- 255 superAdmin
     suspended  BIT,
     ipaddr     varchar(32) NULL,
     addr       varchar(255) NULL,
     agent      varchar(128) NULL,
     host       varchar(1024) NULL,
     country    char(2) NULL,
-    authType            varchar(16) not null default 'Local',
+    authType            varchar(16) not null,
     oauthProvider       varchar(64) null,
     oauthProviderUserId varchar(256) null,
     oauthEmailVerified  bit null,
@@ -1386,14 +1525,25 @@ CREATE TABLE Users
 GO
 
 ALTER TABLE Users ADD CONSTRAINT PK_Users PRIMARY KEY CLUSTERED (id) 
+GO
 ALTER TABLE Users add constraint df_USer_Id default NEWSEQUENTIALID() for [id]
+GO
 ALTER TABLE Users add constraint df_USer_stamp default getutcdate() for stamp
+GO
 ALTER TABLE Users add constraint df_USer_lastVisit default getutcdate() for lastVisit
+GO
 ALTER TABLE Users add constraint df_USer_access default 0 for access;
+GO
+ALTER TABLE Users add constraint df_USer_authType default('Local') for authType;
+GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_Users_Email ON Users(email);
+GO
 ALTER TABLE users ADD CONSTRAINT CH_users_email CHECK ( datalength(email) >= 6 and email not like '%@%@%' and email not like '%[^a-zA-Z0-9_.-@]%');
+GO
 ALTER TABLE users ADD CONSTRAINT CH_users_userName CHECK (DATALENGTH(userName) >= 3);
+GO
 ALTER TABLE users ADD CONSTRAINT CH_users_psw CHECK (DATALENGTH(psw) >= 6);
+GO
 CREATE UNIQUE NONCLUSTERED INDEX UX_Users_OAuthProvider_Sub on Users(oauthProvider, oauthProviderUserId);
 GO
 ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -1407,14 +1557,20 @@ CREATE TABLE USPost
 (
     zip         int NOT NULL,
     place       varchar(64),
-    lat         float not null default(0.0),
-    lon         float not null default(0.0),
+    lat         float not null,
+    lon         float not null,
     county      varchar(32),
     [state]     varchar(16)
 );
 GO
 ALTER TABLE USPost ADD CONSTRAINT PK_USPost PRIMARY KEY CLUSTERED (zip ASC) ON [PRIMARY]    
 GO
+ALTER TABLE USPost add constraint df_USPost_lat default(0.0) for lat;
+GO
+ALTER TABLE USPost add constraint df_USPost_lon default(0.0) for lon;
+GO
+
+-------------------------------------------------------------------------------------------------------
 ------------------------------keep last 7 days water state--------------------------------
 CREATE TABLE dbo.WaterData
 (
@@ -1441,14 +1597,14 @@ CREATE TABLE dbo.WaterData
 	chloride       float,
 	phycoerythrin  float,
 	salinity       float,
-    id             bigint IDENTITY(1,1) NOT NULL primary key,
-    --sid            bigint NOT NULL CONSTRAINT df_WaterData_sid DEFAULT(0)
+    id             bigint IDENTITY(1,1) NOT NULL
 );
 GO
 
--- ALTER INDEX PK__WaterDat__3213E83F04273924 ON dbo.WaterData REBUILD;
+ALTER TABLE dbo.WaterData ADD CONSTRAINT PK_WaterData PRIMARY KEY CLUSTERED (id) ON [PRIMARY]    
+GO
 
-ALTER TABLE WaterData add constraint df_WaterData_DT default getdate() for stamp;
+ALTER TABLE dbo.WaterData add constraint df_WaterData_DT default getdate() for stamp;
 GO
 
 -- DROP INDEX IDX_WaterData_dt ON dbo.WaterData
@@ -1469,7 +1625,6 @@ CREATE NONCLUSTERED INDEX IDX_PH_WaterData ON [dbo].[WaterData] ([ph]) INCLUDE (
 GO
 -- EXEC sp_updatestats;
 -- UPDATE STATISTICS dbo.WaterData 
---------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------
 
 if object_id('TR_insWaterData') is not null drop TRIGGER dbo.TR_insWaterData
@@ -1510,6 +1665,7 @@ WITH cte AS
 END
 GO
 --------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
 /*
     Table: WaterStation
 
@@ -1526,7 +1682,7 @@ GO
 CREATE TABLE WaterStation
 (
     MLI           varchar(64) NOT NULL,       -- External station identifier used by the source provider.
-    id            uniqueidentifier default NEWSEQUENTIALID() NOT NULL ,
+    id            uniqueidentifier NOT NULL,
     state         char(2),                    -- Two-character province/state/region code.
     lat           float NOT NULL,             -- Latitude of the station in decimal degrees.
     lon           float NOT NULL,             -- Longitude of the station in decimal degrees
@@ -1534,11 +1690,11 @@ CREATE TABLE WaterStation
     country       char(3) NOT NULL,           -- Three-character country code.   CA, US
     locDesc       varchar(max) NOT NULL,      -- Full textual description of the station location.
     processed     datetime2,                  --  Timestamp of the last successful processing of this station by the ingestion pipeline
-    locType       int NOT NULL DEFAULT(0),     --  1 - lake, 2 - river,  4 - stream, 8 - pond, 16 - marsh, 32 - backwater, 64 - creek
+    locType       int NOT NULL,               --  1 - lake, 2 - river,  4 - stream, 8 - pond, 16 - marsh, 32 - backwater, 64 - creek
                                                --  128 - canal, 256 - Estuary, 512 - shore, 1024 - drain, 2048 - ditch, 4096 = Wetland,  8192 - Reservoir 
     condition     varchar(255),                -- Current weather condition text associated with the station location.
     wheatherStamp datetime2,                   -- last time when a wheather was saved   
-    agency        sysname default(''),         -- Source agency or provider name responsible for the station data.
+    agency        sysname,                     -- Source agency or provider name responsible for the station data.
     county        sysname,                     -- County or regional administrative area for the station.
     locName       varchar(255) NOT NULL,       -- Short display name of the water location or station.
     oldId         int,                         -- Legacy numeric identifier taken from the original source system.
@@ -1548,25 +1704,45 @@ CREATE TABLE WaterStation
     lakeId        uniqueidentifier,            -- Internal unique identifier of the related lake entity, if applicable.     
     lakeName      nvarchar(64) NOT NULL,       -- Name of the associated lake or parent water body. 
     elevation     int,                         -- Elevation of the station location, typically above sea level.
-    stamp         datetime2 not null CONSTRAINT df_WaterStation_stamp DEFAULT GETUTCDATE(),  -- Row creation timestamp in UTC.
+    stamp         datetime2 not null,          -- Row creation timestamp in UTC.
     city          nvarchar(128),
     road          nvarchar(255),
     city_id       int,
-	pass          bit default(1),
-    supported     bit not null default(1)       -- not supprted by https://dd.weather.gc.ca or https://waterservices.usgs.gov. WaterData service does not process it if false
+	pass          bit,
+    supported     bit not null                 -- not supprted by https://dd.weather.gc.ca or https://waterservices.usgs.gov. WaterData service does not process it if false
 ) 
 GO
 
 --CREATE NONCLUSTERED INDEX [idx_WaterStation_id] ON WaterStation (id )
-ALTER TABLE WaterStation ADD CONSTRAINT PK_WaterStationId PRIMARY KEY CLUSTERED (id);
+ALTER TABLE dbo.WaterStation ADD CONSTRAINT PK_WaterStationId PRIMARY KEY CLUSTERED (id);
+
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_id default(NEWSEQUENTIALID()) for id;
+GO
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_locType default(0) for locType;
+GO
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_agency default('') for agency;
+GO
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_stamp default(GETUTCDATE()) for stamp;
+GO
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_pass default(1) for pass;
+GO
+ALTER TABLE dbo.WaterStation add constraint df_WaterStation_supported default(1) for supported;
+GO
     
 CREATE UNIQUE NONCLUSTERED INDEX UK_WaterStation ON WaterStation(mli)    
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_lat] ON WaterStation (lat ASC ) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_lon] ON WaterStation (lon ASC ) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_state] ON WaterStation (state) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_city] ON WaterStation (city) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_sid] ON WaterStation (sid) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_mli] ON WaterStation (mli) ON [PRIMARY]
+GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_lake] ON [dbo].[WaterStation] ([country],[supported]) INCLUDE ([mli],[state],[lat],[lon],[lakeId])
 GO
 CREATE NONCLUSTERED INDEX idx_WaterStation_cll ON WaterStation (country,lat,lon) INCLUDE (id)
@@ -1647,22 +1823,31 @@ BEGIN
 END
 GO
 -------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
 -- Stores probability of fish presence in the station based on lake fish list and station location. 
 -- Updated by spTotalUpdateProbability procedure based on water data and other factors. 
 -- Used for display and filtering of stations with fish presence.
 -- trusted probability if fish actualy was caught in the station or near it (lake, tributary) and for some other cases when we have a strong evidence of fish presence.
 -------------------------------------------------------------------------------------------------------
 create table fish_location ( 
-     station_Id uniqueidentifier not null             -- reference to WaterStation.id
-   , fish_Id    uniqueidentifier  not null            -- reference to fish.fish_id  
-   , today      int default(0)                        -- current probability [0-100%]
-   , stamp      datetime2   not null default getutcdate()  -- time the last update of probability
-   , probability int default(0)                       -- original probabiliy from watershield 0 
+     station_Id   uniqueidentifier not null             -- reference to WaterStation.id
+   , fish_Id      uniqueidentifier  not null            -- reference to fish.fish_id  
+   , today        int                                   -- current probability [0-100%]
+   , stamp        datetime2   not null                  -- time the last update of probability
+   , probability  int                                  -- original probabiliy from watershield 0 
                                                       -- means 100% (not all media data inform about fish presence)
-   , id         int
+   , id           int
 );
 GO
-ALTER TABLE fish_location ADD PRIMARY KEY (station_Id, fish_Id, stamp)
+
+ALTER TABLE dbo.fish_location add constraint df_fish_location_stamp default(getutcdate()) for stamp;
+GO
+ALTER TABLE dbo.fish_location add constraint df_fish_location_today default(0) for today;
+GO
+ALTER TABLE dbo.fish_location add constraint df_fish_location_probability default(0) for probability;
+GO
+
+ALTER TABLE fish_location ADD constraint PK_fish_location PRIMARY KEY (station_Id, fish_Id, stamp)
 GO
 CREATE NONCLUSTERED INDEX IDX_fish_location    ON fish_location (fish_Id) INCLUDE (station_Id)
 GO
@@ -1675,7 +1860,9 @@ GO
 CREATE NONCLUSTERED INDEX [idx_fish_location_fish] ON fish_location (fish_Id ASC)  
 GO
 CREATE NONCLUSTERED INDEX IDX_fish_location_today ON [dbo].[fish_location] ([fish_Id]) INCLUDE ([today])
+GO
 
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 /******************************************************************************
 Table: ows_meteo
@@ -1745,7 +1932,7 @@ Notes:
 
 CREATE TABLE ows_meteo
 (
-      WaterStation_id     uniqueidentifier NOT NULL primary key
+      WaterStation_id     uniqueidentifier NOT NULL
 	, mli                 varchar(64)
     , country             char(2)
     , state               char(2)
@@ -1760,24 +1947,18 @@ GO
 CREATE UNIQUE NONCLUSTERED INDEX [UK_ows_meteo_mli] ON ows_meteo ( mli );
 GO
 
-ALTER TABLE [dbo].[ows_meteo] ADD  DEFAULT (getdate()) FOR [stamp]
+ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_stamp DEFAULT (getdate()) FOR [stamp]
 GO
 
-ALTER TABLE [dbo].[ows_meteo] ADD  DEFAULT (1) FOR [type]
+ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_type DEFAULT (1) FOR type
 GO
 
 ALTER TABLE [dbo].[ows_meteo]  WITH CHECK ADD  CONSTRAINT [FK_ows_meteo_id] FOREIGN KEY([WaterStation_id])
-REFERENCES [dbo].[WaterStation] ([id])
-GO
-
-ALTER TABLE [dbo].[ows_meteo] CHECK CONSTRAINT [FK_ows_meteo_id]
+    REFERENCES [dbo].[WaterStation] ([id])
 GO
 
 ALTER TABLE [dbo].[ows_meteo]  WITH CHECK ADD  CONSTRAINT [FK_ows_meteo_mli] FOREIGN KEY([mli])
-REFERENCES [dbo].[WaterStation] ([mli])
-GO
-
-ALTER TABLE [dbo].[ows_meteo] CHECK CONSTRAINT [FK_ows_meteo_mli]
+    REFERENCES [dbo].[WaterStation] ([mli])
 GO
 
 --------------------------------------------------------------------------------------------
@@ -1834,28 +2015,39 @@ GO
 CREATE UNIQUE NONCLUSTERED INDEX [UK_weatherForecast] ON [dbo].[weather_Forecast] ( link ,    dt , tm );
 GO
 -------------------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------------------
 -- aspx saves excheptions here
 CREATE TABLE LogException
 (
-    id          bigint NOT NULL identity(1, 128) primary key,
+    id          bigint NOT NULL identity(1, 128),
     msg         nvarchar(1024) NOT NULL,
     Users_Id    bigint,
     page_name   sysname NOT NULL,
     ip          varchar(64),
     email       sysname,
-    stamp       datetime2 NOT NULL DEFAULT( GETUTCDATE() )
+    stamp       datetime2 NOT NULL
 );
 GO
+
+ALTER TABLE dbo.LogException ADD CONSTRAINT PK_LogException PRIMARY KEY (id)
+GO
+ALTER TABLE dbo.LogException ADD constraint DF_LogException_stamp DEFAULT (getdate()) FOR stamp
+GO
+
+------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 CREATE TABLE fish_State
 (
     fish_id  uniqueidentifier NOT NULL,
-    fish_state_stamp datetime2 not null CONSTRAINT df_fish_staten_stamp DEFAULT GETUTCDATE(),
-    PRIMARY KEY CLUSTERED (    fish_id )
+    fish_state_stamp datetime2 not null
 ) 
 GO
 
-ALTER TABLE dbo.fish_State  WITH CHECK ADD FOREIGN KEY(fish_id) REFERENCES dbo.fish (fish_id)
+ALTER TABLE dbo.fish_State ADD CONSTRAINT PK_fish_State PRIMARY KEY (fish_id)
+GO
+ALTER TABLE dbo.fish_State  WITH CHECK ADD CONSTRAINT FK_fish_State_fish_id FOREIGN KEY(fish_id) REFERENCES dbo.fish (fish_id)
+GO
+ALTER TABLE dbo.fish_State ADD constraint DF_fish_State_stamp DEFAULT (GETUTCDATE()) FOR fish_state_stamp
 GO
 
 
@@ -1909,5 +2101,4 @@ GO
 INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception) 
                  VALUES ('news',        'IU', 2, '', 'news_id', 'stamp', '' )
 GO
-------------------------------------------------------------------------------
-
+---------------------------------------------------------------------------------
