@@ -1343,37 +1343,60 @@ GO
  *    @colname    sysname           - this @tablename.column will be update to related id
  *
  *  Usage: 
-            EXEC sp_add_fish_image 'C2E8C307-F470-458B-8CEE-000999277126', 0xFF, N'fish_zoo', N'fish_zoo_image', 1, N'source', N'author', N'www.ca', N'label', N'location', 40, -80, N'tag', getdate()
+            EXEC sp_add_fish_image 'f83d9508-bf50-41b8-b22c-7accbb6713dd', 0xFF, N'fish_zoo', N'fish_zoo_image', 1, N'source', N'author', N'www.ca', N'label', N'location', 40, -80, N'tag', '2026-01-01'
  */
 /*
  select * from fish_image 
  delete from fish_image where fish_id = 'C2E8C307-F470-458B-8CEE-000999277126'
  update fish_zoo set [fish_zoo_image] = null
 */
-CREATE PROCEDURE dbo.sp_add_fish_image @fish_id uniqueidentifier, @image varbinary(max),  @tablename sysname,  @colname sysname
-, @gender bit, @source nvarchar(255), @author nvarchar(255), @link nvarchar(255), @label nvarchar(255)
-, @location nvarchar(255), @lat float, @lon float, @tag nvarchar(255), @stamp nvarchar(255)
+CREATE PROCEDURE [dbo].[sp_add_fish_image]
+    @fish_id   uniqueidentifier, @image varbinary(max), @tablename sysname, @colname sysname,
+    @gender bit, @source nvarchar(255), @author nvarchar(255), @link nvarchar(255), @label nvarchar(255),
+    @location nvarchar(255), @lat float, @lon float, @tag nvarchar(255), @stamp nvarchar(255)
 AS
 SET NOCOUNT ON
-BEGIN TRY  
-  if @fish_Id IS NOT NULL 
-  BEGIN
-        INSERT INTO dbo.fish_image( fish_id, fish_image_pic, fish_image_gender, fish_image_source, fish_image_author
-            , fish_image_link, fish_image_label, fish_image_location, fish_image_lat, fish_image_lon, fish_image_tag, fish_image_stamp, fish_image_hash )
-         VALUES (@fish_Id, @image, @gender, @source, @author
-           , @link, @label, @location, @lat, @lon, @tag, @stamp, HASHBYTES('SHA1', @image) );
+BEGIN TRY
+    DECLARE @execsql nvarchar(500);
+    DECLARE @imageId  int;
+    DECLARE @newHash  varbinary(256);
 
-    If EXISTS (SELECT * FROM sys.tables WHERE name = @tablename) AND EXISTS (SELECT * FROM sys.columns WHERE name = @colname)
+    IF @fish_id IS NOT NULL
     BEGIN
-        declare @execsql sysname = N'UPDATE ' + @tablename + N' SET ' + @colname + N'= ' + CAST(SCOPE_IDENTITY() AS sysname) + N' WHERE fish_id=''' + CAST(@fish_id AS sysname) + '''';
-        EXEC ( @execsql );
+        SET @newHash = HASHBYTES('SHA1', @image);
+
+        -- reuse existing row if same image content
+        SELECT @imageId = fish_image_id FROM dbo.fish_image WHERE fish_image_hash = @newHash;
+
+        IF @imageId IS NULL
+        BEGIN
+            INSERT INTO dbo.fish_image
+                ( fish_id, fish_image_pic, fish_image_gender, fish_image_source, fish_image_author,
+                  fish_image_link, fish_image_label, fish_image_location, fish_image_lat, fish_image_lon,
+                  fish_image_tag, fish_image_stamp, fish_image_hash )
+            VALUES
+                ( @fish_id, @image, @gender, @source, @author,
+                  @link, @label, @location, @lat, @lon,
+                  @tag, @stamp, @newHash );
+            SET @imageId = SCOPE_IDENTITY();
+        END
+
+        IF @imageId IS NOT NULL
+           AND EXISTS (SELECT * FROM sys.tables  WHERE name = @tablename)
+           AND EXISTS (SELECT * FROM sys.columns WHERE name = @colname)
+        BEGIN
+            SET @execsql = N'UPDATE ' + @tablename + N' SET ' + @colname
+                         + N' = ' + CAST(@imageId AS nvarchar(20))
+                         + N' WHERE fish_id = ''' + CAST(@fish_id AS nvarchar(36)) + N'''';
+            EXEC (@execsql);
+        END
     END
-  END
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
-END CATCH;     
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity,
+           ERROR_STATE() AS ErrorState, ERROR_PROCEDURE() AS ErrorProcedure,
+           ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_PlotSource' AND xtype = 'P')
@@ -1423,13 +1446,13 @@ SET NOCOUNT ON
 BEGIN TRY  
   if @fish_Id IS NOT NULL 
   BEGIN
-    UPDATE dbo.fish Set stamp = GETUTCDATE() WHERE fish_id =  @fish_Id;
-
+    DECLARE @rowcnt int = 0
     IF NOT EXISTS (SELECT * FROM dbo.fish_zoo WHERE fish_Id = @fish_Id)
     BEGIN
         INSERT INTO dbo.fish_zoo( fish_id, fish_max_length, fish_avg_length, fish_max_weight, fish_avg_weight
             , natural_color, longevity, fin, body, counts, shape, external_morphology, internal_morphology  )
          VALUES (@fish_Id, @max_length, @avg_length, @max_weight, @avg_weight, @natural_color, @longevity, @fin, @body, @counts, @shape, @em, @im );
+        SET @rowcnt = @@ROWCOUNT
     END
     ELSE
     BEGIN
@@ -1437,7 +1460,10 @@ BEGIN TRY
           , natural_color = @natural_color, longevity = @longevity, fin = @fin
            , body = @body, counts = @counts, shape = @shape, external_morphology = @em, internal_morphology = @im 
           WHERE fish_Id = @fish_Id
+        SET @rowcnt = @@ROWCOUNT
     END
+    IF @rowcnt > 1
+        UPDATE dbo.fish Set stamp = GETUTCDATE() WHERE fish_id =  @fish_Id;
   END
 END TRY
 BEGIN CATCH

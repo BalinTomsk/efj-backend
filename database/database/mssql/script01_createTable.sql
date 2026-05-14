@@ -265,9 +265,9 @@ CREATE TABLE fish
 );
 GO
 
-ALTER TABLE fish ADD PRIMARY KEY CLUSTERED (fish_id);
+ALTER TABLE fish ADD CONSTRAINT PK_fish PRIMARY KEY CLUSTERED (fish_id);
 GO
-ALTER TABLE fish add constraint df_fish_id default NEWSEQUENTIALID() for fish_id;
+ALTER TABLE fish ADD CONSTRAINT df_fish_id DEFAULT NEWSEQUENTIALID() FOR fish_id;
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_fish_Latin ON fish(fish_Latin)    
 GO
@@ -330,14 +330,18 @@ CREATE TABLE fish_image
     fish_image_lat      float,
     fish_image_lon      float,
     fish_image_tag      nvarchar(256) NULL,
-    fish_image_hash     varbinary(256) NOT NULL CONSTRAINT UK_fish_image UNIQUE,  -- hash to prevent duplicates
-    fish_image_stamp    datetime2 not null      CONSTRAINT df_fish_image_stamp DEFAULT GETUTCDATE(),
+    fish_image_hash     varbinary(256) NOT NULL,  -- hash to prevent duplicates
+    fish_image_stamp    datetime2 not null,
     CONSTRAINT PK_fish_image PRIMARY KEY CLUSTERED (    fish_image_id ASC ) ON [PRIMARY]
 ) 
 GO
 CREATE NONCLUSTERED INDEX UK_fish_image_ID ON fish_image(fish_id)    
 GO
-ALTER TABLE fish_image  WITH CHECK ADD CONSTRAINT FK_fish_image_id FOREIGN KEY(fish_id) REFERENCES fish(fish_id)
+CREATE NONCLUSTERED INDEX UK_fish_image_hash ON fish_image(fish_image_hash)    
+GO
+ALTER TABLE dbo.fish_image ADD CONSTRAINT DEF_fish_image_fish_image_stamp DEFAULT (GETUTCDATE()) FOR fish_image_stamp
+GO
+ALTER TABLE dbo.fish_image  WITH CHECK ADD CONSTRAINT FK_fish_image_id FOREIGN KEY(fish_id) REFERENCES fish(fish_id)
 GO
 
 ------------------------------------------------------------------------------
@@ -350,7 +354,7 @@ NOT FOR REPLICATION
 AS 
 SET NOCOUNT ON
 BEGIN    
-   UPDATE t SET t.fish_image_hash = HASHBYTES('SHA1', t.fish_image_pic) FROM fish_image t JOIN INSERTED i ON t.fish_id = i.fish_id
+   UPDATE t SET t.fish_image_hash = HASHBYTES('SHA1', t.fish_image_pic) FROM fish_image t JOIN INSERTED i ON t.fish_image_id = i.fish_image_id
 END
 GO
 ------------------------------------------------------------------------------
