@@ -2246,7 +2246,7 @@ RETURNS TABLE
 WITH SCHEMABINDING
 AS
   RETURN
-    SELECT TOP 1 fish_latin, fish_name, alt_name AS fish_alt_name, descrip AS fish_description 
+    SELECT TOP 1 fish_latin, fish_name, alt_name AS fish_alt_name, descrip AS fish_description, uses AS fish_uses 
         , ISNULL(locked, CONVERT(bit, 0)) AS locked, stamp, (select userName from dbo.users where id=editor) AS editor 
         , (SELECT TOP 1 fish_image_id FROM dbo.fish_image WHERE fish_id = @fish_id ORDER BY fish_image_stamp DESC) AS fish_image_id
       FROM dbo.fish f WHERE f.fish_id = @fish_id

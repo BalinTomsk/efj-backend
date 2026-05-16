@@ -232,6 +232,7 @@ CREATE TABLE fish
     fish_latin      varchar (64) NOT NULL,
     alt_name        nvarchar(max),
     descrip         nvarchar(max) NULL,
+    uses            nvarchar(max) NULL,
     family_Id       uniqueidentifier NOT NULL,
     img             varbinary(max),
     fish_Type       int             ,         -- 1 - sport, 2 - commercial, 4 - invading, 8 - aquarium

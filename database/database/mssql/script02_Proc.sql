@@ -1003,11 +1003,11 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_update_fish_general' AND xt
     DROP PROCEDURE dbo.sp_update_fish_general
 GO
 
-create PROCEDURE sp_update_fish_general @fish_id uniqueidentifier, @locked bit, @editor uniqueidentifier, @fish_description nvarchar(2048)
+create PROCEDURE sp_update_fish_general @fish_id uniqueidentifier, @locked bit, @editor uniqueidentifier, @fish_description nvarchar(2048), @fish_uses nvarchar(2048)
 AS
 SET NOCOUNT ON
 BEGIN TRY  
-    UPDATE dbo.fish Set stamp = GETUTCDATE(), locked = @locked, editor=@editor, descrip = @fish_description
+    UPDATE dbo.fish Set stamp = GETUTCDATE(), locked = @locked, editor=@editor, descrip = @fish_description, uses = @fish_uses
         WHERE fish_id =  @fish_Id;
 END TRY
 BEGIN CATCH
