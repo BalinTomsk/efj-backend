@@ -140,16 +140,6 @@ class WaterDataRepositoryTest {
     }
 
     @Test
-    void cleanWeatherWaterDataExecutesStoredProcedure() {
-        repository.cleanWeatherWaterData();
-
-        verify(jdbc).execute(
-                eq("EXEC dbo.spCleanWeatherWaterData"),
-                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
-        );
-    }
-
-    @Test
     void pushSpeciesFromLakeToStationExecutesStoredProcedure() {
         repository.pushSpeciesFromLakeToStation();
 

@@ -22,9 +22,6 @@ public class StationPostProcessingService {
      * Executes the required post-processing procedures in order.
      */
     public void runAfterStationProcessing() {
-        log.info("Running post-processing procedure {}", "spCleanWeatherWaterData");
-        // waterDataRepository.cleanWeatherWaterData();
-
         log.info("Running post-processing procedure {}", "spPushSpeciesFromLakeToStation");
         waterDataRepository.pushSpeciesFromLakeToStation();
     }

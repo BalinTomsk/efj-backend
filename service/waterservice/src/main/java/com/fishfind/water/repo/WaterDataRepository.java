@@ -126,16 +126,6 @@ public class WaterDataRepository {
     }
 
     /**
-     * Deletes legacy weather and water rows that are no longer needed.
-     */
-    @Transactional
-    @Retry(name = "sqlRetry")
-    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
-    public void cleanWeatherWaterData() {
-        executeProcedureAllowingResults("EXEC dbo.spCleanWeatherWaterData");
-    }
-
-    /**
      * Pushes lake species associations down to stations after station processing completes.
      */
     @Transactional

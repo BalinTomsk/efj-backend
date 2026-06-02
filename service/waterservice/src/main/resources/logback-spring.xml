@@ -1,22 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <springProperty scope="context" name="rootLevel" source="logging.level.root" defaultValue="INFO" />
-    <springProperty scope="context" name="appLevel" source="logging.level.com.fishfind.water" defaultValue="INFO" />
-
-    <conversionRule conversionWord="clr"
-                    converterClass="org.springframework.boot.logging.logback.ColorConverter" />
-    <conversionRule conversionWord="wex"
-                    converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter" />
+    <springProperty scope="context" name="rootLevel" source="logging.level.root" defaultValue="INFO"/>
+    <springProperty scope="context" name="appLevel" source="logging.level.com.fishfind.water" defaultValue="INFO"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %clr(%-5level) [%thread] %clr(%logger{36}){cyan} - %msg%n%wex</pattern>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"water-station-pusher"}</customFields>
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <version>[ignore]</version>
+            </fieldNames>
         </encoder>
     </appender>
 
-    <logger name="com.fishfind.water" level="${appLevel}" />
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/water-station-pusher.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/water-station-pusher.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"water-station-pusher"}</customFields>
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <version>[ignore]</version>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <logger name="com.fishfind.water" level="${appLevel}"/>
 
     <root level="${rootLevel}">
-        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>

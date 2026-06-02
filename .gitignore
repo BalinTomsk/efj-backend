@@ -32,6 +32,7 @@ OWMService/Res/OWMService.reg
 ############################
 # Application secrets
 ############################
+secret/waterservice.secret
 application.yml
 .env
 config.ini

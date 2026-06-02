@@ -20,6 +20,7 @@ Tech stack
 - `commons-csv` dependency may be included, but simple CSV parsing is acceptable
 - `dotenv-java` for local credential loading
 - SLF4J + Logback
+- `logstash-logback-encoder` 7.4 for structured JSON logging
 
 Project structure
 - Maven project
@@ -179,16 +180,19 @@ Resilience4j settings
 Logging
 - Root logging level `INFO`
 - App logging level `INFO` for `com.fishfind.water`
-- Log:
+- Format: structured JSON via logstash-logback-encoder with fields: `timestamp`, `level`, `service` (constant "water-station-pusher"), `correlationId` (from MDC), plus standard logback fields
+- Output to console AND a rolling daily file under `logs/` with 7-day maxHistory (auto-purge entries older than 7 days)
+- Log at INFO level:
   - CA worker start
   - US worker start
   - supported station count
+  - post-processing procedure execution
+- Log at DEBUG level:
   - each processed station
-  - CSV fetch success
-  - USGS fetch success
+  - CSV fetch start and success
+  - USGS fetch start and success
   - save start/end with reading counts
-- post-processing procedure execution
-- failures and skipped unpublished-source events
+- Log failures and skipped unpublished-source events (WARN/INFO via StationProcessorBase)
 
 Docker expectations
 - Multi-stage Dockerfile is acceptable
