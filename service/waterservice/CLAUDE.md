@@ -23,6 +23,13 @@ It must always reflect the current state of the code.
   behaviour that was added.
 - Treat every code change as a two-step commit: ① change the code, ② update `docs/specification.txt`.
 
+
+---
+
+##IMPORTANT
+Explicitly follows database schema at:
+- @srv/../database/database/mssql/ffi2.sql  
+
 ---
 
 ## Project identity
@@ -61,15 +68,17 @@ com.fishfind.water
 ├── repo
 │   ├── WaterDataRepository.java
 │   └── WaterStationRepository.java
-└── service
-    ├── CsvFetcherCA.java
-    ├── XmlFetcherUS.java
-    ├── StationProcessorCA.java
-    ├── StationProcessorUS.java
-    ├── StationProcessorBase.java   # shared exception handling; formats "{country} station"
-    ├── StationWorker.java          # ApplicationRunner entry point
-    ├── ConsoleDebugRunner.java
-    └── StationPostProcessingService.java
+├── service
+│   ├── CsvFetcherCA.java
+│   ├── XmlFetcherUS.java
+│   ├── StationProcessorCA.java
+│   ├── StationProcessorUS.java
+│   ├── StationProcessorBase.java   # shared exception handling; formats "{country} station"
+│   ├── StationWorker.java          # ApplicationRunner entry point
+│   ├── ConsoleDebugRunner.java
+│   └── StationPostProcessingService.java
+└── web
+    └── HealthController.java       # GET /health → { status, version, uptime }
 ```
 
 ---
@@ -91,6 +100,7 @@ src/main/java/com/fishfind/water/service/StationProcessorUS.java
 src/main/java/com/fishfind/water/service/StationWorker.java
 src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java
 src/main/java/com/fishfind/water/service/StationPostProcessingService.java
+src/main/java/com/fishfind/water/web/HealthController.java
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
 .env.example          (project root, placeholder values only)
@@ -105,6 +115,7 @@ Dockerfile
 ## Dependencies (pom.xml)
 
 - `spring-boot-starter`
+- `spring-boot-starter-web`
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
 - MSSQL JDBC driver (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
