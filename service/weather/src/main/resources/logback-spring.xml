@@ -1,22 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <springProperty scope="context" name="rootLevel" source="logging.level.root" defaultValue="INFO" />
-    <springProperty scope="context" name="appLevel" source="logging.level.com.fishfind.weather" defaultValue="INFO" />
+    <springProperty scope="context" name="rootLevel" source="logging.level.root" defaultValue="INFO"/>
+    <springProperty scope="context" name="appLevel" source="logging.level.com.fishfind.weather" defaultValue="INFO"/>
 
-    <conversionRule conversionWord="clr"
-                    converterClass="org.springframework.boot.logging.logback.ColorConverter" />
-    <conversionRule conversionWord="wex"
-                    converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter" />
-
+    <!-- Console — structured JSON -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %clr(%-5level) [%thread] %clr(%logger{36}){cyan} - %msg%n%wex</pattern>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"debian-weather"}</customFields>
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <levelValue>[ignore]</levelValue>
+            </fieldNames>
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                <maxDepthPerCause>20</maxDepthPerCause>
+                <rootCauseFirst>true</rootCauseFirst>
+            </throwableConverter>
         </encoder>
     </appender>
 
-    <logger name="com.fishfind.weather" level="${appLevel}" />
+    <!-- Rolling file — structured JSON, 7-day cyclic retention -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/weather.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/weather-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"debian-weather"}</customFields>
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <levelValue>[ignore]</levelValue>
+            </fieldNames>
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                <maxDepthPerCause>20</maxDepthPerCause>
+                <rootCauseFirst>true</rootCauseFirst>
+            </throwableConverter>
+        </encoder>
+    </appender>
+
+    <logger name="com.fishfind.weather" level="${appLevel}"/>
 
     <root level="${rootLevel}">
-        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>
