@@ -22,6 +22,12 @@ It must always reflect the current state of the code.
 
 ---
 
+##IMPORTANT
+Explicitly follows database schema at:
+- @srv/../database/database/mssql/ffi2.sql  
+
+---
+
 ## Project identity
 
 | Key | Value |
@@ -126,6 +132,8 @@ Dockerfile
 
 - Maven coordinates: `com.fishfind:weather-station-pusher:1.0.0`
 - `spring-boot-starter`
+- `spring-boot-starter-web`
+- `spring-boot-starter-actuator`
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
 - `mssql-jdbc` (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
@@ -178,6 +186,19 @@ weather:
   worker:
     connect-timeout-ms: 15000
     read-timeout-ms: 30000
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
 
 logging:
   level:
@@ -360,11 +381,42 @@ Build stage: `maven:3.9.9-eclipse-temurin-21` — runs `mvn -B -DskipTests packa
 Runtime stage: `eclipse-temurin:21-jre` — copies jar to `/app/weather-station-pusher.jar`.
 
 ```sh
-CMD java $JAVA_OPTS -jar /app/weather-station-pusher.jar
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 ```
 
 `.dockerignore` must exclude: `.git`, `.idea`, `target`, `docs`, `.env`.  
 Do **not** bake a real `.env` into the image.
+
+### Health endpoint
+
+Spring Boot Actuator serves a minimal HTTP server on **port 8081** (separate from the app — no Tomcat port 8080 is used for application traffic).
+
+| Path | Purpose |
+|---|---|
+| `GET /actuator/health` | Overall status (`{"status":"UP"}`) |
+| `GET /actuator/health/liveness` | Kubernetes liveness probe |
+| `GET /actuator/health/readiness` | Kubernetes readiness probe |
+
+`start-period=60s` accounts for database connection time at startup.
+
+**Kubernetes probe example:**
+```yaml
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: 8081
+  initialDelaySeconds: 60
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: 8081
+  initialDelaySeconds: 60
+  periodSeconds: 10
+```
 
 ---
 
@@ -384,7 +436,7 @@ Do not add these unless explicitly requested:
 ## Recreation checklist
 
 1. Maven Java 21 Spring Boot project; coordinates `com.fishfind:weather-station-pusher:1.0.0`.
-2. Add dependencies (JDBC, AOP, MSSQL, Resilience4j, dotenv, logback).
+2. Add dependencies (web, actuator, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback).
 3. Implement dotenv bootstrap in `WeatherStationPusherApplication` (before Spring starts).
 4. `StationRef` record: `mli`, `latitude`, `longitude`, `state`.
 5. `WeatherStationRepository` — `vwWeatherForecastToDay` US query.
