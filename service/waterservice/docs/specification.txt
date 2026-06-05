@@ -192,7 +192,7 @@ Logging
   - CSV fetch start and success
   - USGS fetch start and success
   - save start/end with reading counts
-- Log failures and skipped unpublished-source events (WARN/INFO via StationProcessorBase)
+- Log failures at WARN and skipped unpublished-source events at DEBUG (via StationProcessorBase)
 
 Docker expectations
 - Multi-stage Dockerfile is acceptable

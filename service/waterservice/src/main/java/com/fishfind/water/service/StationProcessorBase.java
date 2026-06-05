@@ -27,7 +27,7 @@ public abstract class StationProcessorBase {
 
     protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
         if (ex instanceof FileNotFoundException) {
-            logger().info(
+            logger().debug(
                     "Skipping {} with no published {}. station={} state={}",
                     stationLabel(),
                     missingSourceDescription(),
