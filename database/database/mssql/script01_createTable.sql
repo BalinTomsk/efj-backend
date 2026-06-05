@@ -1518,15 +1518,8 @@ CREATE TABLE Users
     agent      varchar(128) NULL,
     host       varchar(1024) NULL,
     country    char(2) NULL,
-    authType            varchar(16) not null,
-    oauthProvider       varchar(64) null,
-    oauthProviderUserId varchar(256) null,
-    oauthEmailVerified  bit null,
-    oauthDisplayName    nvarchar(256) null,
-    oauthPictureUrl     nvarchar(1024) null,
-    oauthCreatedUtc     datetime2 null,
-    oauthLastLoginUtc   datetime2 null
-) 
+    authType            varchar(16) not null   -- 'Local' | 'OAuth'. External-login details live in UserExternalLogin.
+)
 GO
 
 ALTER TABLE Users ADD CONSTRAINT PK_Users PRIMARY KEY CLUSTERED (id) 
@@ -1549,12 +1542,47 @@ ALTER TABLE users ADD CONSTRAINT CH_users_userName CHECK (DATALENGTH(userName) >
 GO
 ALTER TABLE users ADD CONSTRAINT CH_users_psw CHECK (DATALENGTH(psw) >= 6);
 GO
-CREATE UNIQUE NONCLUSTERED INDEX UX_Users_OAuthProvider_Sub on Users(oauthProvider, oauthProviderUserId);
-GO
 ---------------------------------------------------------------------------------------------------------------------------------------------
-INSERT INTO Users (userName, psw, titul, firstName, lastName, email, postal, subs, question, answer, cell, access) 
+INSERT INTO Users (userName, psw, titul, firstName, lastName, email, postal, subs, question, answer, cell, access)
           VALUES  ('Lepsik', HashBytes('MD5', 'vertex*solt'), 'Mr.', 'Lepsik'
                    , 'Baralgeen', 'LBaralgeen@gmail.com', 'N2M5L4', 1, 'preved', HashBytes('MD5', 'medved+zuker'), 12266005162, 255)
+GO
+-------------------------------------------------------------------------------------------------------
+--  External OAuth/OIDC logins: ONE row per provider account linked to a Users row.
+--  Single table for ALL providers — add Outlook/Apple/Twitter later as new 'provider'
+--  values with NO schema change. A user may link several providers (many rows -> one userId).
+--  Gmail-only for now: the CH_UEL_provider check restricts provider to 'Google'; widen the
+--  IN(...) list when another provider is wired up.
+-------------------------------------------------------------------------------------------------------
+CREATE TABLE UserExternalLogin
+(
+    id              uniqueidentifier NOT NULL,
+    userId          uniqueidentifier NOT NULL,        -- FK -> Users.id
+    provider        varchar(32)   NOT NULL,           -- 'Google' (later 'Microsoft','Apple','Twitter')
+    providerUserId  nvarchar(256) NOT NULL,           -- stable subject ('sub') claim from the provider
+    email           varchar(128)  NULL,               -- email as seen at this provider
+    emailVerified   bit           NULL,
+    displayName     nvarchar(256) NULL,
+    pictureUrl      nvarchar(1024) NULL,
+    createdUtc      datetime2 NOT NULL,
+    lastLoginUtc    datetime2 NULL
+)
+GO
+ALTER TABLE UserExternalLogin ADD CONSTRAINT PK_UserExternalLogin PRIMARY KEY CLUSTERED (id)
+GO
+ALTER TABLE UserExternalLogin ADD CONSTRAINT DF_UEL_id         DEFAULT NEWSEQUENTIALID() FOR id
+GO
+ALTER TABLE UserExternalLogin ADD CONSTRAINT DF_UEL_createdUtc DEFAULT SYSUTCDATETIME()  FOR createdUtc
+GO
+ALTER TABLE UserExternalLogin ADD CONSTRAINT FK_UEL_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+GO
+ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google'))
+GO
+-- One provider account maps to exactly one row.
+CREATE UNIQUE NONCLUSTERED INDEX UX_UEL_Provider_Sub ON UserExternalLogin(provider, providerUserId)
+GO
+-- "all external logins for a user"
+CREATE NONCLUSTERED INDEX IX_UEL_userId ON UserExternalLogin(userId)
 GO
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------

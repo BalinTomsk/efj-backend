@@ -73,7 +73,12 @@ BEGIN TRY
     SET @userName = NULL;
     SET @isNewUser = 0;
 
-    SET @email = NULLIF(LTRIM(RTRIM(@email)), N'');
+    SET @email          = NULLIF(LTRIM(RTRIM(@email)), N'');
+    SET @provider       = NULLIF(LTRIM(RTRIM(@provider)), N'');
+    SET @providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'');
+
+    -- Gmail-only for now: default the provider to Google.
+    IF @provider IS NULL SET @provider = N'Google';
 
     IF @email IS NULL
     BEGIN
@@ -81,57 +86,99 @@ BEGIN TRY
         RETURN;
     END
 
+    IF @providerUserId IS NULL
+    BEGIN
+        RAISERROR('OAuth login requires a provider user id (sub).', 16, 1);
+        RETURN;
+    END
+
+    DECLARE @displayName NVARCHAR(256) =
+        NULLIF(LTRIM(RTRIM(ISNULL(@givenName, N'') + N' ' + ISNULL(@familyName, N''))), N'');
+
+    --------------------------------------------------------------------------------
+    -- 1) Known external login -> return its user, refresh the login row.
+    --------------------------------------------------------------------------------
     SELECT TOP 1
-          @userId = ID
-        , @userName = userName
-    FROM dbo.Users
-    WHERE email = @email;
+          @userId   = u.id
+        , @userName = u.userName
+    FROM dbo.UserExternalLogin l
+    INNER JOIN dbo.Users u ON u.id = l.userId
+    WHERE l.provider = @provider
+      AND l.providerUserId = @providerUserId;
 
     IF @userId IS NOT NULL
     BEGIN
+        UPDATE dbo.UserExternalLogin
+           SET lastLoginUtc = SYSUTCDATETIME()
+             , email        = LEFT(@email, 128)
+             , displayName  = @displayName
+         WHERE provider = @provider
+           AND providerUserId = @providerUserId;
+
         SET @isNewUser = 0;
         RETURN;
     END
 
-    SET @userId = NEWID();
-    SET @userName = @email;
+    --------------------------------------------------------------------------------
+    -- 2) No external login yet: link to an existing user with the same email,
+    --    otherwise create a brand-new user.
+    --------------------------------------------------------------------------------
+    SELECT TOP 1
+          @userId   = id
+        , @userName = userName
+    FROM dbo.Users
+    WHERE email = @email;
 
-    INSERT INTO dbo.Users
-    (
-          ID
-        , userName
-        , email
-        , ipaddr
-        , agent
-        , addr
-        , host
-        , country
-        , postal
-        , firstName
-        , lastName
-        , psw
-        , question
-        , answer
-    )
+    IF @userId IS NULL
+    BEGIN
+        SET @userId = NEWID();
+        SET @userName = @email;
+
+        INSERT INTO dbo.Users
+        (
+              ID
+            , userName
+            , email
+            , ipaddr
+            , agent
+            , addr
+            , host
+            , country
+            , postal
+            , firstName
+            , lastName
+            , psw
+            , question
+            , answer
+            , authType
+        )
+        VALUES
+        (
+              @userId
+            , @userName
+            , @email
+            , ISNULL(@ipaddr, '')
+            , ISNULL(@agent, '')
+            , ISNULL(@addr, '')
+            , ISNULL(@host, '')
+            , ISNULL(@country, 'CA')
+            , ISNULL(@postal, '')
+            , ISNULL(@givenName, '')
+            , ISNULL(@familyName, '')
+            , HASHBYTES('MD5', CONVERT(VARCHAR(36), NEWID()) + '*oauth')
+            , 'oauth'
+            , 0x0024
+            , 'OAuth'
+        );
+
+        SET @isNewUser = 1;
+    END
+
+    -- Link the external login to the (new or existing) user.
+    INSERT INTO dbo.UserExternalLogin
+        ( userId, provider, providerUserId, email, displayName, lastLoginUtc )
     VALUES
-    (
-          @userId
-        , @userName
-        , @email
-        , ISNULL(@ipaddr, '')
-        , ISNULL(@agent, '')
-        , ISNULL(@addr, '')
-        , ISNULL(@host, '')
-        , ISNULL(@country, 'CA')
-        , ISNULL(@postal, '')
-        , ISNULL(@givenName, '')
-        , ISNULL(@familyName, '')
-        , HASHBYTES('MD5', CONVERT(VARCHAR(36), NEWID()) + '*oauth')
-        , 'oauth'
-        , 0x0024
-    );
-
-    SET @isNewUser = 1;
+        ( @userId, @provider, @providerUserId, LEFT(@email, 128), @displayName, SYSUTCDATETIME() );
 END TRY
 BEGIN CATCH
     SELECT
