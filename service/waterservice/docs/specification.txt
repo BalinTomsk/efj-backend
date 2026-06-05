@@ -13,6 +13,7 @@ Tech stack
 - Maven
 - Spring Boot 3.2.x
 - `spring-boot-starter`
+- `spring-boot-starter-web`
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
 - MSSQL JDBC driver
@@ -29,6 +30,7 @@ Project structure
   - `com.fishfind.water.domain`
   - `com.fishfind.water.repo`
   - `com.fishfind.water.service`
+  - `com.fishfind.water.web`
 - Include `application.yml` and `logback-spring.xml` under `src/main/resources`
 - Do not place the real `.env` file in `src/main/resources`
 - The real `.env` file belongs in the project root
@@ -194,11 +196,19 @@ Logging
   - save start/end with reading counts
 - Log failures at WARN and skipped unpublished-source events at DEBUG (via StationProcessorBase)
 
+Health endpoint
+- `GET /health` returns HTTP 200 with JSON body: `{ "status": "UP", "version": "1.0.0", "uptime": <seconds> }`
+- Implemented in `com.fishfind.water.web.HealthController`
+- Used as Docker HEALTHCHECK and Kubernetes liveness/readiness probe target
+- Server listens on port 8080 (`server.port=8080` in application.yml)
+
 Docker expectations
 - Multi-stage Dockerfile is acceptable
 - Build jar with Maven
-- Runtime container launches:
-  - `java $JAVA_OPTS -jar /app/water-station-pusher.jar`
+- Runtime container:
+  - EXPOSE 8080
+  - HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD wget -qO- http://localhost:8080/health || exit 1
+  - Launches: `java $JAVA_OPTS -jar /app/water-station-pusher.jar`
 - Do not bake the real `.env` into the jar or image resources
 
 Files to include
@@ -216,6 +226,7 @@ Files to include
 - `src/main/java/com/fishfind/water/service/StationWorker.java`
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
+- `src/main/java/com/fishfind/water/web/HealthController.java`
 - `src/main/resources/application.yml`
 - `src/main/resources/logback-spring.xml`
 - `.env.example`
