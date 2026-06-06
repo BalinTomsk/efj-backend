@@ -77,9 +77,12 @@ BEGIN TRY
     SET @provider       = NULLIF(LTRIM(RTRIM(@provider)), N'');
     SET @providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'');
 
-    -- Gmail-only for now: default the provider to Google.
+    -- Default the provider to Google when the caller omits it.
     IF @provider IS NULL SET @provider = N'Google';
 
+    -- Every Users row needs a unique email. Providers that do not expose one (e.g. the
+    -- Twitter/X OAuth2 API has no email scope) must pass a synthetic address from the
+    -- caller (twitter_<id>@users.fishfind.info), so @email is still required here.
     IF @email IS NULL
     BEGIN
         RAISERROR('OAuth login requires an email claim.', 16, 1);
@@ -132,7 +135,14 @@ BEGIN TRY
     IF @userId IS NULL
     BEGIN
         SET @userId = NEWID();
-        SET @userName = @email;
+
+        -- For providers whose email is synthetic (Twitter/X), show the provider display
+        -- name (the @handle / real name) as the userName instead of the fake address.
+        -- Google keeps using the email, exactly as before.
+        IF @provider <> N'Google' AND DATALENGTH(@displayName) >= 3
+            SET @userName = LEFT(@displayName, 64);
+        ELSE
+            SET @userName = @email;
 
         INSERT INTO dbo.Users
         (
