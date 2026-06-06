@@ -4,7 +4,7 @@ PRINT 'Unit tests for spOAuthLoginOrCreateUser / UserExternalLogin'
 PRINT '-----------------------------------------------------------------------------------------------------------------------------'
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
--- Unit tests for dbo.spOAuthLoginOrCreateUser (Gmail-only external login split into UserExternalLogin)
+-- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter external login via UserExternalLogin)
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
 -- TEST 1: First Google login creates a Users row AND a linked UserExternalLogin row
@@ -172,5 +172,129 @@ BEGIN CATCH
 END CATCH
 
 ROLLBACK TRAN TestOAL3
+GO
+
+
+-- TEST 4: First Twitter login (no real email -> synthetic) creates user whose userName is the
+--         display name (the @handle), plus a UserExternalLogin row with provider='Twitter'
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL4
+DECLARE @test_name SYSNAME = 'TestOAL4 [spOAuthLoginOrCreateUser] first Twitter login creates user with handle userName';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_TW_0004';
+    DECLARE @email      nvarchar(255) = N'twitter_ut0004@users.fishfind.info';  -- synthetic, supplied by caller
+    DECLARE @handle     nvarchar(64)  = N'CoolAngler';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'Twitter'
+        , @providerUserId = @sub
+        , @email          = @email
+        , @givenName      = @handle      -- caller passes the X display name / @handle here
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = @handle)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with synthetic email and handle userName, got userName=' + ISNULL(@userName,'NULL');
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (
+        SELECT 1 FROM dbo.UserExternalLogin
+        WHERE userId = @userId AND provider = N'Twitter' AND providerUserId = @sub
+          AND lastLoginUtc IS NOT NULL)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Twitter UserExternalLogin row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL4
+GO
+
+
+-- TEST 5: Returning Twitter login (same provider+sub) reuses the user, no duplicate login row,
+--         and a Google login with the SAME sub string stays a separate account (provider-scoped)
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL5
+DECLARE @test_name SYSNAME = 'TestOAL5 [spOAuthLoginOrCreateUser] returning Twitter login reuses user; provider-scoped sub';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub      nvarchar(256) = N'UT_DUP_0005';
+    DECLARE @twMail   nvarchar(255) = N'twitter_ut0005@users.fishfind.info';
+    DECLARE @ggMail   nvarchar(255) = N'ut_oauth_0005@example.com';
+    DECLARE @tw1 uniqueidentifier, @tw2 uniqueidentifier, @gg uniqueidentifier;
+    DECLARE @un nvarchar(256);
+    DECLARE @n1 bit, @n2 bit, @ng bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email IN (@twMail, @ggMail);
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider = N'Twitter', @providerUserId = @sub, @email = @twMail, @givenName = N'TwUser'
+        , @userId = @tw1 OUTPUT, @userName = @un OUTPUT, @isNewUser = @n1 OUTPUT;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider = N'Twitter', @providerUserId = @sub, @email = @twMail, @givenName = N'TwUser'
+        , @userId = @tw2 OUTPUT, @userName = @un OUTPUT, @isNewUser = @n2 OUTPUT;
+
+    -- same sub value but a different provider must NOT collide with the Twitter login
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider = N'Google', @providerUserId = @sub, @email = @ggMail
+        , @userId = @gg OUTPUT, @userName = @un OUTPUT, @isNewUser = @ng OUTPUT;
+
+    IF @n1 <> 1 OR @n2 <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Twitter isNew 1 then 0';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF @tw1 <> @tw2
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected same @userId on repeat Twitter login';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF (SELECT COUNT(*) FROM dbo.UserExternalLogin WHERE provider = N'Twitter' AND providerUserId = @sub) <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected exactly one Twitter external login row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF @ng <> 1 OR @gg = @tw1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Google sub to create a separate user';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL5
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------

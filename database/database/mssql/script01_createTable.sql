@@ -1549,16 +1549,17 @@ INSERT INTO Users (userName, psw, titul, firstName, lastName, email, postal, sub
 GO
 -------------------------------------------------------------------------------------------------------
 --  External OAuth/OIDC logins: ONE row per provider account linked to a Users row.
---  Single table for ALL providers — add Outlook/Apple/Twitter later as new 'provider'
+--  Single table for ALL providers — add Outlook/Apple later as new 'provider'
 --  values with NO schema change. A user may link several providers (many rows -> one userId).
---  Gmail-only for now: the CH_UEL_provider check restricts provider to 'Google'; widen the
---  IN(...) list when another provider is wired up.
+--  Wired up so far: 'Google' and 'Twitter' (see CH_UEL_provider). Widen the IN(...) list
+--  when another provider is added. Twitter/X OAuth2 returns no email, so its rows carry a
+--  synthetic Users.email (twitter_<id>@users.fishfind.info) and the @handle as displayName.
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE UserExternalLogin
 (
     id              uniqueidentifier NOT NULL,
     userId          uniqueidentifier NOT NULL,        -- FK -> Users.id
-    provider        varchar(32)   NOT NULL,           -- 'Google' (later 'Microsoft','Apple','Twitter')
+    provider        varchar(32)   NOT NULL,           -- 'Google','Twitter' (later 'Microsoft','Apple')
     providerUserId  nvarchar(256) NOT NULL,           -- stable subject ('sub') claim from the provider
     email           varchar(128)  NULL,               -- email as seen at this provider
     emailVerified   bit           NULL,
@@ -1576,7 +1577,7 @@ ALTER TABLE UserExternalLogin ADD CONSTRAINT DF_UEL_createdUtc DEFAULT SYSUTCDAT
 GO
 ALTER TABLE UserExternalLogin ADD CONSTRAINT FK_UEL_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
 GO
-ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google'))
+ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google','Twitter'))
 GO
 -- One provider account maps to exactly one row.
 CREATE UNIQUE NONCLUSTERED INDEX UX_UEL_Provider_Sub ON UserExternalLogin(provider, providerUserId)
