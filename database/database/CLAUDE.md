@@ -63,6 +63,23 @@ follow it so the script is re-runnable.
   `script10_Data_limit.sql` are **not** re-runnable as-is (they `CREATE TABLE` / `INSERT` without
   guards) — they are meant for building a fresh database, not for re-applying to a live one.
 
+## OAuth / external logins (`UserExternalLogin`)
+
+OAuth identities live in their own table, **not** in `Users`. `dbo.UserExternalLogin` holds one row
+per `(provider, providerUserId)` and FKs to `Users.id`; `Users.authType` is `'Local'` or `'OAuth'`.
+
+- **Adding a provider** = widen the `CH_UEL_provider` CHECK constraint in `script01_createTable.sql`
+  (`provider IN ('Google','Twitter', …)`). Wired up so far: **Google, Twitter**.
+- **`dbo.spOAuthLoginOrCreateUser`** (in `script02_Proc.sql`) is the single entry point the web app
+  calls for **every** provider — keep its signature stable so no C# change is needed. It looks up by
+  `(provider, providerUserId)`, else links to an existing `Users.email`, else creates the user, then
+  inserts the `UserExternalLogin` link row.
+- **Emailless providers:** every `Users` row needs a unique email, but some providers don't expose one
+  (the **Twitter/X OAuth2 API has no email scope**). The web caller passes a **synthetic**
+  `twitter_<id>@users.fishfind.info` address, and the proc shows the provider **display name / @handle**
+  as `userName` for non-Google providers (Google keeps using the email).
+- Cover any new provider in `mssql/UNIT_TESTS/unit_test@OAuthLogin.sql`.
+
 ## Running the database unit tests
 
 1. `cd mssql\UNIT_TESTS`
