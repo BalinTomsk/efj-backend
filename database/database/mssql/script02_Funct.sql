@@ -1746,7 +1746,7 @@ RETURN
         SELECT l.lat, l.lon, l.lake_name, l.alt_Name, l.county, l.lake_id, l.state, l.country
                 , left(COALESCE(source_loc, mouth_loc), 32) AS [description] 
                 , l.zone, l.IsFish, l.isWell, l.source_name, l.mouth_name, source_lat, source_lon, mouth_lat, mouth_lon, source_loc, mouth_loc, CGNDB
-                , COALESCE(source_loc, mouth_loc, CGNDB) AS guidloc, symbol, reviewed
+                , COALESCE(source_loc, mouth_loc, CGNDB) AS guidloc, symbol, reviewed, l.noFish
             FROM dbo.vw_lake l
             WHERE @state IN (source_state, mouth_state) AND @river = l.locType
             AND ISNULL(isFish,0)  = (CASE WHEN @fish    = 1 THEN 1 ELSE 0 END)
@@ -1756,12 +1756,12 @@ RETURN
                         UNION SELECT lake_id FROm dbo.lake WHERE @section='$'  )
     )SELECT num, lat, lon, lake_name, alt_Name, county, lake_id, state, country, [description], zone
         , IsFish, isWell, source_name, mouth_name, source_lat, source_lon, mouth_lat, mouth_lon, source_loc, mouth_loc, CGNDB, guidloc 
-		, x.cnt  AS itg, sym, reviewed
+		, x.cnt  AS itg, sym, noFish, reviewed
         FROM
         (
             SELECT ROW_NUMBER() Over(Order by (Select 1)) AS num, lat, lon, lake_name, alt_Name, county, lake_id, state
                  , country, [description], zone, IsFish, isWell, source_name, mouth_name, source_lat, source_lon
-                 , mouth_lat, mouth_lon, source_loc, mouth_loc, CGNDB, guidloc, symbol AS sym, reviewed FROM cte
+                 , mouth_lat, mouth_lon, source_loc, mouth_loc, CGNDB, guidloc, symbol AS sym, reviewed, noFish FROM cte
         )z, (SELECT COUNT(*) AS cnt FROM cte)x
         ORDER BY num ASC OFFSET @page * 25 ROWS FETCH NEXT 25 ROWS ONLY
 GO
