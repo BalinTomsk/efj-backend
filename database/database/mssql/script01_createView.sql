@@ -71,6 +71,30 @@ begin
 END
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetCloseLake' AND xtype = 'IF')
+    DROP function dbo.fn_GetCloseLake
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetLakeRegulations' AND xtype = 'IF')
+    DROP function dbo.fn_GetLakeRegulations
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetAllLakeStates' AND xtype = 'IF')
+    DROP function dbo.fn_GetAllLakeStates
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetAllLakeZones' AND xtype = 'IF')
+    DROP function dbo.fn_GetAllLakeZones
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_ViewTributary' AND xtype = 'TF')
+    DROP function dbo.fn_ViewTributary
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_river_list' AND xtype = 'IF')
+    DROP function dbo.fn_river_list
+GO
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_river_sym' AND xtype = 'IF')
+    DROP function dbo.fn_river_sym
+GO
+
+drop VIEW dbo.vw_lake
+GO
 ---- SELECT * FROM dbo.vw_lake WHERE lake_id = '45c0706e-d3aa-47eb-80b1-3f4712817916'
 ---- SELECT * FROM dbo.vw_lake WHERE state='ON' and LEFT(lake_name,1)= 'A'	
 ---- select * from vw_lake where lake_name = 'Seguin River' AND state='ON' 
@@ -78,7 +102,7 @@ GO
 CREATE VIEW dbo.vw_lake
 WITH SCHEMABINDING
 AS 
-    SELECT source_name, mouth_name, isWell, isFish
+    SELECT source_name, mouth_name, isWell, isFish, noFish
         , lake_id, lake_name, symbol
 		, CASE WHEN alt_name = lake_name THEN null ELSE alt_name END AS alt_name
 		, native_name
@@ -121,7 +145,7 @@ AS
         , COALESCE(RTRIM(s.district),     RTRIM(m.district)) AS district
         , COALESCE(RTRIM(s.municipality), RTRIM(m.municipality)) AS municipality
         , COALESCE(RTRIM(s.zone), RTRIM(m.zone)) AS zone
-        , i.lake_image_source, i.lake_image_author, i.lake_image_link, i.lake_image_stamp, l.stamp
+        , i.lake_image_source, i.lake_image_author, i.lake_image_link, i.lake_image_stamp, l.stamp, l.noFish
 		, IIF( COALESCE(m.Tributaries_stamp, '20010101') > COALESCE(s.Tributaries_stamp, '20010101') , COALESCE(m.Tributaries_stamp, '20010101'), COALESCE(s.Tributaries_stamp, '20010101')) AS t_stamp
         , CASE WHEN l.lake_road_access In (s.district, m.district) THEN NULL ELSE l.lake_road_access END AS road_access, l.reviewed
         FROM dbo.lake l  
