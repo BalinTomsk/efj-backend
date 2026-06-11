@@ -4,7 +4,7 @@ PRINT 'Unit tests for spOAuthLoginOrCreateUser / UserExternalLogin'
 PRINT '-----------------------------------------------------------------------------------------------------------------------------'
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
--- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter external login via UserExternalLogin)
+-- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter + LinkedIn + Outlook external login via UserExternalLogin)
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
 -- TEST 1: First Google login creates a Users row AND a linked UserExternalLogin row
@@ -296,5 +296,123 @@ BEGIN CATCH
 END CATCH
 
 ROLLBACK TRAN TestOAL5
+GO
+
+
+-- TEST 6: First LinkedIn login (OIDC: real email + given/family names) creates a user whose
+--         userName is the display name, plus a UserExternalLogin row with provider='LinkedIn'
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL6
+DECLARE @test_name SYSNAME = 'TestOAL6 [spOAuthLoginOrCreateUser] first LinkedIn login creates user with display-name userName';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_LI_0006';
+    DECLARE @email      nvarchar(255) = N'ut_oauth_li@example.com';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'LinkedIn'
+        , @providerUserId = @sub
+        , @email          = @email
+        , @givenName      = N'Linked'
+        , @familyName     = N'Angler'
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'Linked Angler')
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (
+        SELECT 1 FROM dbo.UserExternalLogin
+        WHERE userId = @userId AND provider = N'LinkedIn' AND providerUserId = @sub
+          AND lastLoginUtc IS NOT NULL)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked LinkedIn UserExternalLogin row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL6
+GO
+
+
+-- TEST 7: First Outlook login (OIDC: real email + given/family names via Microsoft Graph)
+--         creates a user whose userName is the display name, plus UserExternalLogin row with provider='Outlook'
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL7
+DECLARE @test_name SYSNAME = 'TestOAL7 [spOAuthLoginOrCreateUser] first Outlook login creates user with display-name userName';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_OL_0007';
+    DECLARE @email      nvarchar(255) = N'ut_outlook_angler@outlook.com';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'Outlook'
+        , @providerUserId = @sub
+        , @email          = @email
+        , @givenName      = N'Outlook'
+        , @familyName     = N'Angler'
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'Outlook Angler')
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (
+        SELECT 1 FROM dbo.UserExternalLogin
+        WHERE userId = @userId AND provider = N'Outlook' AND providerUserId = @sub
+          AND lastLoginUtc IS NOT NULL)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Outlook UserExternalLogin row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL7
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------

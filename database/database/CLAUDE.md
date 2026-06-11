@@ -69,7 +69,7 @@ OAuth identities live in their own table, **not** in `Users`. `dbo.UserExternalL
 per `(provider, providerUserId)` and FKs to `Users.id`; `Users.authType` is `'Local'` or `'OAuth'`.
 
 - **Adding a provider** = widen the `CH_UEL_provider` CHECK constraint in `script01_createTable.sql`
-  (`provider IN ('Google','Twitter', …)`). Wired up so far: **Google, Twitter**.
+  (`provider IN ('Google','Twitter','LinkedIn','Outlook', …)`). Wired up so far: **Google, Twitter, LinkedIn, Outlook**.
 - **`dbo.spOAuthLoginOrCreateUser`** (in `script02_Proc.sql`) is the single entry point the web app
   calls for **every** provider — keep its signature stable so no C# change is needed. It looks up by
   `(provider, providerUserId)`, else links to an existing `Users.email`, else creates the user, then
