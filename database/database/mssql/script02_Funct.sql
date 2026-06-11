@@ -1728,7 +1728,7 @@ GO
     Used in FishTracker.Resources.Water.LoadRiver
 -- DROP  FUNCTION dbo.fn_river_list
 -- used in RiverList
--- SELECT * FROM dbo.fn_river_list( 'ON', 'CA', 1, N'S', 0, 1, 0) where reviewed = 1  ORDER BY lake_name ASC
+-- SELECT * FROM dbo.fn_river_list( 'ON', 'CA', 2, N'R', 0, 1, 0)    ORDER BY lake_name ASC
 -- SELECT * FROM dbo.fn_river_list( 'ON', 'CA', 2, N'$', 0, 0, 0) ORDER BY num ASC
 -- SELECT * FROM dbo.fn_river_list( 'ON', 'CA', '2', N'E', 0, 0 ) ORDER BY lake_name ASC
      SELECT DISTINCT LEFT(lake_name, 1) FROM dbo.fn_river_list( 'ON', 'CA', 2, '$', 1, 0, 0) ORDER BY 1 ASC
@@ -1749,14 +1749,15 @@ RETURN
                 , COALESCE(source_loc, mouth_loc, CGNDB) AS guidloc, symbol, reviewed, l.noFish
             FROM dbo.vw_lake l
             WHERE @state IN (source_state, mouth_state) AND @river = l.locType
-            AND ISNULL(isFish,0)  = (CASE WHEN @fish    = 1 THEN 1 ELSE 0 END)
+            AND (   ISNULL(isFish,0) = (CASE WHEN @fish = 1 THEN 1 ELSE 0 END)
+                 OR (@fish = 0 AND ISNULL(noFish,0) = 1) )
             AND ISNULL(isWell,0)  = (CASE WHEN @monitor = 1 THEN 1 ELSE 0 END)
-            AND l.lake_id IN (SELECT lake_id FROm dbo.lake WHERE symbol in ('0','1','2','3','4','5','6','7','8','9')
-                        UNION SELECT lake_id FROm dbo.lake WHERE symbol=UPPER(@section)
-                        UNION SELECT lake_id FROm dbo.lake WHERE @section='$'  )
+            AND l.lake_id IN (SELECT lake_id FROM dbo.lake WHERE symbol in ('0','1','2','3','4','5','6','7','8','9')
+                        UNION SELECT lake_id FROM dbo.lake WHERE symbol=UPPER(@section)
+                        UNION SELECT lake_id FROM dbo.lake WHERE @section='$'  )
     )SELECT num, lat, lon, lake_name, alt_Name, county, lake_id, state, country, [description], zone
         , IsFish, isWell, source_name, mouth_name, source_lat, source_lon, mouth_lat, mouth_lon, source_loc, mouth_loc, CGNDB, guidloc 
-		, x.cnt  AS itg, sym, noFish, reviewed
+        , x.cnt AS itg, sym, noFish, reviewed
         FROM
         (
             SELECT ROW_NUMBER() Over(Order by (Select 1)) AS num, lat, lon, lake_name, alt_Name, county, lake_id, state

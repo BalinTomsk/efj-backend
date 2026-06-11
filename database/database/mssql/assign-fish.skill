@@ -1,0 +1,12 @@
+1. Click Rivers in the top nav
+2. Click the target river in the list if it does not have plain x in fish column. if on a page all rivers have plain x in fish column then goto the next page. if its a last page then stop processing
+3. Note the river name and mouth name (shown on the river viewer page)
+4. Copy the river's toponymy link: on the viewer page, find the acronym next to the Twitter icon → its URL is https://toponymes.rncan.gc.ca/search-place-names/unique?id=[ACRONYM] 
+5. Search the web for fish species in [River name] — use wiki, Fishbrain or similar; exclude HookandBullet
+6. if could not find fish assign directly to this water body (not to the mouth waterbody) then click on edit then mark checkbox: No Fish press Submit. Now task is finished.  Skip all next items
+7. Click [Edit] → click Fishing tab
+8. For each confirmed fish species:
+  a. Enter the Latin name in the Guid field
+  b. Enter the source URL in the Link field
+  c. Click Add
+

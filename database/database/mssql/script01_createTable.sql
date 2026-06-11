@@ -1551,7 +1551,7 @@ GO
 --  External OAuth/OIDC logins: ONE row per provider account linked to a Users row.
 --  Single table for ALL providers — add Outlook/Apple later as new 'provider'
 --  values with NO schema change. A user may link several providers (many rows -> one userId).
---  Wired up so far: 'Google', 'Twitter', 'LinkedIn' and 'Outlook' (see CH_UEL_provider). Widen the IN(...) list
+--  Wired up so far: 'Google', 'Twitter', 'LinkedIn', 'Outlook' and 'GitHub' (see CH_UEL_provider). Widen the IN(...) list
 --  when another provider is added. Twitter/X OAuth2 returns no email, so its rows carry a
 --  synthetic Users.email (twitter_<id>@users.fishfind.info) and the @handle as displayName.
 -------------------------------------------------------------------------------------------------------
@@ -1559,7 +1559,7 @@ CREATE TABLE UserExternalLogin
 (
     id              uniqueidentifier NOT NULL,
     userId          uniqueidentifier NOT NULL,        -- FK -> Users.id
-    provider        varchar(32)   NOT NULL,           -- 'Google','Twitter','LinkedIn','Outlook' (later 'Apple')
+    provider        varchar(32)   NOT NULL,           -- 'Google','Twitter','LinkedIn','Outlook','GitHub' (later 'Apple')
     providerUserId  nvarchar(256) NOT NULL,           -- stable subject ('sub') claim from the provider
     email           varchar(128)  NULL,               -- email as seen at this provider
     emailVerified   bit           NULL,
@@ -1577,7 +1577,7 @@ ALTER TABLE UserExternalLogin ADD CONSTRAINT DF_UEL_createdUtc DEFAULT SYSUTCDAT
 GO
 ALTER TABLE UserExternalLogin ADD CONSTRAINT FK_UEL_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
 GO
-ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google','Twitter','LinkedIn','Outlook'))
+ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google','Twitter','LinkedIn','Outlook','GitHub'))
 GO
 -- One provider account maps to exactly one row.
 CREATE UNIQUE NONCLUSTERED INDEX UX_UEL_Provider_Sub ON UserExternalLogin(provider, providerUserId)
