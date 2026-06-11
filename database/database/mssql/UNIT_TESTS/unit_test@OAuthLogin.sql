@@ -4,7 +4,7 @@ PRINT 'Unit tests for spOAuthLoginOrCreateUser / UserExternalLogin'
 PRINT '-----------------------------------------------------------------------------------------------------------------------------'
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
--- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter + LinkedIn + Outlook external login via UserExternalLogin)
+-- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter + LinkedIn + Outlook + GitHub external login via UserExternalLogin)
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
 -- TEST 1: First Google login creates a Users row AND a linked UserExternalLogin row
@@ -414,5 +414,64 @@ BEGIN CATCH
 END CATCH
 
 ROLLBACK TRAN TestOAL7
+GO
+
+
+-- TEST 8: First GitHub login (display name split into given/family by the callback)
+--         creates a user whose userName is the display name, plus UserExternalLogin row with provider='GitHub'
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL8
+DECLARE @test_name SYSNAME = 'TestOAL8 [spOAuthLoginOrCreateUser] first GitHub login creates user with display-name userName';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_GH_0008';
+    DECLARE @email      nvarchar(255) = N'ut_oauth_gh@example.com';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'GitHub'
+        , @providerUserId = @sub
+        , @email          = @email
+        , @givenName      = N'GitHub'
+        , @familyName     = N'Angler'
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'GitHub Angler')
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (
+        SELECT 1 FROM dbo.UserExternalLogin
+        WHERE userId = @userId AND provider = N'GitHub' AND providerUserId = @sub
+          AND lastLoginUtc IS NOT NULL)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked GitHub UserExternalLogin row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL8
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
