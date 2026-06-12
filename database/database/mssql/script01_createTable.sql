@@ -1577,13 +1577,40 @@ ALTER TABLE UserExternalLogin ADD CONSTRAINT DF_UEL_createdUtc DEFAULT SYSUTCDAT
 GO
 ALTER TABLE UserExternalLogin ADD CONSTRAINT FK_UEL_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
 GO
-ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google','Twitter','LinkedIn','Outlook','GitHub'))
+ALTER TABLE UserExternalLogin ADD CONSTRAINT CH_UEL_provider CHECK (provider IN ('Google','Twitter','LinkedIn','Outlook','GitHub','Email'))
 GO
 -- One provider account maps to exactly one row.
 CREATE UNIQUE NONCLUSTERED INDEX UX_UEL_Provider_Sub ON UserExternalLogin(provider, providerUserId)
 GO
 -- "all external logins for a user"
 CREATE NONCLUSTERED INDEX IX_UEL_userId ON UserExternalLogin(userId)
+GO
+-------------------------------------------------------------------------------------------------------
+--  One-time magic-link tokens for email sign-in (provider = 'Email' in UserExternalLogin).
+--  StartEmailLogin.aspx INSERTs a row holding SHA-256(token) — the raw token travels only in the
+--  emailed link. EmailCallback.aspx matches by hash, checks expiresUtc, and stamps usedUtc so a
+--  link can be used exactly once. Rows are short-lived garbage; the callback deletes expired ones.
+-------------------------------------------------------------------------------------------------------
+CREATE TABLE EmailLoginToken
+(
+    id          uniqueidentifier NOT NULL,
+    email       varchar(255)  NOT NULL,           -- normalized (lowercased) recipient address
+    tokenHash   binary(32)    NOT NULL,           -- SHA-256 of the raw url-token
+    createdUtc  datetime2     NOT NULL,
+    expiresUtc  datetime2     NOT NULL,
+    usedUtc     datetime2     NULL                -- set on successful sign-in (single use)
+)
+GO
+ALTER TABLE EmailLoginToken ADD CONSTRAINT PK_EmailLoginToken PRIMARY KEY CLUSTERED (id)
+GO
+ALTER TABLE EmailLoginToken ADD CONSTRAINT DF_ELT_id         DEFAULT NEWSEQUENTIALID() FOR id
+GO
+ALTER TABLE EmailLoginToken ADD CONSTRAINT DF_ELT_createdUtc DEFAULT SYSUTCDATETIME()  FOR createdUtc
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_ELT_tokenHash ON EmailLoginToken(tokenHash)
+GO
+-- rate limiting: "most recent token for this email"
+CREATE NONCLUSTERED INDEX IX_ELT_email_created ON EmailLoginToken(email, createdUtc DESC)
 GO
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
