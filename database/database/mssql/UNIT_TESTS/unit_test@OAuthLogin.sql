@@ -474,4 +474,61 @@ END CATCH
 
 ROLLBACK TRAN TestOAL8
 GO
+
+
+-- TEST 9: First Email (magic-link) login: providerUserId IS the address, givenName = local part;
+--         creates a user plus UserExternalLogin row with provider='Email'
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL9
+DECLARE @test_name SYSNAME = 'TestOAL9 [spOAuthLoginOrCreateUser] first Email login creates user keyed by address';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @email      nvarchar(255) = N'ut_magic_angler@example.com';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @email;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'Email'
+        , @providerUserId = @email
+        , @email          = @email
+        , @givenName      = N'ut_magic_angler'
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row for returned @userId/email';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF NOT EXISTS (
+        SELECT 1 FROM dbo.UserExternalLogin
+        WHERE userId = @userId AND provider = N'Email' AND providerUserId = @email
+          AND lastLoginUtc IS NOT NULL)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Email UserExternalLogin row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL9
+GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
