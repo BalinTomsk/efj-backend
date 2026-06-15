@@ -1456,6 +1456,66 @@ BEGIN CATCH
 END CATCH;
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_add_lake_map' AND xtype = 'P')
+    DROP PROCEDURE dbo.sp_add_lake_map
+GO
+
+/******
+ * Used by ~/Editor/LakeMap.aspx to attach a map / document / image / external link to a water body.
+ * The relationship lives on the row itself (lake_map_ownerid), so a water body can own MANY rows.
+ * Dedup is per (owner, hash): the same file/link is stored once per water body, but the same file
+ * may be attached to different water bodies. (Lake PHOTOS live in lake_image, not here.)
+ *
+ *    @lake_id   uniqueidentifier  - the owning water body (lake/river) guid
+ *    @image     varbinary(max)    - the file bytes (0x / empty for an external "Link" entry)
+ *    @type      int               - format code: 0 link, 1 jpg, 2 png, 8 pdf, 9 word, 10 xls, ...
+ *    @kind      int               - editor category: 4 link, 1 map, 2 document, 8 image
+ *    @link      nvarchar          - external URL (the payload for a "Link" entry; metadata otherwise)
+ *    @label     nvarchar          - original file name (drives MIME/extension when served back)
+ *
+ *  Usage:
+ *      EXEC sp_add_lake_map 'fc0d917b-d053-11d8-92e2-080020a0f4c9', 0xFF, 1, 1, N'src', N'author', N'http://x', N'map.jpg', N'loc', 40, -80, N'tag', '2026-01-01'
+ */
+CREATE PROCEDURE [dbo].[sp_add_lake_map]
+    @lake_id uniqueidentifier, @image varbinary(max), @type int, @kind int,
+    @source nvarchar(255), @author nvarchar(255), @link nvarchar(255), @label nvarchar(255),
+    @location nvarchar(255), @lat float, @lon float, @tag nvarchar(255), @stamp nvarchar(255)
+AS
+SET NOCOUNT ON
+BEGIN TRY
+    DECLARE @mapId int;
+    DECLARE @newHash varbinary(256);
+
+    IF @lake_id IS NOT NULL
+    BEGIN
+        -- hash file bytes AND the link text so multiple distinct links (each with empty @image)
+        -- do not collide, while exact repeats of a file or link for the same owner are deduped
+        SET @newHash = HASHBYTES('SHA1', ISNULL(@image, 0x) + CAST(ISNULL(@link, N'') AS varbinary(800)));
+
+        SELECT @mapId = lake_map_id FROM dbo.lake_map
+        WHERE lake_map_ownerid = @lake_id AND lake_map_hash = @newHash;
+
+        IF @mapId IS NULL
+        BEGIN
+            INSERT INTO dbo.lake_map
+                ( lake_map_ownerid, lake_map_pic, lake_map_source, lake_map_author,
+                  lake_map_link, lake_map_label, lake_map_location, lake_map_lat, lake_map_lon,
+                  lake_map_type, lake_map_kind, lake_map_tag, lake_map_hash, lake_map_stamp )
+            VALUES
+                ( @lake_id, ISNULL(@image, 0x), @source, @author,
+                  @link, @label, @location, @lat, @lon,
+                  @type, @kind, @tag, @newHash, @stamp );
+            SET @mapId = SCOPE_IDENTITY();
+        END
+    END
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity,
+           ERROR_STATE() AS ErrorState, ERROR_PROCEDURE() AS ErrorProcedure,
+           ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
+GO
+--------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_PlotSource' AND xtype = 'P')
     DROP PROCEDURE dbo.sp_PlotSource
 GO
