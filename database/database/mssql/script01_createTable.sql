@@ -697,7 +697,7 @@ GO
 CREATE TABLE dbo.lake_image
 (
     lake_image_id int NOT NULL identity(1,1),
-    lake_image_ownerid	uniqueidentifier,        
+    lake_image_ownerid	uniqueidentifier,
     lake_image_pic		varbinary(max) NOT NULL,
     lake_image_source	nvarchar(255) NOT NULL,
     lake_image_author	nvarchar(255) NOT NULL,
@@ -707,17 +707,51 @@ CREATE TABLE dbo.lake_image
     lake_image_lat		float,
     lake_image_lon		float,
 	lake_image_type		int,				-- 0 - link, 1 - jpg, 2 - png, 8 - pdf, 9 - word, 10 - xls
-	lake_image_map      int,                -- 1 - map 
+	lake_image_map      int,                -- 1 - map
     lake_image_tag		nvarchar(256) NULL,
     lake_image_hash		varbinary(256) NOT NULL CONSTRAINT UK_lake_image UNIQUE,  -- hash to prevent duplicates
     lake_image_stamp	datetime2 not null
-) 
+)
 GO
-CREATE UNIQUE INDEX [UX_lake_image_ownerid] ON lake_image (lake_image_ownerid) 
+CREATE UNIQUE INDEX [UX_lake_image_ownerid] ON lake_image (lake_image_ownerid)
 GO
 ALTER TABLE dbo.lake_image ADD CONSTRAINT DEF_lake_image_lake_image_stamp DEFAULT (GETUTCDATE())   FOR lake_image_stamp
 GO
-ALTER TABLE lake_image ADD CONSTRAINT PK_lake_image PRIMARY KEY CLUSTERED (lake_image_id ASC) ON [PRIMARY]    
+ALTER TABLE lake_image ADD CONSTRAINT PK_lake_image PRIMARY KEY CLUSTERED (lake_image_id ASC) ON [PRIMARY]
+GO
+
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- Maps / documents attached to a water body (the Editor "Maps" tab). Separate from
+-- lake_image (which holds lake PHOTOS): a water body can have MANY maps, so the owner
+-- column is NOT unique. Each row is an uploaded file (image, pdf, GIS/office doc) stored
+-- as binary, or an external "Link" entry (lake_map_type = 0, url in lake_map_link).
+-- Uniqueness is per (owner, hash) so the same file can attach to different water bodies
+-- and re-uploading the same file/link to the same water body is a no-op.
+CREATE TABLE dbo.lake_map
+(
+    lake_map_id        int NOT NULL identity(1,1),
+    lake_map_ownerid   uniqueidentifier,
+    lake_map_pic       varbinary(max) NOT NULL,
+    lake_map_source    nvarchar(255) NOT NULL,
+    lake_map_author    nvarchar(255) NOT NULL,
+    lake_map_link      nvarchar(256) NOT NULL,
+    lake_map_label     nvarchar(256) NULL,         -- original file name; drives MIME/extension when served
+    lake_map_location  nvarchar(256) NULL,
+    lake_map_lat       float,
+    lake_map_lon       float,
+    lake_map_type      int,                        -- format: 0 link, 1 jpg, 2 png, 8 pdf, 9 word, 10 xls, 20 kml, ...
+    lake_map_kind      int,                        -- editor category: 4 link, 1 map, 2 document, 8 image
+    lake_map_tag       nvarchar(256) NULL,
+    lake_map_hash      varbinary(256) NOT NULL,
+    lake_map_stamp     datetime2 NOT NULL
+)
+GO
+ALTER TABLE dbo.lake_map ADD CONSTRAINT UK_lake_map UNIQUE (lake_map_ownerid, lake_map_hash)
+GO
+ALTER TABLE dbo.lake_map ADD CONSTRAINT DEF_lake_map_lake_map_stamp DEFAULT (GETUTCDATE()) FOR lake_map_stamp
+GO
+ALTER TABLE dbo.lake_map ADD CONSTRAINT PK_lake_map PRIMARY KEY CLUSTERED (lake_map_id ASC) ON [PRIMARY]
 GO
 
 ------------------------------------------------------------------------------
@@ -2193,8 +2227,12 @@ INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, 
                  VALUES ('lake_fish',  'IUD', 2, '', 'lake_Id,fish_id', 'stamp', '')
 GO
 
-INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception ) 
+INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception )
                  VALUES ('lake_image',  'IUD', 2, '', 'lake_image_id', 'lake_image_stamp', '')
+GO
+
+INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception )
+                 VALUES ('lake_map',    'IUD', 2, '', 'lake_map_id', 'lake_map_stamp', '')
 GO
 
 INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception ) 

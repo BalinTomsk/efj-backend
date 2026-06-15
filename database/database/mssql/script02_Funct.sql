@@ -2102,6 +2102,36 @@ AS
         );
 GO
 ------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_map_handler' AND xtype = 'FN')
+    DROP function dbo.fn_lake_map_handler
+GO
+-- used in ~/Editor/HandlerImage.ashx to serve one attached map/document by id for its owner
+-- SELECT dbo.fn_lake_map_handler( 'fc0d917b-d053-11d8-92e2-080020a0f4c9', 7 )
+CREATE FUNCTION dbo.fn_lake_map_handler( @owner uniqueidentifier, @map_id int )
+RETURNS varbinary(max) WITH SCHEMABINDING
+BEGIN
+    RETURN
+        (SELECT TOP 1 lake_map_pic FROM dbo.lake_map
+            WHERE lake_map_id = @map_id AND lake_map_ownerid = @owner);
+END
+GO
+------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_map_list' AND xtype = 'IF')
+    DROP function dbo.fn_lake_map_list
+GO
+-- used in ~/Editor/LakeMap.aspx to list every map/document/link attached to a water body
+-- SELECT * FROM dbo.fn_lake_map_list( 'fc0d917b-d053-11d8-92e2-080020a0f4c9' )
+CREATE FUNCTION dbo.fn_lake_map_list( @owner uniqueidentifier )
+RETURNS  TABLE
+  WITH SCHEMABINDING
+AS
+  RETURN
+        (SELECT lake_map_id, lake_map_type, lake_map_kind, lake_map_source, lake_map_author,
+                lake_map_link, lake_map_label, lake_map_stamp
+         FROM dbo.lake_map
+         WHERE lake_map_ownerid = @owner);
+GO
+------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_fish_spawn' AND xtype = 'IF')
     DROP function dbo.fn_fish_spawn
 GO
