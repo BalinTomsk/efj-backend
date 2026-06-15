@@ -878,6 +878,52 @@ GO
 ALTER TABLE Lake_State add constraint DF_Lake_State_stamp default(GETUTCDATE()) for stamp
 GO
 ------------------------------------------------------------------------------
+-- Per-column unit / sanity range CHECK constraints for Lake_State.
+--   * Every measurement column is NULLable; a CHECK is satisfied when the value
+--     is NULL, so these only reject OUT-OF-RANGE non-NULL values (a blank field
+--     in the editor stays blank).
+--   * Ranges are physical sanity bounds for each column's unit (see per-line
+--     comments); the upper bounds on dissolved-species columns are deliberately
+--     generous "could this possibly be real water" caps, not typical values.
+--   * CHECK constraints are validated BEFORE the AFTER trigger TR_ui_Lake_State
+--     runs, so e.g. a pH outside 0..14 is now rejected outright instead of being
+--     silently nulled by the trigger. sp_save_lake_state wraps the write in
+--     TRY/CATCH, so a violation surfaces as a failed save ("Failed to save
+--     LakeState"), not an unhandled error.
+--   * cold_cool / flow_stand are bit columns (already limited to 0/1/NULL by the
+--     type), so they need no CHECK.
+-- Idempotent: drop any existing CK_Lake_State_* first, so this block is safe to
+-- re-run and to apply to prod out-of-band. (On prod with pre-existing dirty
+-- rows, add WITH NOCHECK or clean the data first.)
+------------------------------------------------------------------------------
+DECLARE @drop_cks nvarchar(max) = N'';
+SELECT @drop_cks += N'ALTER TABLE dbo.Lake_State DROP CONSTRAINT ' + QUOTENAME(name) + N';' + CHAR(10)
+  FROM sys.check_constraints
+ WHERE parent_object_id = OBJECT_ID(N'dbo.Lake_State')
+   AND name LIKE N'CK\_Lake\_State\_%' ESCAPE N'\';
+IF @drop_cks <> N'' EXEC sys.sp_executesql @drop_cks;
+GO
+
+ALTER TABLE dbo.Lake_State WITH CHECK ADD
+      CONSTRAINT CK_Lake_State_month        CHECK ([month]       BETWEEN 1 AND 12)        -- month of year
+    , CONSTRAINT CK_Lake_State_PH           CHECK (PH            BETWEEN 0 AND 14)        -- pH scale 0..14
+    , CONSTRAINT CK_Lake_State_Phosphorus   CHECK (Phosphorus    BETWEEN 0 AND 10000)     -- mg/L
+    , CONSTRAINT CK_Lake_State_TDS          CHECK (TDS           BETWEEN 0 AND 1000000)   -- mg/L (brines)
+    , CONSTRAINT CK_Lake_State_Conductivity CHECK (Conductivity  BETWEEN 0 AND 2000000)   -- uS/cm
+    , CONSTRAINT CK_Lake_State_Alkalinity   CHECK (Alkalinity    BETWEEN 0 AND 100000)    -- mg/L
+    , CONSTRAINT CK_Lake_State_Hardness     CHECK (Hardness      BETWEEN 0 AND 100000)    -- mg/L
+    , CONSTRAINT CK_Lake_State_Sodium       CHECK (Sodium        BETWEEN 0 AND 1000000)   -- mg/L
+    , CONSTRAINT CK_Lake_State_Chloride     CHECK (Chloride      BETWEEN 0 AND 1000000)   -- mg/L
+    , CONSTRAINT CK_Lake_State_Bicarbonate  CHECK (Bicarbonate   BETWEEN 0 AND 100000)    -- mg/L
+    , CONSTRAINT CK_Lake_State_Transparency CHECK (Transparency  BETWEEN 0 AND 100)       -- m
+    , CONSTRAINT CK_Lake_State_Oxygen       CHECK (Oxygen        BETWEEN 0 AND 50)         -- mg/L (incl. supersaturation)
+    , CONSTRAINT CK_Lake_State_Salinity     CHECK (Salinity      BETWEEN 0 AND 1000000)   -- mg/L
+    , CONSTRAINT CK_Lake_State_Clarity      CHECK (clarity       BETWEEN 0 AND 100)       -- m
+    , CONSTRAINT CK_Lake_State_Velocity     CHECK (velocity      BETWEEN 0 AND 30)         -- m/s
+    , CONSTRAINT CK_Lake_State_water_degree CHECK (water_degree  BETWEEN 0 AND 100)        -- degC (liquid water)
+    , CONSTRAINT CK_Lake_State_air_degree   CHECK (air_degree    BETWEEN -90 AND 60);      -- degC (surface extremes)
+GO
+------------------------------------------------------------------------------
 if object_id('TR_ui_Lake_State') is not null drop TRIGGER dbo.TR_ui_Lake_State
 GO
 
