@@ -823,6 +823,8 @@ CREATE TABLE Lake
     geom        geography,
     symbol      nvarchar(1),            -- first letter of actual name (to speed up search)
     reviewed    bit,                    -- means review manually done by operator
+    fish_type   tinyint,               -- bitmask: 1=sport, 2=commercial, 4=invading, 8=aquarium
+    fish_guid   uniqueidentifier,      -- primary fish species reference (FK to fish)
     CONSTRAINT PK_LAke PRIMARY KEY CLUSTERED (Lake_id),
 ) ;
 GO
@@ -838,6 +840,10 @@ GO
 ALTER TABLE Lake add constraint df_Lake_Id default( NEWSEQUENTIALID() ) for Lake_id
 GO  
 ALTER TABLE Lake add constraint DF_lake_stamp default(getutcdate()) for stamp
+GO
+ALTER TABLE Lake add constraint DF_lake_fish_type default(0) for fish_type
+GO
+ALTER TABLE Lake ADD CONSTRAINT FK_lake_fish_guid FOREIGN KEY (fish_guid) REFERENCES fish(fish_id)
 GO
 CREATE NONCLUSTERED INDEX [idx_Lake_sid] ON Lake (sid)
 GO
