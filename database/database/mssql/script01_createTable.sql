@@ -1782,6 +1782,39 @@ GO
 CREATE NONCLUSTERED INDEX IX_BU_cell  ON BannedUser(cell)
 GO
 -------------------------------------------------------------------------------------------------------
+--  Datacenter / cloud-provider IPv4 ranges (AWS, GCP, Azure, Oracle, DigitalOcean, Alibaba, ...).
+--  Real anglers browse from residential / mobile ISPs; sustained traffic from these hosting networks
+--  is scrapers, bots and headless crawlers. Each published CIDR is expanded to an inclusive numeric
+--  [ipStart, ipEnd] window (a.b.c.d -> a*2^24+b*2^16+c*2^8+d) so a single client IP can be range-matched
+--  with one index seek (see dbo.IsCloudProviderIp). Refreshed out-of-band from the providers' published
+--  range feeds by tools\Update-CloudProviderRanges.ps1 -- this table is data, not hand-maintained.
+--  Ranges across providers are disjoint, which lets the lookup use a TOP 1 ... ORDER BY ipStart DESC seek.
+-------------------------------------------------------------------------------------------------------
+CREATE TABLE CloudProviderIpRange
+(
+    id          uniqueidentifier NOT NULL,
+    provider    varchar(32)   NOT NULL,            -- 'AWS','GCP','Azure','Oracle','DigitalOcean','Alibaba',...
+    cidr        varchar(43)   NOT NULL,            -- source CIDR, e.g. '52.94.76.0/22' (kept for auditing/refresh)
+    ipStart     bigint        NOT NULL,            -- inclusive lower bound (network address as uint32)
+    ipEnd       bigint        NOT NULL,            -- inclusive upper bound (broadcast address as uint32)
+    source      varchar(64)   NULL,               -- feed the row came from (e.g. 'ip-ranges.amazonaws.com')
+    updatedUtc  datetime2     NOT NULL
+)
+GO
+ALTER TABLE CloudProviderIpRange ADD CONSTRAINT PK_CloudProviderIpRange PRIMARY KEY CLUSTERED (id)
+GO
+ALTER TABLE CloudProviderIpRange ADD CONSTRAINT DF_CPIR_id         DEFAULT NEWSEQUENTIALID() FOR id
+GO
+ALTER TABLE CloudProviderIpRange ADD CONSTRAINT DF_CPIR_updatedUtc DEFAULT SYSUTCDATETIME()  FOR updatedUtc
+GO
+ALTER TABLE CloudProviderIpRange ADD CONSTRAINT CK_CPIR_range CHECK (ipEnd >= ipStart AND ipStart >= 0)
+GO
+-- Covering seek index for dbo.IsCloudProviderIp: seek ipStart <= @n, read ipEnd from the index.
+CREATE NONCLUSTERED INDEX IX_CPIR_ipStart ON CloudProviderIpRange(ipStart) INCLUDE (ipEnd)
+GO
+CREATE NONCLUSTERED INDEX IX_CPIR_provider ON CloudProviderIpRange(provider)
+GO
+-------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 CREATE TABLE USPost
 (

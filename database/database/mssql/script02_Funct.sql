@@ -3545,3 +3545,94 @@ END
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_Ipv4ToBigint' AND xtype = 'FN')
+    DROP function dbo.fn_Ipv4ToBigint
+GO
+/*
+    Converts a dotted-quad IPv4 string ('a.b.c.d') to its 32-bit numeric value as a BIGINT
+    (a*2^24 + b*2^16 + c*2^8 + d). Returns NULL for anything that is not a valid IPv4 address
+    (NULL/empty, IPv6, wrong octet count, non-numeric or out-of-range octets). Used to range-match
+    a caller IP against dbo.CloudProviderIpRange. PARSENAME splits on '.' and yields NULL unless
+    there are exactly four parts, which also rejects 5+ part strings.
+*/
+CREATE FUNCTION dbo.fn_Ipv4ToBigint( @ip4 VARCHAR(45) )
+RETURNS BIGINT
+AS
+BEGIN
+    IF (@ip4 IS NULL OR @ip4 = '')
+        RETURN NULL;
+
+    DECLARE @o1 INT = TRY_CONVERT(INT, PARSENAME(@ip4, 4));
+    DECLARE @o2 INT = TRY_CONVERT(INT, PARSENAME(@ip4, 3));
+    DECLARE @o3 INT = TRY_CONVERT(INT, PARSENAME(@ip4, 2));
+    DECLARE @o4 INT = TRY_CONVERT(INT, PARSENAME(@ip4, 1));
+
+    IF (@o1 IS NULL OR @o2 IS NULL OR @o3 IS NULL OR @o4 IS NULL)
+        RETURN NULL;
+    IF (@o1 NOT BETWEEN 0 AND 255 OR @o2 NOT BETWEEN 0 AND 255
+        OR @o3 NOT BETWEEN 0 AND 255 OR @o4 NOT BETWEEN 0 AND 255)
+        RETURN NULL;
+
+    RETURN CAST(@o1 AS BIGINT) * 16777216 + @o2 * 65536 + @o3 * 256 + @o4;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'IsCloudProviderIp' AND xtype = 'FN')
+    DROP function dbo.IsCloudProviderIp
+GO
+/*
+    Returns 1 when @ip4 falls inside any datacenter / cloud-provider range in dbo.CloudProviderIpRange
+    (AWS, GCP, Azure, Oracle, DigitalOcean, Alibaba, ...), otherwise 0. Because the stored ranges are
+    disjoint, the single range that could contain @n is the one with the greatest ipStart <= @n; one
+    index seek (IX_CPIR_ipStart) finds it and we confirm @n <= ipEnd. NULL/invalid IPs return 0.
+
+    Used by Global.asax.cs (via dbo.IsIpBlocked) to refuse requests from hosting networks.
+*/
+CREATE FUNCTION dbo.IsCloudProviderIp( @ip4 VARCHAR(45) )
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @n BIGINT = dbo.fn_Ipv4ToBigint(@ip4);
+
+    IF (@n IS NULL)
+        RETURN 0;
+
+    DECLARE @ipEnd BIGINT;
+
+    SELECT TOP 1 @ipEnd = ipEnd
+    FROM dbo.CloudProviderIpRange
+    WHERE ipStart <= @n
+    ORDER BY ipStart DESC;
+
+    IF (@ipEnd IS NOT NULL AND @ipEnd >= @n)
+        RETURN 1;
+
+    RETURN 0;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'IsIpBlocked' AND xtype = 'FN')
+    DROP function dbo.IsIpBlocked
+GO
+/*
+    Single entry point used by Global.asax.cs BeginRequest to decide whether to refuse a request:
+    returns 1 if the IP is explicitly banned in SessionHandler (manual / rate-limit ban) OR it belongs
+    to a known cloud / datacenter provider range. Keeping both checks behind one scalar means one DB
+    round-trip per request. NULL/invalid/empty IPs return 0.
+*/
+CREATE FUNCTION dbo.IsIpBlocked( @ip4 VARCHAR(45) )
+RETURNS BIT
+AS
+BEGIN
+    IF (dbo.IsIpBanned(@ip4) = 1)
+        RETURN 1;
+    IF (dbo.IsCloudProviderIp(@ip4) = 1)
+        RETURN 1;
+
+    RETURN 0;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
