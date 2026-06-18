@@ -68,6 +68,35 @@ CREATE PROCEDURE dbo.spOAuthLoginOrCreateUser
 AS
 SET NOCOUNT ON
 
+-- Ban enforcement. Done BEFORE the TRY block on purpose: a RAISERROR here propagates to the
+-- caller (the inline OAuth/magic-link callbacks) as a real error, which they surface to the user
+-- as the sign-in failure message. Inside the TRY it would be swallowed by the CATCH below.
+DECLARE @banMsg VARCHAR(200) =
+    'Your Fish Find account has been suspended. If you believe this is a mistake, contact support.';
+DECLARE @banEmail VARCHAR(128) = LEFT(NULLIF(LTRIM(RTRIM(@email)), N''), 128);
+
+-- (a) the email being signed in with is banned
+IF @banEmail IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.BannedUser b WHERE b.email = @banEmail)
+BEGIN
+    RAISERROR(@banMsg, 16, 1);
+    RETURN;
+END
+
+-- (b) a returning account (this provider+sub) whose stored email or phone is banned
+IF EXISTS (
+    SELECT 1
+    FROM dbo.UserExternalLogin l
+    INNER JOIN dbo.Users u ON u.id = l.userId
+    INNER JOIN dbo.BannedUser b
+        ON b.email = u.email OR (b.cell IS NOT NULL AND b.cell = u.cell)
+    WHERE l.provider = NULLIF(LTRIM(RTRIM(@provider)), N'')
+      AND l.providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'')
+)
+BEGIN
+    RAISERROR(@banMsg, 16, 1);
+    RETURN;
+END
+
 BEGIN TRY
     SET @userId = NULL;
     SET @userName = NULL;
@@ -118,6 +147,18 @@ BEGIN TRY
          WHERE provider = @provider
            AND providerUserId = @providerUserId;
 
+        -- Self-heal: early Google logins stored the email as userName. If this user's
+        -- userName is still exactly their email (i.e. never customized) and the provider
+        -- now gives a real name, upgrade the userName to the display name on this login.
+        IF DATALENGTH(@displayName) >= 3 AND @userName = @email
+        BEGIN
+            UPDATE dbo.Users
+               SET userName = LEFT(@displayName, 64)
+             WHERE id = @userId AND userName = @email;
+
+            SET @userName = LEFT(@displayName, 64);
+        END
+
         SET @isNewUser = 0;
         RETURN;
     END
@@ -136,10 +177,10 @@ BEGIN TRY
     BEGIN
         SET @userId = NEWID();
 
-        -- For providers whose email is synthetic (Twitter/X), show the provider display
-        -- name (the @handle / real name) as the userName instead of the fake address.
-        -- Google keeps using the email, exactly as before.
-        IF @provider <> N'Google' AND DATALENGTH(@displayName) >= 3
+        -- Show the provider's real display name (first + last, or @handle for X) as the
+        -- userName for every provider. Fall back to the email only when the provider gave
+        -- no usable name.
+        IF DATALENGTH(@displayName) >= 3
             SET @userName = LEFT(@displayName, 64);
         ELSE
             SET @userName = @email;

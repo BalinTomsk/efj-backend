@@ -76,8 +76,11 @@ per `(provider, providerUserId)` and FKs to `Users.id`; `Users.authType` is `'Lo
   inserts the `UserExternalLogin` link row.
 - **Emailless providers:** every `Users` row needs a unique email, but some providers don't expose one
   (the **Twitter/X OAuth2 API has no email scope**). The web caller passes a **synthetic**
-  `twitter_<id>@users.fishfind.info` address, and the proc shows the provider **display name / @handle**
-  as `userName` for non-Google providers (Google keeps using the email).
+  `twitter_<id>@users.fishfind.info` address. The proc sets `userName` to the provider's
+  **display name** (`@givenName` + `@familyName`, or the @handle for X) for **every** provider,
+  including Google, falling back to the email only when no name is supplied. A returning login
+  also **self-heals** a `userName` still stored as the email (legacy Google rows) to the display
+  name. (Until 2026-06-13 Google was special-cased to keep the email as `userName`.)
 - Cover any new provider in `mssql/UNIT_TESTS/unit_test@OAuthLogin.sql`.
 
 ## Running the database unit tests
