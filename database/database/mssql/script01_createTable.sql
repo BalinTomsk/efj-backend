@@ -1375,10 +1375,15 @@ CREATE TABLE lake_fish
 	status       tinyint,                      -- 1 - at risk
 	method       nvarchar(max),                -- how to fish
     last_catch   datetime, 
-    stamp        datetime2
+    stamp        datetime2,
+    lake_fish_id uniqueidentifier NOT NULL
 );
 GO
 
+ALTER TABLE dbo.lake_fish ADD CONSTRAINT DF_lake_fish_lake_fish_id DEFAULT NEWSEQUENTIALID() FOR lake_fish_id;
+GO
+CREATE NONCLUSTERED INDEX IDX_lake_fish_id ON [dbo].[lake_fish] (lake_fish_id) 
+GO
 ALTER TABLE lake_fish ADD PRIMARY KEY (lake_Id, fish_Id, probability);
 GO
 ALTER TABLE lake_fish add constraint DF_lake_fish_created default getutcdate() for created
@@ -1388,6 +1393,9 @@ GO
 ALTER TABLE lake_fish add constraint DF_lake_fish_stamp default(getutcdate()) for stamp
 GO
 CREATE NONCLUSTERED INDEX IDX_lake_fish_p4f ON [dbo].[lake_fish] ([fish_id]) INCLUDE ([created],[link],[probability_source_type],[spawn],[sid],[tributaries],[forbidden],[Distribution],[note],[status],[method],[stamp])
+GO
+-- Fix #2: added UNIQUE constraint on lake_fish_id so FK in lake_bytefish can reference it
+ALTER TABLE dbo.lake_fish ADD CONSTRAINT UQ_lake_fish_lake_fish_id UNIQUE (lake_fish_id);
 GO
 
 CREATE TRIGGER TR_insLakes_Fish ON lake_fish
@@ -1409,6 +1417,23 @@ BEGIN    -- single row
 
   UPDATE l SET [IsFish] = 1 FROM lake l JOIN INSERTED i ON l.lake_id=i.lake_id
 END
+GO
+
+--------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
+ 
+-- Table to store byte fish for a lake entry; each record holds 3 byte fish GUIDs for a given month.
+-- Has relations between lake fish records and their associated byte fish per month.
+CREATE TABLE dbo.lake_bytefish
+(
+    lake_fish_id uniqueidentifier NOT NULL,    -- linked to lake_fish.lake_fish_id 
+    month        int              NOT NULL,    -- month of year
+    bytefish1_id uniqueidentifier NOT NULL,    -- actual byte fish guid
+    bytefish2_id uniqueidentifier NOT NULL,    -- actual byte fish guid
+    bytefish3_id uniqueidentifier NOT NULL,    -- actual byte fish guid
+    CONSTRAINT [PK_lake_bytefish] PRIMARY KEY CLUSTERED (lake_fish_id, month),
+    CONSTRAINT FK_lake_bytefish  FOREIGN KEY (lake_fish_id) REFERENCES dbo.lake_fish(lake_fish_id) ON DELETE CASCADE
+);
 GO
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
@@ -1622,7 +1647,7 @@ ALTER TABLE Users add constraint df_USer_authType default('Local') for authType;
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UK_Users_Email ON Users(email);
 GO
-ALTER TABLE users ADD CONSTRAINT CH_users_email CHECK ( datalength(email) >= 6 and email not like '%@%@%' and email not like '%[^a-zA-Z0-9_.-@]%');
+ALTER TABLE users ADD CONSTRAINT CH_users_email CHECK ( datalength(email) >= 6 and email not like '%@%@%' and email not like '%[^a-zA-Z0-9_.+@-]%');
 GO
 ALTER TABLE users ADD CONSTRAINT CH_users_userName CHECK (DATALENGTH(userName) >= 3);
 GO
@@ -1697,6 +1722,64 @@ CREATE UNIQUE NONCLUSTERED INDEX UX_ELT_tokenHash ON EmailLoginToken(tokenHash)
 GO
 -- rate limiting: "most recent token for this email"
 CREATE NONCLUSTERED INDEX IX_ELT_email_created ON EmailLoginToken(email, createdUtc DESC)
+GO
+-------------------------------------------------------------------------------------------------------
+--  Pending email-change verifications. When a user changes their email on Account/Profile.aspx the
+--  new address is NOT written to Users straight away: a row holding SHA-256(token) + the proposed
+--  newEmail is inserted here and a confirmation link is mailed to the NEW address. Account/
+--  ConfirmEmail.aspx matches by hash, checks expiresUtc (created + 3 days) and usedUtc, then commits
+--  Users.email = newEmail. This proves the user controls the new mailbox before the change takes effect.
+-------------------------------------------------------------------------------------------------------
+CREATE TABLE EmailChangeToken
+(
+    id          uniqueidentifier NOT NULL,
+    userId      uniqueidentifier NOT NULL,        -- FK -> Users.id (whose email is changing)
+    newEmail    varchar(128)  NOT NULL,           -- the proposed new address (not yet on Users)
+    tokenHash   binary(32)    NOT NULL,           -- SHA-256 of the raw url-token
+    createdUtc  datetime2     NOT NULL,
+    expiresUtc  datetime2     NOT NULL,           -- createdUtc + 3 days
+    usedUtc     datetime2     NULL                -- set when the change is committed (single use)
+)
+GO
+ALTER TABLE EmailChangeToken ADD CONSTRAINT PK_EmailChangeToken PRIMARY KEY CLUSTERED (id)
+GO
+ALTER TABLE EmailChangeToken ADD CONSTRAINT DF_ECT_id         DEFAULT NEWSEQUENTIALID() FOR id
+GO
+ALTER TABLE EmailChangeToken ADD CONSTRAINT DF_ECT_createdUtc DEFAULT SYSUTCDATETIME()  FOR createdUtc
+GO
+ALTER TABLE EmailChangeToken ADD CONSTRAINT FK_ECT_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_ECT_tokenHash ON EmailChangeToken(tokenHash)
+GO
+-- "pending changes for this user" (to clear superseded ones)
+CREATE NONCLUSTERED INDEX IX_ECT_userId ON EmailChangeToken(userId)
+GO
+-------------------------------------------------------------------------------------------------------
+--  Banned identities. An admin "ban" records the user's email and phone here; spOAuthLoginOrCreateUser
+--  refuses any sign-in whose email — or whose existing account's email/phone — matches a row, and the
+--  profile page refuses to set a banned email/phone. Deliberately NO FK to Users: the ban must outlive
+--  deletion of the Users row so the same email/phone can't simply re-register.
+-------------------------------------------------------------------------------------------------------
+CREATE TABLE BannedUser
+(
+    id          uniqueidentifier NOT NULL,
+    userId      uniqueidentifier NULL,            -- original user id (informational, no FK)
+    email       varchar(128)  NULL,               -- banned email
+    cell        bigint        NULL,               -- banned phone
+    reason      nvarchar(256) NULL,
+    bannedBy    uniqueidentifier NULL,            -- admin who applied the ban
+    bannedUtc   datetime2     NOT NULL
+)
+GO
+ALTER TABLE BannedUser ADD CONSTRAINT PK_BannedUser PRIMARY KEY CLUSTERED (id)
+GO
+ALTER TABLE BannedUser ADD CONSTRAINT DF_BU_id        DEFAULT NEWSEQUENTIALID() FOR id
+GO
+ALTER TABLE BannedUser ADD CONSTRAINT DF_BU_bannedUtc DEFAULT SYSUTCDATETIME()  FOR bannedUtc
+GO
+CREATE NONCLUSTERED INDEX IX_BU_email ON BannedUser(email)
+GO
+CREATE NONCLUSTERED INDEX IX_BU_cell  ON BannedUser(cell)
 GO
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------

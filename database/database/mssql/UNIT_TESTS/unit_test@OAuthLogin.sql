@@ -531,4 +531,129 @@ END CATCH
 
 ROLLBACK TRAN TestOAL9
 GO
+
+
+-- TEST 10: Google userName uses the real display name (not the email), and a returning login
+--          self-heals a userName that was previously stored as the email.
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL10
+DECLARE @test_name SYSNAME = 'TestOAL10 [spOAuthLoginOrCreateUser] Google userName is display name + self-heals email userName';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_GG_0010';
+    DECLARE @email      nvarchar(255) = N'ut_google_name@example.com';
+    DECLARE @userId     uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    -- First Google login: userName should be the display name "Anton Fulton", not the email.
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider       = N'Google'
+        , @providerUserId = @sub
+        , @email          = @email
+        , @givenName      = N'Anton'
+        , @familyName     = N'Fulton'
+        , @userId         = @userId   OUTPUT
+        , @userName       = @userName OUTPUT
+        , @isNewUser      = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1 OR @userName <> N'Anton Fulton'
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected new user with userName=''Anton Fulton'', got userName=' + ISNULL(@userName,'NULL');
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+    BEGIN
+        -- Simulate a legacy row whose userName was stored as the email, then log in again.
+        UPDATE dbo.Users SET userName = @email WHERE id = @userId;
+
+        EXEC dbo.spOAuthLoginOrCreateUser
+              @provider       = N'Google'
+            , @providerUserId = @sub
+            , @email          = @email
+            , @givenName      = N'Anton'
+            , @familyName     = N'Fulton'
+            , @userId         = @userId   OUTPUT
+            , @userName       = @userName OUTPUT
+            , @isNewUser      = @isNewUser OUTPUT;
+
+        IF @isNewUser <> 0 OR @userName <> N'Anton Fulton'
+        BEGIN
+            SET @fail_message = 'FAILED: ' + @test_name + ' expected returning login to self-heal userName to ''Anton Fulton'', got userName=' + ISNULL(@userName,'NULL');
+            RAISERROR(@fail_message, 16, 1);
+        END
+        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND userName = N'Anton Fulton')
+        BEGIN
+            SET @fail_message = 'FAILED: ' + @test_name + ' expected Users.userName persisted as ''Anton Fulton''';
+            RAISERROR(@fail_message, 16, 1);
+        END
+        ELSE
+            PRINT 'PASSED ' + @test_name;
+    END
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL10
+GO
+
+
+-- TEST 11: A banned email is refused at sign-in (proc raises an error) and creates no user.
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL11
+DECLARE @test_name SYSNAME = 'TestOAL11 [spOAuthLoginOrCreateUser] banned email is refused, no user created';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @email     nvarchar(255) = N'ut_banned_user@example.com';
+    DECLARE @sub       nvarchar(256) = N'UT_BAN_0011';
+    DECLARE @uid       uniqueidentifier, @un nvarchar(256), @new bit;
+    DECLARE @raised    bit = 0;
+
+    DELETE FROM dbo.BannedUser WHERE email = @email;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    INSERT INTO dbo.BannedUser (email) VALUES (@email);
+
+    BEGIN TRY
+        EXEC dbo.spOAuthLoginOrCreateUser
+              @provider = N'Google', @providerUserId = @sub, @email = @email
+            , @givenName = N'Banned', @familyName = N'User'
+            , @userId = @uid OUTPUT, @userName = @un OUTPUT, @isNewUser = @new OUTPUT;
+    END TRY
+    BEGIN CATCH
+        SET @raised = 1;   -- expected: the proc raised the ban error
+    END CATCH
+
+    IF @raised <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected the proc to raise a ban error';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE IF EXISTS (SELECT 1 FROM dbo.Users WHERE email = @email)
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' a banned sign-in must NOT create a Users row';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL11
+GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
