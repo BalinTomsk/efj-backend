@@ -102,12 +102,15 @@ function Get-Json {
 }
 
 function Get-AwsPrefixes      { (Get-Json 'https://ip-ranges.amazonaws.com/ip-ranges.json').prefixes  | ForEach-Object { $_.ip_prefix } }
-function Get-GcpPrefixes      { (Get-Json 'https://www.gstatic.com/ipranges/cloud.json').prefixes      | ForEach-Object { $_.ipv4Prefix } | Where-Object { $_ } }
+# StrictMode-safe: IPv6-only entries have no 'ipv4Prefix' property, so guard before reading it.
+function Get-GcpPrefixes      { (Get-Json 'https://www.gstatic.com/ipranges/cloud.json').prefixes      | ForEach-Object { if ($_.PSObject.Properties['ipv4Prefix']) { $_.ipv4Prefix } } }
 function Get-OraclePrefixes   { (Get-Json 'https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json').regions | ForEach-Object { $_.cidrs } | ForEach-Object { $_.cidr } }
 
 function Get-DigitalOceanPrefixes {
-    $csv = Invoke-WebRequest -Uri 'https://www.digitalocean.com/geo/google.csv' -UseBasicParsing -TimeoutSec 60
-    foreach ($line in ($csv.Content -split "`n")) {
+    $resp = Invoke-WebRequest -Uri 'https://www.digitalocean.com/geo/google.csv' -UseBasicParsing -TimeoutSec 60
+    # Content arrives as a byte[] when the server sends no text content-type; decode before splitting.
+    $text = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
+    foreach ($line in ($text -split "`n")) {
         $first = ($line -split ',')[0].Trim()
         if ($first) { $first }
     }
