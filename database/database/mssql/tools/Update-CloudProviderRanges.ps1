@@ -220,8 +220,21 @@ $conn = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
 $conn.Open()
 $tx = $conn.BeginTransaction('RefreshCloudRanges')
 try {
-    # Delete only the providers we successfully refreshed.
     $names = ($refreshed | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
+
+    # Preserve manual 'disabled' overrides: remember which (provider, cidr) rows an operator marked
+    # disabled = 1 for the providers we're about to replace, so the DELETE+reinsert doesn't silently
+    # re-enable a range that was intentionally excluded from blocking.
+    $keep = New-Object System.Data.DataTable
+    [void]$keep.Columns.Add('provider', [string])
+    [void]$keep.Columns.Add('cidr',     [string])
+    $sel = $conn.CreateCommand(); $sel.Transaction = $tx
+    $sel.CommandText = "SELECT provider, cidr FROM dbo.CloudProviderIpRange WHERE disabled = 1 AND provider IN ($names)"
+    $rdr = $sel.ExecuteReader()
+    while ($rdr.Read()) { $kr = $keep.NewRow(); $kr['provider'] = $rdr.GetString(0); $kr['cidr'] = $rdr.GetString(1); $keep.Rows.Add($kr) }
+    $rdr.Close()
+
+    # Delete only the providers we successfully refreshed.
     $del = $conn.CreateCommand()
     $del.Transaction = $tx
     $del.CommandText = "DELETE FROM dbo.CloudProviderIpRange WHERE provider IN ($names)"
@@ -229,12 +242,28 @@ try {
     Write-Host ''
     Write-Host "Deleted $deleted stale row(s) for: $($refreshed -join ', ')"
 
+    # Reinsert (disabled defaults to 0 for the fresh rows; unmapped column takes its DB default).
     $bulk = New-Object System.Data.SqlClient.SqlBulkCopy($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
     $bulk.DestinationTableName = 'dbo.CloudProviderIpRange'
     $bulk.BatchSize = 5000
     $bulk.BulkCopyTimeout = 120
     foreach ($c in $table.Columns) { [void]$bulk.ColumnMappings.Add($c.ColumnName, $c.ColumnName) }
     $bulk.WriteToServer($table)
+
+    # Re-apply the preserved 'disabled' flags to any (provider, cidr) that still exists.
+    if ($keep.Rows.Count -gt 0) {
+        $crt = $conn.CreateCommand(); $crt.Transaction = $tx
+        $crt.CommandText = 'CREATE TABLE #cpir_keep (provider varchar(32) NOT NULL, cidr varchar(43) NOT NULL)'
+        [void]$crt.ExecuteNonQuery()
+        $kb = New-Object System.Data.SqlClient.SqlBulkCopy($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
+        $kb.DestinationTableName = '#cpir_keep'
+        [void]$kb.ColumnMappings.Add('provider', 'provider'); [void]$kb.ColumnMappings.Add('cidr', 'cidr')
+        $kb.WriteToServer($keep)
+        $upd = $conn.CreateCommand(); $upd.Transaction = $tx
+        $upd.CommandText = 'UPDATE c SET disabled = 1 FROM dbo.CloudProviderIpRange c JOIN #cpir_keep k ON c.provider = k.provider AND c.cidr = k.cidr; DROP TABLE #cpir_keep;'
+        $reapplied = $upd.ExecuteNonQuery()
+        Write-Host "Re-applied 'disabled' override to $reapplied row(s)."
+    }
 
     $tx.Commit()
     Write-Host "Inserted $($table.Rows.Count) row(s). Commit OK."

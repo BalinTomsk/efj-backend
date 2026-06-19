@@ -1798,7 +1798,8 @@ CREATE TABLE CloudProviderIpRange
     ipStart     bigint        NOT NULL,            -- inclusive lower bound (network address as uint32)
     ipEnd       bigint        NOT NULL,            -- inclusive upper bound (broadcast address as uint32)
     source      varchar(64)   NULL,               -- feed the row came from (e.g. 'ip-ranges.amazonaws.com')
-    updatedUtc  datetime2     NOT NULL
+    updatedUtc  datetime2     NOT NULL,
+    disabled    bit           NOT NULL             -- 1 = manual override: keep the row but DON'T block it
 )
 GO
 ALTER TABLE CloudProviderIpRange ADD CONSTRAINT PK_CloudProviderIpRange PRIMARY KEY CLUSTERED (id)
@@ -1807,10 +1808,14 @@ ALTER TABLE CloudProviderIpRange ADD CONSTRAINT DF_CPIR_id         DEFAULT NEWSE
 GO
 ALTER TABLE CloudProviderIpRange ADD CONSTRAINT DF_CPIR_updatedUtc DEFAULT SYSUTCDATETIME()  FOR updatedUtc
 GO
+ALTER TABLE CloudProviderIpRange ADD CONSTRAINT DF_CPIR_disabled   DEFAULT (0)               FOR disabled
+GO
 ALTER TABLE CloudProviderIpRange ADD CONSTRAINT CK_CPIR_range CHECK (ipEnd >= ipStart AND ipStart >= 0)
 GO
 -- Covering seek index for dbo.IsCloudProviderIp: seek ipStart <= @n, read ipEnd from the index.
-CREATE NONCLUSTERED INDEX IX_CPIR_ipStart ON CloudProviderIpRange(ipStart) INCLUDE (ipEnd)
+-- Filtered on disabled = 0 so a manually disabled range is invisible to the block lookup AND the
+-- seek stays a clean single-row hit (the function always filters disabled = 0).
+CREATE NONCLUSTERED INDEX IX_CPIR_ipStart ON CloudProviderIpRange(ipStart) INCLUDE (ipEnd) WHERE disabled = 0
 GO
 CREATE NONCLUSTERED INDEX IX_CPIR_provider ON CloudProviderIpRange(provider)
 GO
