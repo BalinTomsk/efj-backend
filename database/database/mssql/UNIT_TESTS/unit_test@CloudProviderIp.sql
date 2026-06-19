@@ -359,4 +359,78 @@ END CATCH
 
 ROLLBACK TRAN TestBLK11
 GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- Unit tests for the 'disabled' override column
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+-- TEST 12: A disabled range does NOT block; flipping it back on does
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestDIS12
+DECLARE @test_name SYSNAME = 'TestDIS12 [IsCloudProviderIp] disabled=1 range is excluded, disabled=0 included';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.CloudProviderIpRange WHERE provider = 'UT_PROVIDER';
+
+    INSERT INTO dbo.CloudProviderIpRange (provider, cidr, ipStart, ipEnd, source, disabled)
+    VALUES ('UT_PROVIDER', '203.0.113.0/24', dbo.fn_Ipv4ToBigint('203.0.113.0'), dbo.fn_Ipv4ToBigint('203.0.113.255'), 'unit-test', 1);
+
+    IF dbo.IsCloudProviderIp('203.0.113.50') <> 0
+        SET @fail_message = 'disabled=1 range should not match (expected 0)';
+    ELSE
+    BEGIN
+        UPDATE dbo.CloudProviderIpRange SET disabled = 0 WHERE provider = 'UT_PROVIDER';
+        IF dbo.IsCloudProviderIp('203.0.113.50') <> 1
+            SET @fail_message = 're-enabled range should match (expected 1)';
+    END
+
+    IF @fail_message IS NOT NULL
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' ' + @fail_message;
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestDIS12
+GO
+
+-- TEST 13: IsIpBlocked also honors the disabled override (no manual ban present)
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestDIS13
+DECLARE @test_name SYSNAME = 'TestDIS13 [IsIpBlocked] returns 0 when the only matching range is disabled';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DELETE FROM dbo.CloudProviderIpRange WHERE provider = 'UT_PROVIDER';
+    DELETE FROM dbo.SessionHandler       WHERE ip4 = '203.0.113.99';
+
+    INSERT INTO dbo.CloudProviderIpRange (provider, cidr, ipStart, ipEnd, source, disabled)
+    VALUES ('UT_PROVIDER', '203.0.113.0/24', dbo.fn_Ipv4ToBigint('203.0.113.0'), dbo.fn_Ipv4ToBigint('203.0.113.255'), 'unit-test', 1);
+
+    IF dbo.IsIpBlocked('203.0.113.99') <> 0
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' expected 0 (range disabled, not banned)';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+        PRINT 'PASSED ' + @test_name;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestDIS13
+GO
 -----------------------------------------------------------------------------------------------------------------------------------------------

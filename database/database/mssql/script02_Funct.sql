@@ -3600,9 +3600,12 @@ BEGIN
 
     DECLARE @ipEnd BIGINT;
 
+    -- disabled = 0 only: a manually disabled range is excluded from blocking. Ranges are disjoint,
+    -- so if the one range that could contain @n is disabled, no other (lower) enabled range covers it.
     SELECT TOP 1 @ipEnd = ipEnd
     FROM dbo.CloudProviderIpRange
     WHERE ipStart <= @n
+      AND disabled = 0
     ORDER BY ipStart DESC;
 
     IF (@ipEnd IS NOT NULL AND @ipEnd >= @n)
