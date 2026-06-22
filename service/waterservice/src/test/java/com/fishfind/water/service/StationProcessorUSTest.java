@@ -9,6 +9,8 @@ import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -155,6 +157,35 @@ class StationProcessorUSTest {
                         "<root><a d=\"2026-03-23\" v=\"152\" /><a d=\"2026-03-24\" v=\"160\" /></root>"
                 )
         ), series);
+    }
+
+    @Test
+    void parseRejectsXxePayloadInsteadOfExpandingEntities() throws Exception {
+        // Classic XXE: a DOCTYPE declaring an external entity that, if expanded, would read a local file.
+        String maliciousXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE timeSeriesResponse [
+                  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+                ]>
+                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
+                  <ns1:timeSeries name="USGS:00000000:00060:00000">
+                    <ns1:variable>
+                      <ns1:variableName>Discharge &xxe;, ft</ns1:variableName>
+                    </ns1:variable>
+                  </ns1:timeSeries>
+                </ns1:timeSeriesResponse>
+                """;
+
+        Exception thrown = assertThrows(Exception.class, () -> invokePrivate(
+                "parse",
+                new Class<?>[]{String.class},
+                maliciousXml
+        ));
+
+        Throwable cause = thrown instanceof java.lang.reflect.InvocationTargetException ite ? ite.getCause() : thrown;
+        // disallow-doctype-decl makes the parser reject the document outright (it never expands the entity).
+        assertTrue(cause instanceof org.xml.sax.SAXParseException,
+                "expected the hardened parser to reject the DOCTYPE, got: " + cause);
     }
 
     private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {

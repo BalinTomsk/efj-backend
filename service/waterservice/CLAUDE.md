@@ -39,7 +39,7 @@ Explicitly follows database schema at:
 | Service name | `water-station-pusher` |
 | Language | Java 21 |
 | Build | Maven |
-| Framework | Spring Boot 3.2.x |
+| Framework | Spring Boot 3.3.x |
 | Main class | `com.fishfind.water.WaterStationPusherApplication` |
 
 ---
@@ -101,6 +101,8 @@ src/main/java/com/fishfind/water/service/StationWorker.java
 src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java
 src/main/java/com/fishfind/water/service/StationPostProcessingService.java
 src/main/java/com/fishfind/water/web/HealthController.java
+src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java
+src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
 .env.example          (project root, placeholder values only)
@@ -128,11 +130,17 @@ Dockerfile
 
 ## Startup / credential loading
 
-1. On startup, **before Spring initialises**, read `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` from environment variables or JVM system properties.
-2. If any are missing, attempt to load from a `.env` file:
-   - Default location: project root.
-   - Override with `DOTENV_PATH` env var.
-3. Copy any values loaded from dotenv into JVM system properties so Spring's `${...}` placeholders resolve.
+1. `main()` only calls `SpringApplication.run`. Credential loading is handled by a Spring
+   `EnvironmentPostProcessor` (`com.fishfind.water.config.DotenvEnvironmentPostProcessor`), registered in
+   `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`.
+2. Spring resolves `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` from the process environment / JVM system properties.
+3. For local dev, the post-processor loads a `.env` file and registers it as the **lowest-precedence** property
+   source (`addLast`):
+   - Default location: project root; override with `DOTENV_PATH` env var.
+   - Only keys declared in the file are imported (`Dotenv.Filter.DECLARED_IN_ENV_FILE`).
+   - Real env vars / system properties always win over `.env`.
+4. **SECURITY:** credentials are **never** copied into JVM-global system properties (no `System.setProperty`),
+   so they cannot leak via `System.getProperties()`, heap dumps, or diagnostic tooling.
 
 ---
 
@@ -244,6 +252,10 @@ water:
 - Parse USGS WaterML into one stored-procedure payload per variable (`UsSeriesReading`).
 - Preserve variable metadata and XML payload content.
 - Reduce values to **daily entries** before building the stored-procedure payload.
+- **SECURITY (XXE):** WaterML is untrusted input. Harden `DocumentBuilderFactory` + `XPathFactory` before
+  parsing — enable `FEATURE_SECURE_PROCESSING`, set `disallow-doctype-decl=true`, disable external
+  general/parameter entities and external DTD loading, `setXIncludeAware(false)`,
+  `setExpandEntityReferences(false)`. A DOCTYPE/entity payload must be rejected, never expanded.
 
 ---
 
@@ -348,6 +360,14 @@ CMD java $JAVA_OPTS -jar /app/water-station-pusher.jar
 
 - Do **not** bake the real `.env` into the image or jar resources.
 - `.dockerignore` must exclude `.env`, secrets, and local build artifacts.
+- **SECURITY:** both base images are pinned by digest (`image@sha256:...`) with the human-readable tag in a
+  comment; the runtime runs as a non-root user (`USER 10001:10001`) with `/app/logs` pre-created and owned by
+  that user (read-only-rootfs friendly — mount a volume/tmpfs at `/app/logs`).
+
+## Dependency scanning
+
+- OWASP Dependency-Check runs via a Maven `security` profile: `mvn -Psecurity verify` (kept out of the default
+  lifecycle). Fails on CVSS ≥ 7; set `NVD_API_KEY` for fast NVD updates.
 
 ---
 
