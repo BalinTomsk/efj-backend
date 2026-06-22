@@ -35,6 +35,11 @@ OWMService/Res/OWMService.reg
 **/.claude/settings.local.json
 
 ############################
+# Claude Code project skills (local tooling, not part of the service)
+############################
+**/.claude/skills/
+
+############################
 # Application secrets
 ############################
 secret/waterservice.secret
