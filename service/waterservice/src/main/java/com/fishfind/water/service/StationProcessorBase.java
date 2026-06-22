@@ -9,11 +9,19 @@ import java.io.FileNotFoundException;
  */
 public abstract class StationProcessorBase {
 
-    public final void process(String mli, String state, int tz) {
+    /**
+     * Processes a single station, converting any failure into a logged, handled outcome.
+     *
+     * @return {@code true} when the station was processed without error; {@code false} when an exception
+     *         was handled (e.g. a failure or an unpublished/skipped source)
+     */
+    public final boolean process(String mli, String state, int tz) {
         try {
             processStation(mli, state, tz);
+            return true;
         } catch (Exception ex) {
             handleProcessingException(mli, state, tz, ex);
+            return false;
         }
     }
 
