@@ -16,6 +16,8 @@ Tech stack
 - `spring-boot-starter-web`
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
+- `spring-boot-starter-actuator`
+- `io.micrometer:micrometer-registry-prometheus` (runtime)
 - MSSQL JDBC driver
 - Resilience4j Spring Boot 3 integration for SQL retry/circuit breaker
 - `commons-csv` dependency may be included, but simple CSV parsing is acceptable
@@ -228,12 +230,35 @@ Logging
   - USGS fetch start and success
   - save start/end with reading counts
 - Log failures at WARN and skipped unpublished-source events at DEBUG (via StationProcessorBase)
+- `correlationId` MDC is populated per cycle: `StationWorker` generates a short id per `runCycle` and binds it
+  to MDC on each parallel pass thread (and around post-processing), so all of a cycle's log lines share it.
+  A `station` MDC key is bound around each station's processing.
 
 Health endpoint
 - `GET /health` returns HTTP 200 with JSON body: `{ "status": "UP", "version": "1.0.0", "uptime": <seconds> }`
-- Implemented in `com.fishfind.water.web.HealthController`
-- Used as Docker HEALTHCHECK and Kubernetes liveness/readiness probe target
+- Implemented in `com.fishfind.water.web.HealthController`. Intentionally lightweight (liveness style) so the
+  Docker HEALTHCHECK does NOT flap/restart the container during a transient DB outage.
 - Server listens on port 8080 (`server.port=8080` in application.yml)
+
+Observability and operations
+- Spring Boot Actuator + Micrometer Prometheus registry.
+  - Dependencies: `spring-boot-starter-actuator`, `io.micrometer:micrometer-registry-prometheus` (runtime).
+  - Exposed web endpoints ONLY: `health`, `info`, `prometheus`, `metrics`. Never expose `env`/`configprops`/
+    `beans` (would leak configuration/secrets).
+  - `management.endpoint.health.show-details: never` (aggregate status only).
+- Liveness vs readiness split (`management.endpoint.health.probes.enabled: true`):
+  - `/actuator/health/liveness` — process alive; does NOT depend on the database.
+  - `/actuator/health/readiness` — includes the `db` indicator, so it reports DOWN (HTTP 503) when the
+    datasource is unreachable. This is the real datasource probe; use it for orchestration readiness gating.
+- Metrics:
+  - `/actuator/prometheus` exposes JVM/HTTP metrics, Resilience4j metrics (auto-registered from the
+    resilience4j-spring-boot3 + Micrometer integration), and the custom counter
+    `water_station_processed_total{country,outcome}` (outcome = `success` | `failure`), incremented per station
+    in `StationWorker.runOnce`.
+  - Recommended alert (in the monitoring stack, not this repo): sustained high failure ratio, e.g.
+    `sum(rate(water_station_processed_total{outcome="failure"}[1h])) / sum(rate(water_station_processed_total[1h])) > 0.5`.
+- CI: `.github/workflows/waterservice-ci.yml` runs `mvn -B test` then `mvn -B -DskipTests package` on any change
+  under `service/waterservice/**`, gating changes on a green test run before packaging.
 
 Docker expectations
 - Multi-stage Dockerfile is acceptable
