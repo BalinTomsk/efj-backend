@@ -34,6 +34,11 @@ public class ConsoleDebugRunner implements ApplicationRunner {
         log.info("Running console debug mode. country=US station={}", station == null ? "<all>" : station);
         int processed = stationWorker.runOnce(station);
         log.info("Console debug mode finished. country=US processedStations={}", processed);
-        System.exit(0);
+        exit(0);
+    }
+
+    /** Terminates the process after the one-shot pass. Overridable so tests need not exit the JVM. */
+    protected void exit(int code) {
+        System.exit(code);
     }
 }

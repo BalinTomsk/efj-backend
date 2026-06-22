@@ -72,7 +72,7 @@ public class StationWorker implements ApplicationRunner {
 
             long remainingDelayMs = targetDelayMs - (System.currentTimeMillis() - startedAt);
             if (remainingDelayMs > 0) {
-                Thread.sleep(remainingDelayMs);
+                sleep(remainingDelayMs);
             }
         }
 
@@ -93,7 +93,7 @@ public class StationWorker implements ApplicationRunner {
                     continue;
                 }
 
-                Thread.sleep(sleepMs);
+                sleep(sleepMs);
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 log.info("Weather worker interrupted. thread={}", Thread.currentThread().getName());
@@ -104,7 +104,12 @@ public class StationWorker implements ApplicationRunner {
         }
     }
 
-    private long calculateDelayMs(int stationCount) {
+    /** Pause between stations / between cycles. Overridable so tests can run without real waits. */
+    protected void sleep(long ms) throws InterruptedException {
+        Thread.sleep(ms);
+    }
+
+    long calculateDelayMs(int stationCount) {
         if (stationCount <= 1) {
             return MIN_DELAY_BETWEEN_STATIONS_MS;
         }
@@ -113,7 +118,7 @@ public class StationWorker implements ApplicationRunner {
         return Math.max(delayMs, MIN_DELAY_BETWEEN_STATIONS_MS);
     }
 
-    private long millisUntilNextMidnight() {
+    long millisUntilNextMidnight() {
         ZonedDateTime now = ZonedDateTime.now();
         ZonedDateTime nextMidnight = LocalDate.now(ZoneId.systemDefault())
                 .plusDays(1)
