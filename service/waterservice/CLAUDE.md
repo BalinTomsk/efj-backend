@@ -70,7 +70,8 @@ com.fishfind.water
 │   └── WaterStationRepository.java
 ├── config
 │   ├── DotenvEnvironmentPostProcessor.java  # local .env → low-precedence property source
-│   └── WorkerConfig.java                     # cycleScheduler + countryPassExecutor beans
+│   ├── WorkerConfig.java                     # cycleScheduler + countryPassExecutor beans
+│   └── HttpClientConfig.java                 # pooled RestClient (JDK HttpClient) for source feeds
 ├── service
 │   ├── CsvFetcherCA.java
 │   ├── XmlFetcherUS.java
@@ -106,6 +107,7 @@ src/main/java/com/fishfind/water/service/StationPostProcessingService.java
 src/main/java/com/fishfind/water/web/HealthController.java
 src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java
 src/main/java/com/fishfind/water/config/WorkerConfig.java
+src/main/java/com/fishfind/water/config/HttpClientConfig.java
 src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
@@ -128,7 +130,7 @@ Dockerfile
 - `io.micrometer:micrometer-registry-prometheus` (runtime)
 - MSSQL JDBC driver (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
 - `io.github.resilience4j:resilience4j-spring-boot3`
-- `commons-csv` (optional; simple CSV parsing is acceptable)
+- `commons-csv` (used for CA CSV parsing)
 - `io.github.cdimascio:dotenv-java`
 - SLF4J + Logback (via Spring Boot default)
 
@@ -224,43 +226,39 @@ water:
 
 ---
 
+## HTTP transport (`HttpClientConfig`)
+
+- Shared `RestClient` bean over the JDK `HttpClient` (pooled/keep-alive) — replaces per-request `HttpURLConnection`.
+- Connect timeout on the client, read timeout on the request factory (from `water.worker.*-timeout-ms`).
+- Honest `User-Agent` (`water.worker.user-agent`), **not** a spoofed browser string.
+- Resilience is declarative on the fetch methods (no `@TimeLimiter` — blocking call, transport timeouts bound it).
+
 ## CA fetch (`CsvFetcherCA`)
 
 - URL: `https://dd.weather.gc.ca/today/hydrometric/csv/{STATE}/hourly/{STATE}_{MLI}_hourly_hydrometric.csv`
-- Example: `.../QC/hourly/QC_02JE025_hourly_hydrometric.csv`
-- Transport: `HttpURLConnection`
-- Set connect/read timeouts from config.
-- Set a browser-like `User-Agent`.
-- Non-200 → failure.
-- HTTP 404 → `FileNotFoundException` semantics → station skipped, log "source feed not published".
+- `fetch` returns the raw CSV body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("caFeed")`.
+- HTTP 404 → `FileNotFoundException` → station skipped (ignored by retry + breaker).
+- 5xx / network errors are retried; sustained failures open `caFeed`.
 
 ---
 
 ## US fetch (`XmlFetcherUS`)
 
 - URL: `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
-- Transport: `HttpURLConnection`
-- Set connect/read timeouts from config.
-- Set a browser-like `User-Agent`.
-- Non-200 → failure.
-- HTTP 404 → `FileNotFoundException` semantics → station skipped.
-- **Retry** transient `IOException`s up to **3 attempts** for:
-  - `EOFException`
-  - `SocketTimeoutException`
-  - `SocketException`
-  - messages containing `"Premature EOF"`
+- `fetch` returns the raw XML body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`.
+- HTTP 404 → `FileNotFoundException` → station skipped.
+- Transient failures (premature EOF, socket timeouts, 5xx) retried by `httpRetry` — the old hand-rolled retry
+  loop was removed.
 
 ---
 
-## CSV parse rules (`StationProcessorCA`)
+## CSV parse rules (`StationProcessorCA`, commons-csv)
 
-- Skip row 0 (header).
-- Skip rows with fewer than 7 columns.
-- Column mapping:
-  - `[0]` → station id (String, trimmed)
-  - `[1]` → timestamp (`OffsetDateTime`)
-  - `[2]` → water level (Double, null if empty)
-  - `[6]` → discharge (Double, null if empty)
+- Parse the raw CSV body with commons-csv (`CSVFormat.DEFAULT`, `setTrim(true)`); skip row 0 (header).
+- Column mapping: `[0]` station id, `[1]` timestamp (`OffsetDateTime`), `[2]` water level, `[6]` discharge
+  (Double, null if empty).
+- **Fault-tolerant:** a short row, blank station/timestamp, or unparseable value/timestamp skips just that row
+  (does NOT discard the station's batch). Skipped rows → `water.csv.rows.skipped{country}` metric + log.
 - Model: `Reading(String stationId, OffsetDateTime stamp, Double waterLevel, Double discharge)`
 
 ---
@@ -324,23 +322,32 @@ pushSpeciesFromLakeToStation() // → dbo.spPushSpeciesFromLakeToStation
 
 ## Resilience4j configuration
 
+- **Aspect order:** `circuit-breaker-aspect-order: 2` > `retry-aspect-order: 1` ⇒ the **breaker is outermost**
+  (an open breaker fails fast without burning retries; all retries of one call = one breaker outcome).
+- **SQL** (`WaterDataRepository`): retry `sqlRetry` (3×/2s on `DataAccessException`/`SQLException`), breaker
+  `sqlBreaker` (window 10, min 5, 50%, open 30s).
+- **HTTP fetches:** retry `httpRetry` (3×/2s; retry only `ResourceAccessException` + `HttpServerErrorException`;
+  **ignore** `FileNotFoundException` so 404-skips aren't retried). Per-feed breakers `caFeed` / `usFeed`
+  (window 20, min 10, 50%, open 30s; ignore `FileNotFoundException`) — separate so one feed's outage doesn't
+  trip the other.
+
 ```yaml
 resilience4j:
   retry:
+    retry-aspect-order: 1
     instances:
-      sqlRetry:
+      sqlRetry: { max-attempts: 3, wait-duration: 2s, retry-exceptions: [org.springframework.dao.DataAccessException, java.sql.SQLException] }
+      httpRetry:
         max-attempts: 3
         wait-duration: 2s
-        retry-exceptions:
-          - org.springframework.dao.DataAccessException
-          - java.sql.SQLException
+        retry-exceptions: [org.springframework.web.client.ResourceAccessException, org.springframework.web.client.HttpServerErrorException]
+        ignore-exceptions: [java.io.FileNotFoundException]
   circuitbreaker:
+    circuit-breaker-aspect-order: 2
     instances:
-      sqlBreaker:
-        sliding-window-size: 10
-        minimum-number-of-calls: 5
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 30s
+      sqlBreaker: { sliding-window-size: 10, minimum-number-of-calls: 5, failure-rate-threshold: 50, wait-duration-in-open-state: 30s }
+      caFeed: &feed { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: 30s, ignore-exceptions: [java.io.FileNotFoundException] }
+      usFeed: *feed
 ```
 
 ---

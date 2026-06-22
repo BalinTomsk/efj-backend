@@ -20,7 +20,7 @@ Tech stack
 - `io.micrometer:micrometer-registry-prometheus` (runtime)
 - MSSQL JDBC driver
 - Resilience4j Spring Boot 3 integration for SQL retry/circuit breaker
-- `commons-csv` dependency may be included, but simple CSV parsing is acceptable
+- `commons-csv` is used for CA CSV parsing (quoted-field-safe, fault-tolerant)
 - `dotenv-java` for local credential loading
 - SLF4J + Logback
 - `logstash-logback-encoder` 7.4 for structured JSON logging
@@ -115,41 +115,45 @@ WaterStation query rules
   - `country = 'US'` for the US worker
 - Represent each row as a simple record like `StationRef(String mli, String state, int tz)`
 
-CSV fetch rules
+HTTP transport (shared)
+- A single Spring `RestClient` bean (`HttpClientConfig.waterSourceRestClient`) over the JDK `HttpClient`
+  (connection pooling / keep-alive), replacing the previous per-request `HttpURLConnection`.
+- Connect timeout (`water.worker.connect-timeout-ms`) on the client; read timeout
+  (`water.worker.read-timeout-ms`) on the request factory.
+- Honest identifying `User-Agent` default header (`water.worker.user-agent`, default
+  `water-station-pusher/1.0.0 (+https://fishfind.info)`), NOT a spoofed browser string.
+- Resilience is declarative on the fetcher methods (see Resilience4j config): `@Retry(name="httpRetry")` retries
+  only transient failures (network errors / 5xx); a per-feed `@CircuitBreaker` (`caFeed` / `usFeed`) protects
+  each downstream independently. Note: no `@TimeLimiter` — the call is blocking, so the transport connect/read
+  timeouts serve as the time bound (TimeLimiter would require an async/`CompletableFuture` return type).
+
+CSV fetch rules (`CsvFetcherCA`)
 - URL pattern:
   - `https://dd.weather.gc.ca/today/hydrometric/csv/{STATE}/hourly/{STATE}_{MLI}_hourly_hydrometric.csv`
-- Example:
-  - `https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025_hourly_hydrometric.csv`
-- Use `HttpURLConnection`
-- Set connect/read timeouts from config
-- Set a basic browser-like `User-Agent`
-- Non-200 response should be treated as failure
-- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped
+- `fetch` returns the raw CSV body as a `String`.
+- HTTP 404 -> `FileNotFoundException` so the station is skipped (ignored by retry and breaker).
+- Other non-2xx / network errors propagate (5xx and network errors are retried by `httpRetry`).
 
-US fetch rules
+US fetch rules (`XmlFetcherUS`)
 - URL pattern:
   - `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
-- Use `HttpURLConnection`
-- Set connect/read timeouts from config
-- Set a basic browser-like `User-Agent`
-- Non-200 response should be treated as failure
-- HTTP 404 should be surfaced as `FileNotFoundException` semantics so the station can be skipped
-- Retry transient `IOException`s up to 3 attempts for:
-  - `EOFException`
-  - `SocketTimeoutException`
-  - `SocketException`
-  - messages containing `Premature EOF`
+- `fetch` returns the raw XML body as a `String`.
+- HTTP 404 -> `FileNotFoundException` so the station is skipped.
+- Transient failures (premature EOF, socket timeouts, 5xx) are retried by `httpRetry` (the previous hand-rolled
+  retry loop was removed in favor of declarative Resilience4j retry).
 
-CSV parse rules
-- Skip the first row as header
-- Ignore rows with fewer than 7 columns
+CSV parse rules (`StationProcessorCA`, commons-csv)
+- Parse the raw CSV body with commons-csv (`CSVFormat.DEFAULT` with `setTrim(true)`), handling quoted fields.
+- Skip the first row as header.
 - Parse:
   - column 0 -> station id
   - column 1 -> timestamp as `OffsetDateTime`
   - column 2 -> water level
   - column 6 -> discharge
-- Trim string values
-- Empty numeric values should map to `null`
+- Empty numeric values map to `null`.
+- FAULT TOLERANCE: a single malformed row (fewer than 7 columns, blank station id/timestamp, or an
+  unparseable value/timestamp) is skipped — it does NOT abort the whole station's batch. Skipped rows are
+  counted on the `water.csv.rows.skipped{country}` metric and logged.
 - Model each reading as:
   - `Reading(String stationId, OffsetDateTime stamp, Double waterLevel, Double discharge)`
 
@@ -201,18 +205,20 @@ Important note about delete logic
 - The cleanup now happens only through the post-processing procedure `dbo.spCleanWeatherWaterData`.
 
 Resilience4j settings
-- Retry instance name: `sqlRetry`
-- Circuit breaker instance name: `sqlBreaker`
-- Retry:
-  - max attempts `3`
-  - wait duration `2s`
-  - retry `org.springframework.dao.DataAccessException`
-  - retry `java.sql.SQLException`
-- Circuit breaker:
-  - sliding window size `10`
-  - minimum number of calls `5`
-  - failure rate threshold `50`
-  - wait duration in open state `30s`
+- Aspect order: `circuit-breaker-aspect-order: 2` and `retry-aspect-order: 1` so the circuit breaker is the
+  OUTERMOST aspect. An open breaker short-circuits immediately without burning retry attempts/backoff, and all
+  retries of one call are recorded as a single breaker outcome.
+- SQL (`WaterDataRepository`):
+  - Retry `sqlRetry`: max attempts `3`, wait `2s`, retry `org.springframework.dao.DataAccessException` and
+    `java.sql.SQLException`.
+  - Circuit breaker `sqlBreaker`: sliding window `10`, min calls `5`, failure threshold `50%`, open wait `30s`.
+- HTTP fetches:
+  - Retry `httpRetry`: max attempts `3`, wait `2s`; retry-exceptions
+    `org.springframework.web.client.ResourceAccessException` and `HttpServerErrorException` (5xx); ignore
+    `java.io.FileNotFoundException` (404 skip is not transient).
+  - Per-feed circuit breakers `caFeed` and `usFeed`: sliding window `20`, min calls `10`, failure threshold
+    `50%`, open wait `30s`; ignore `java.io.FileNotFoundException`. Separate instances so one feed's outage
+    does not open the breaker for the other.
 
 Logging
 - Root logging level `INFO`
@@ -298,6 +304,7 @@ Files to include
 - `src/main/java/com/fishfind/water/web/HealthController.java`
 - `src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java`
 - `src/main/java/com/fishfind/water/config/WorkerConfig.java`
+- `src/main/java/com/fishfind/water/config/HttpClientConfig.java`
 - `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`
 - `src/main/resources/application.yml`
 - `src/main/resources/logback-spring.xml`

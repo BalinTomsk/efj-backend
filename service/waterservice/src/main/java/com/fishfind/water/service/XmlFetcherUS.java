@@ -1,33 +1,33 @@
 package com.fishfind.water.service;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClient;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.SocketException;
-import java.net.SocketTimeoutException;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.io.EOFException;
 
 /**
  * Downloads WaterML payloads from USGS for one station.
+ *
+ * <p>Transient failures (network errors such as premature EOF / socket timeouts, and 5xx) are retried via
+ * {@code httpRetry}; sustained failures of the USGS feed open the {@code usFeed} circuit breaker. The
+ * previous hand-rolled retry loop is replaced by this declarative configuration. A 404 means the feed is not
+ * published for that station and is surfaced as {@link FileNotFoundException}.
  */
 @Service
 public class XmlFetcherUS {
     private static final Logger log = LoggerFactory.getLogger(XmlFetcherUS.class);
-    private static final int MAX_ATTEMPTS = 3;
 
-    @Value("${water.worker.connect-timeout-ms:15000}")
-    private int connectTimeout;
+    private final RestClient restClient;
 
-    @Value("${water.worker.read-timeout-ms:30000}")
-    private int readTimeout;
+    public XmlFetcherUS(RestClient waterSourceRestClient) {
+        this.restClient = waterSourceRestClient;
+    }
 
     /**
      * Fetches the USGS WaterML document for a station.
@@ -35,67 +35,22 @@ public class XmlFetcherUS {
      * @param state US state code kept for logging parity with the CA flow
      * @param mli station identifier
      * @return raw XML response body
+     * @throws FileNotFoundException when the source feed is not published (HTTP 404)
      * @throws IOException when the remote file cannot be fetched successfully
      */
+    @Retry(name = "httpRetry")
+    @CircuitBreaker(name = "usFeed")
     public String fetch(String state, String mli) throws IOException {
         String url = "https://waterservices.usgs.gov/nwis/iv/?sites=" + mli + "&period=P3D&format=waterml";
 
-        IOException lastException = null;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            HttpURLConnection conn = openConnection(url);
-            conn.setConnectTimeout(connectTimeout);
-            conn.setReadTimeout(readTimeout);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+        log.debug("Fetching USGS WaterML. station={} state={} url={}", mli, state, url);
 
-            try {
-                log.debug("Fetching USGS WaterML. station={} state={} url={} attempt={}", mli, state, url, attempt);
-
-                if (conn.getResponseCode() == HttpURLConnection.HTTP_NOT_FOUND) {
-                    throw new FileNotFoundException("HTTP error " + conn.getResponseCode());
-                }
-
-                if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                    throw new IOException("HTTP error " + conn.getResponseCode());
-                }
-
-                try (InputStream inputStream = conn.getInputStream()) {
-                    String xml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-                    log.debug("Fetched USGS WaterML. station={} state={} attempt={}", mli, state, attempt);
-                    return xml;
-                }
-            } catch (IOException ex) {
-                lastException = ex;
-                if (!isRetryable(ex) || attempt == MAX_ATTEMPTS) {
-                    throw ex;
-                }
-
-                log.warn("Retrying USGS WaterML fetch after transient failure. station={} state={} attempt={} maxAttempts={}",
-                        mli, state, attempt, MAX_ATTEMPTS, ex);
-            } finally {
-                conn.disconnect();
-            }
+        try {
+            String body = restClient.get().uri(url).retrieve().body(String.class);
+            log.debug("Fetched USGS WaterML. station={} state={}", mli, state);
+            return body == null ? "" : body;
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw new FileNotFoundException("HTTP error 404");
         }
-
-        throw lastException == null ? new IOException("USGS fetch failed without a captured exception") : lastException;
-    }
-
-    private boolean isRetryable(IOException ex) {
-        if (ex instanceof EOFException || ex instanceof SocketTimeoutException || ex instanceof SocketException) {
-            return true;
-        }
-
-        String message = ex.getMessage();
-        return message != null && message.contains("Premature EOF");
-    }
-
-    /**
-     * Opens an HTTP connection for the requested WaterML URL.
-     *
-     * @param url source URL to connect to
-     * @return opened HTTP connection
-     * @throws IOException when the connection cannot be created
-     */
-    HttpURLConnection openConnection(String url) throws IOException {
-        return (HttpURLConnection) new URL(url).openConnection();
     }
 }
