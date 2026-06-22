@@ -11,7 +11,7 @@ Goal
 Tech stack
 - Java 21
 - Maven
-- Spring Boot 3.2.x
+- Spring Boot 3.3.x
 - `spring-boot-starter`
 - `spring-boot-starter-web`
 - `spring-boot-starter-jdbc`
@@ -37,14 +37,18 @@ Project structure
 - Keep a `.env.example` in the project root with placeholder values only
 
 Main application behavior
-- On startup, before Spring starts, load DB credentials from environment variables.
-- If env vars are missing, try loading a root-level `.env` file with `dotenv-java`.
-- Support optional `DOTENV_PATH` env var to point to a custom `.env` file.
+- `WaterStationPusherApplication.main` only calls `SpringApplication.run`; credential loading is delegated to a Spring `EnvironmentPostProcessor`.
+- DB credentials are resolved by Spring from the process environment (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) or JVM system properties.
+- For local development, `com.fishfind.water.config.DotenvEnvironmentPostProcessor` loads a `.env` file (via `dotenv-java`) and registers its declared entries as the LOWEST-precedence Spring property source (`addLast`).
+  - Real OS environment variables and JVM system properties always win over the `.env` file.
+  - Only keys declared in the `.env` file are imported (`Dotenv.Filter.DECLARED_IN_ENV_FILE`); the OS environment is not copied.
+  - Support optional `DOTENV_PATH` env var to point to a custom `.env` file; otherwise a root-level `.env` is used if present.
+  - SECURITY: credentials are NEVER copied into JVM-global system properties (no `System.setProperty`), so they do not leak into `System.getProperties()`, heap dumps, or diagnostic tooling.
 - Required keys:
   - `DB_URL`
   - `DB_USERNAME`
   - `DB_PASSWORD`
-- If values are loaded from dotenv and missing from process env/system properties, copy them into JVM system properties so Spring datasource placeholders resolve.
+- Register the post-processor in `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`.
 
 Datasource config
 - Configure Spring datasource from:
@@ -131,6 +135,15 @@ US parse rules
 - Parse USGS WaterML into one stored-procedure payload per variable
 - Preserve variable metadata and XML payload content in `UsSeriesReading`
 - Reduce values to daily entries before building the stored-procedure payload
+- SECURITY (XXE hardening): the WaterML payload is untrusted external input, so the `DocumentBuilderFactory`
+  and `XPathFactory` MUST be hardened before parsing:
+  - `FEATURE_SECURE_PROCESSING` = true (both factories)
+  - `http://apache.org/xml/features/disallow-doctype-decl` = true
+  - `http://xml.org/sax/features/external-general-entities` = false
+  - `http://xml.org/sax/features/external-parameter-entities` = false
+  - `http://apache.org/xml/features/nonvalidating/load-external-dtd` = false
+  - `setXIncludeAware(false)`, `setExpandEntityReferences(false)`, `setNamespaceAware(true)`
+  - A payload containing a DOCTYPE/external entity must be rejected (SAXParseException), never expanded.
 
 Failure handling
 - On any station processing exception:
@@ -205,11 +218,22 @@ Health endpoint
 Docker expectations
 - Multi-stage Dockerfile is acceptable
 - Build jar with Maven
+- SECURITY: both base images are pinned by digest (`image@sha256:...`), not floating tags, for reproducible,
+  tamper-resistant builds. The human-readable tag is kept in a comment above each `FROM`.
+- SECURITY: the runtime container runs as an unprivileged user (uid/gid 10001, `USER 10001:10001`), not root.
+  `/app/logs` is pre-created and owned by that user so the container can run with a read-only root filesystem
+  (mount a volume/tmpfs at `/app/logs` for the logback FILE appender).
 - Runtime container:
   - EXPOSE 8080
   - HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD wget -qO- http://localhost:8080/health || exit 1
   - Launches: `java $JAVA_OPTS -jar /app/water-station-pusher.jar`
 - Do not bake the real `.env` into the jar or image resources
+
+Dependency / supply-chain scanning
+- A Maven `security` profile runs OWASP Dependency-Check: `mvn -Psecurity verify`.
+- Kept out of the default lifecycle so normal builds stay fast.
+- Fails the build on CVSS >= 7; emits HTML and SARIF reports.
+- Set env `NVD_API_KEY` for fast, rate-limit-free NVD database updates.
 
 Files to include
 - `pom.xml`
@@ -227,6 +251,8 @@ Files to include
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
 - `src/main/java/com/fishfind/water/web/HealthController.java`
+- `src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java`
+- `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`
 - `src/main/resources/application.yml`
 - `src/main/resources/logback-spring.xml`
 - `.env.example`

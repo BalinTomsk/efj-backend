@@ -10,6 +10,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
+import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
@@ -88,11 +89,12 @@ public class StationProcessorUS extends StationProcessorBase {
             return List.of();
         }
 
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
+        DocumentBuilderFactory factory = newSecureDocumentBuilderFactory();
         Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
 
-        var xpath = XPathFactory.newInstance().newXPath();
+        var xpathFactory = XPathFactory.newInstance();
+        xpathFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        var xpath = xpathFactory.newXPath();
         NodeList timeSeriesNodes = (NodeList) xpath.evaluate(
                 "/*[local-name()='timeSeriesResponse']/*[local-name()='timeSeries']",
                 document,
@@ -121,6 +123,28 @@ public class StationProcessorUS extends StationProcessorBase {
         }
 
         return results;
+    }
+
+    /**
+     * Builds a {@link DocumentBuilderFactory} hardened against XXE attacks for parsing untrusted USGS payloads.
+     *
+     * <p>External DTDs and entities are disabled so a malicious or tampered WaterML document cannot read
+     * local files, reach internal services (SSRF), or trigger entity-expansion denial of service.
+     *
+     * @return a namespace-aware factory with external entity processing disabled
+     * @throws Exception when a security feature cannot be applied by the underlying parser
+     */
+    private DocumentBuilderFactory newSecureDocumentBuilderFactory() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        factory.setNamespaceAware(true);
+        return factory;
     }
 
     private String buildLegacyXml(javax.xml.xpath.XPath xpath, Node timeSeriesNode) throws Exception {

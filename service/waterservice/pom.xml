@@ -10,7 +10,7 @@
  <parent>
    <groupId>org.springframework.boot</groupId>
    <artifactId>spring-boot-starter-parent</artifactId>
-   <version>3.2.5</version>
+   <version>3.3.13</version>
  </parent>
 
  <properties>
@@ -100,4 +100,40 @@
      </plugin>
    </plugins>
  </build>
+
+ <profiles>
+   <!--
+     Software-composition analysis. Kept out of the default lifecycle so normal builds stay fast.
+     Run with: mvn -Psecurity verify
+     Set an NVD API key (env NVD_API_KEY) for fast, rate-limit-free database updates:
+     https://nvd.nist.gov/developers/request-an-api-key
+   -->
+   <profile>
+     <id>security</id>
+     <build>
+       <plugins>
+         <plugin>
+           <groupId>org.owasp</groupId>
+           <artifactId>dependency-check-maven</artifactId>
+           <version>12.2.2</version>
+           <configuration>
+             <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+             <failBuildOnCVSS>7</failBuildOnCVSS>
+             <formats>
+               <format>HTML</format>
+               <format>SARIF</format>
+             </formats>
+           </configuration>
+           <executions>
+             <execution>
+               <goals>
+                 <goal>check</goal>
+               </goals>
+             </execution>
+           </executions>
+         </plugin>
+       </plugins>
+     </build>
+   </profile>
+ </profiles>
 </project>
