@@ -30,6 +30,11 @@ OWMService/Res/OWMService.reg
 .DS_Store
 
 ############################
+# Claude Code local settings (may contain machine-local allow-lists / secrets)
+############################
+**/.claude/settings.local.json
+
+############################
 # Application secrets
 ############################
 secret/waterservice.secret
