@@ -68,14 +68,17 @@ com.fishfind.water
 ├── repo
 │   ├── WaterDataRepository.java
 │   └── WaterStationRepository.java
+├── config
+│   ├── DotenvEnvironmentPostProcessor.java  # local .env → low-precedence property source
+│   └── WorkerConfig.java                     # cycleScheduler + countryPassExecutor beans
 ├── service
 │   ├── CsvFetcherCA.java
 │   ├── XmlFetcherUS.java
 │   ├── StationProcessorCA.java
 │   ├── StationProcessorUS.java
-│   ├── StationProcessorBase.java   # shared exception handling; formats "{country} station"
-│   ├── StationWorker.java          # ApplicationRunner entry point
-│   ├── ConsoleDebugRunner.java
+│   ├── StationProcessorBase.java   # shared exception handling; process() returns success boolean
+│   ├── StationWorker.java          # ApplicationRunner: schedules + runs the hourly cycle
+│   ├── ConsoleDebugRunner.java     # --console: runs one cycle via StationWorker.runCycle
 │   └── StationPostProcessingService.java
 └── web
     └── HealthController.java       # GET /health → { status, version, uptime }
@@ -102,6 +105,7 @@ src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java
 src/main/java/com/fishfind/water/service/StationPostProcessingService.java
 src/main/java/com/fishfind/water/web/HealthController.java
 src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java
+src/main/java/com/fishfind/water/config/WorkerConfig.java
 src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
@@ -153,33 +157,45 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    hikari:                  # tuned for MSSQL + two parallel passes
+      pool-name: water-hikari
+      maximum-pool-size: 4
+      minimum-idle: 1
+      connection-timeout: 30000
+      max-lifetime: 1740000  # 29 min — retire before server idle timeout
+      keepalive-time: 300000
+      validation-timeout: 5000
 ```
 
 ---
 
 ## Worker behaviour
 
-### Threads
+### Lifecycle (Spring-managed — no hand-managed threads)
 
-- Launched by `StationWorker` via `ApplicationRunner`.
-- Thread names: `water-station-worker-ca`, `water-station-worker-us`.
-- **Non-daemon** threads.
-- If app is started with `--console`: **do not launch either thread**.
+- `WorkerConfig` provides two Spring beans (graceful shutdown on context close):
+  - `cycleScheduler` — single-thread `ThreadPoolTaskScheduler` (`water-cycle-`). Pool size 1 ⇒ an overrunning
+    cycle delays the next trigger instead of overlapping (no tight-loop).
+  - `countryPassExecutor` — 2-thread `ThreadPoolTaskExecutor` (`water-pass-`) for parallel CA/US passes.
+- `StationWorker` (`ApplicationRunner`): if `--console`, schedule nothing; otherwise register one recurring
+  cycle on `cycleScheduler` via a `CronTrigger` from `water.worker.cron` (default `0 0 * * * *`).
 
-### Loop (each worker independently)
+### Cycle (`runCycle`, used by scheduler AND console)
 
-1. Load supported stations for its country from `vwWaterStation`.
-2. Process stations one by one, sleeping `pause-between-stations-ms` between each.
-3. After completing the full pass, run post-processing procedures **synchronously in order**:
-   - `dbo.spCleanWeatherWaterData`
+1. Run CA and US passes **in parallel** on `countryPassExecutor`; a failure of one country is isolated/logged.
+2. Each pass (`runOnce`) loads its stations, processes them one by one sleeping `pause-between-stations-ms`
+   (interrupt-aware), and returns the count processed **successfully**.
+3. Run post-processing **exactly once per cycle**, and **only if ≥1 station succeeded**:
    - `dbo.spPushSpeciesFromLakeToStation`
-4. Sleep until the next top-of-hour if the cycle finished early; start immediately if already past the boundary.
+   - (Previously each worker thread ran this independently ⇒ the SP executed twice, concurrently. Fixed.)
+- `StationProcessorBase.process(...)` returns `boolean` so the cycle knows whether anything succeeded.
 
 ### Configurable properties
 
 ```yaml
 water:
   worker:
+    cron: "0 0 * * * *"               # default — top of every hour (Spring 6-field cron)
     pause-between-stations-ms: 1000   # default
     connect-timeout-ms: 15000         # default
     read-timeout-ms: 30000            # default
@@ -191,8 +207,8 @@ water:
 
 - Activated by `--console` command-line arg.
 - Optional: `--station=<MLI>` to filter to one station.
-- Runs exactly one processing pass for **both** country workers **in parallel**.
-- Each worker still runs its own post-processing sequence after its pass.
+- Delegates to `StationWorker.runCycle(station)` — one cycle: both countries in parallel + a single
+  post-processing run. Identical to scheduled behavior.
 
 ---
 

@@ -56,31 +56,51 @@ Datasource config
   - `${DB_USERNAME}`
   - `${DB_PASSWORD}`
 - Driver class: `com.microsoft.sqlserver.jdbc.SQLServerDriver`
+- HikariCP tuning (in `application.yml` under `spring.datasource.hikari`):
+  - `pool-name: water-hikari`
+  - `maximum-pool-size: 4` (two parallel country passes + post-processing, with headroom)
+  - `minimum-idle: 1`
+  - `connection-timeout: 30000`
+  - `max-lifetime: 1740000` (29 min — retire connections before the server/network idle timeout)
+  - `keepalive-time: 300000` (5 min)
+  - `validation-timeout: 5000`
 
 Worker behavior
-- Implement one `StationWorker` started via `ApplicationRunner` that launches separate CA and US background threads.
-- If app is started with `--console`, do not launch either background thread.
-- Otherwise start non-daemon threads named `water-station-worker-ca` and `water-station-worker-us`.
-- Each worker loops forever:
-  - Load supported stations for its country from DB
-  - Process stations one by one
-  - Sleep 1 second between stations
-  - After the station pass completes, synchronously run post-processing procedures in this order:
-    - `dbo.spCleanWeatherWaterData`
-    - `dbo.spPushSpeciesFromLakeToStation`
-  - Sleep until the next top-of-hour between full cycles when the cycle finishes early
-  - Start the next cycle immediately when processing has already run past that hour boundary
+- Lifecycle is Spring-managed; no hand-managed `Thread`s.
+  - `WorkerConfig` defines two Spring beans (so the container shuts them down gracefully on context close):
+    - `cycleScheduler`: a single-thread `ThreadPoolTaskScheduler` (prefix `water-cycle-`,
+      `waitForTasksToCompleteOnShutdown=true`, `awaitTerminationSeconds=60`). Pool size 1 means a cycle that
+      overruns its hour delays the next trigger instead of overlapping (no tight-loop hazard).
+    - `countryPassExecutor`: a 2-thread `ThreadPoolTaskExecutor` (prefix `water-pass-`) used to run the CA and
+      US passes in parallel within one cycle.
+- `StationWorker` implements `ApplicationRunner`:
+  - If started with `--console`, schedule nothing.
+  - Otherwise register one recurring cycle on `cycleScheduler` using a `CronTrigger` from `water.worker.cron`
+    (default `0 0 * * * *` — top of every hour, Spring 6-field cron).
+- `StationWorker.runCycle(requestedMli)` (used by BOTH the scheduler and console mode):
+  - Run the CA and US passes in parallel on `countryPassExecutor`.
+  - A failure of one country's pass is isolated (logged) and does not abort the other.
+  - Run post-processing EXACTLY ONCE per cycle, and ONLY when at least one station was processed
+    successfully (`dbo.spPushSpeciesFromLakeToStation`). This replaces the previous design where each of the
+    two worker threads ran post-processing independently — i.e. the same stored procedure executed twice,
+    concurrently, every hour.
+- `StationWorker.runOnce(country, requestedMli)`:
+  - Load supported stations for the country, process matching stations one by one, sleeping
+    `pause-between-stations-ms` between each (interrupt-aware: stops the pass early if interrupted).
+  - Returns the number of stations processed SUCCESSFULLY. Does NOT run post-processing.
+- `StationProcessorBase.process(...)` returns `boolean` — `true` on success, `false` when an exception was
+  handled (failure or unpublished/skipped source) — so the cycle can decide whether to post-process.
 - Configurable properties:
+  - `water.worker.cron` default `0 0 * * * *`
   - `water.worker.pause-between-stations-ms` default `1000`
   - `water.worker.connect-timeout-ms` default `15000`
   - `water.worker.read-timeout-ms` default `30000`
 
 Console mode
-- Add a console/debug runner activated by `--console`
-- Optional arg: `--station=<MLI>`
-- In console mode, run exactly one processing pass for both country workers in parallel
-- If `--station` is provided, pass that filter to both workers and process only matching supported stations
-- Each worker still performs its own post-processing sequence after its pass completes
+- Add a console/debug runner activated by `--console` (`ConsoleDebugRunner`, `@Order(0)`).
+- Optional arg: `--station=<MLI>`.
+- Delegates to `StationWorker.runCycle(station)`, so console mode runs exactly one cycle: both countries in
+  parallel followed by a single post-processing run — identical to scheduled behavior.
 
 WaterStation query rules
 - Read from view `vwWaterStation`
@@ -252,6 +272,7 @@ Files to include
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
 - `src/main/java/com/fishfind/water/web/HealthController.java`
 - `src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java`
+- `src/main/java/com/fishfind/water/config/WorkerConfig.java`
 - `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`
 - `src/main/resources/application.yml`
 - `src/main/resources/logback-spring.xml`
@@ -270,5 +291,5 @@ Current implementation notes
 - `WaterDataRepository.cleanWeatherWaterData()` and `pushSpeciesFromLakeToStation()` must tolerate procedures that emit incidental result sets or update counts.
 - `saveStationData` deduplicates readings by timestamp within a batch and keeps the last duplicate.
 - `saveUsStationData` ignores empty variable payloads instead of failing the full station save.
-- Current code uses thread names `water-station-worker-ca` and `water-station-worker-us`.
-- `StationProcessorBase` centralizes the shared CA/US exception handling and formats messages as `{country} station`.
+- Cycle threads use the prefixes `water-cycle-` (scheduler) and `water-pass-` (parallel country passes).
+- `StationProcessorBase` centralizes the shared CA/US exception handling and formats messages as `{country} station`, and its `process(...)` returns a success boolean.
