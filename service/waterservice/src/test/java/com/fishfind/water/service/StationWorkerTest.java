@@ -2,6 +2,7 @@ package com.fishfind.water.service;
 
 import com.fishfind.water.domain.StationRef;
 import com.fishfind.water.repo.WaterStationRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.scheduling.Trigger;
@@ -29,9 +30,10 @@ class StationWorkerTest {
     private final ThreadPoolTaskScheduler scheduler = mock(ThreadPoolTaskScheduler.class);
     // Run "async" work inline so cycle tests are deterministic.
     private final Executor inlineExecutor = Runnable::run;
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private final StationWorker worker = new StationWorker(
-            repo, processorCA, processorUS, postProcessingService, scheduler, inlineExecutor);
+            repo, processorCA, processorUS, postProcessingService, scheduler, inlineExecutor, meterRegistry);
 
     StationWorkerTest() {
         ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
@@ -106,6 +108,23 @@ class StationWorkerTest {
 
         assertEquals(0, processed);
         verify(postProcessingService, never()).runAfterStationProcessing();
+    }
+
+    @Test
+    void runOnceRecordsSuccessAndFailureCounters() {
+        when(repo.findSupported("US")).thenReturn(List.of(
+                new StationRef("08312000", "NM", -7),
+                new StationRef("08313000", "NY", -5)
+        ));
+        when(processorUS.process("08312000", "NM", -7)).thenReturn(true);
+        when(processorUS.process("08313000", "NY", -5)).thenReturn(false);
+
+        worker.runOnce("US", null);
+
+        assertEquals(1.0, meterRegistry.counter("water.station.processed",
+                "country", "US", "outcome", "success").count());
+        assertEquals(1.0, meterRegistry.counter("water.station.processed",
+                "country", "US", "outcome", "failure").count());
     }
 
     @Test

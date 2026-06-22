@@ -1,8 +1,10 @@
 package com.fishfind.water.service;
 
 import com.fishfind.water.repo.WaterStationRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -11,6 +13,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -27,12 +30,17 @@ import java.util.concurrent.Executor;
 public class StationWorker implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(StationWorker.class);
 
+    private static final String MDC_CORRELATION_ID = "correlationId";
+    private static final String MDC_STATION = "station";
+    private static final String STATION_PROCESSED_METRIC = "water.station.processed";
+
     private final WaterStationRepository repo;
     private final StationProcessorCA processorCA;
     private final StationProcessorUS processorUS;
     private final StationPostProcessingService postProcessingService;
     private final ThreadPoolTaskScheduler cycleScheduler;
     private final Executor countryPassExecutor;
+    private final MeterRegistry meterRegistry;
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -45,13 +53,15 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorUS processorUS,
                          StationPostProcessingService postProcessingService,
                          ThreadPoolTaskScheduler cycleScheduler,
-                         @Qualifier("countryPassExecutor") Executor countryPassExecutor) {
+                         @Qualifier("countryPassExecutor") Executor countryPassExecutor,
+                         MeterRegistry meterRegistry) {
         this.repo = repo;
         this.processorCA = processorCA;
         this.processorUS = processorUS;
         this.postProcessingService = postProcessingService;
         this.cycleScheduler = cycleScheduler;
         this.countryPassExecutor = countryPassExecutor;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -90,21 +100,40 @@ public class StationWorker implements ApplicationRunner {
      * @return the number of stations processed successfully across both countries
      */
     public int runCycle(String requestedMli) {
+        String correlationId = UUID.randomUUID().toString().substring(0, 8);
+
         CompletableFuture<Integer> caPass =
-                CompletableFuture.supplyAsync(() -> runOnce("CA", requestedMli), countryPassExecutor);
+                CompletableFuture.supplyAsync(() -> runPass("CA", requestedMli, correlationId), countryPassExecutor);
         CompletableFuture<Integer> usPass =
-                CompletableFuture.supplyAsync(() -> runOnce("US", requestedMli), countryPassExecutor);
+                CompletableFuture.supplyAsync(() -> runPass("US", requestedMli, correlationId), countryPassExecutor);
 
         int succeeded = awaitPass(caPass, "CA") + awaitPass(usPass, "US");
 
-        if (succeeded > 0) {
-            postProcessingService.runAfterStationProcessing();
-        } else {
-            log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
+        MDC.put(MDC_CORRELATION_ID, correlationId);
+        try {
+            if (succeeded > 0) {
+                postProcessingService.runAfterStationProcessing();
+            } else {
+                log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
+            }
+            log.info("Station cycle completed. processedStations={}", succeeded);
+        } finally {
+            MDC.remove(MDC_CORRELATION_ID);
         }
-
-        log.info("Station cycle completed. processedStations={}", succeeded);
         return succeeded;
+    }
+
+    /**
+     * Runs one country pass with the cycle's correlation id bound to the logging context (MDC) for the
+     * duration, so every log line emitted on this pass thread carries {@code correlationId}.
+     */
+    private int runPass(String country, String requestedMli, String correlationId) {
+        MDC.put(MDC_CORRELATION_ID, correlationId);
+        try {
+            return runOnce(country, requestedMli);
+        } finally {
+            MDC.clear();
+        }
     }
 
     /**
@@ -144,7 +173,17 @@ public class StationWorker implements ApplicationRunner {
                 continue;
             }
 
-            if (processStation(country, station.mli(), station.state(), station.tz())) {
+            boolean ok;
+            MDC.put(MDC_STATION, station.mli());
+            try {
+                ok = processStation(country, station.mli(), station.state(), station.tz());
+            } finally {
+                MDC.remove(MDC_STATION);
+            }
+            meterRegistry.counter(STATION_PROCESSED_METRIC,
+                    "country", country,
+                    "outcome", ok ? "success" : "failure").increment();
+            if (ok) {
                 succeeded++;
             }
             log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());

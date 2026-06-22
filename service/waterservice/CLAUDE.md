@@ -124,6 +124,8 @@ Dockerfile
 - `spring-boot-starter-web`
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
+- `spring-boot-starter-actuator`
+- `io.micrometer:micrometer-registry-prometheus` (runtime)
 - MSSQL JDBC driver (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
 - `io.github.resilience4j:resilience4j-spring-boot3`
 - `commons-csv` (optional; simple CSV parsing is acceptable)
@@ -364,6 +366,23 @@ Log the following events:
 - Format: **structured JSON** with `timestamp`, `service`, `correlationId`, `level`.
 - **Never log PII or sensitive water/sensor data in plain text.**
 - All logs are **cyclic**: purge entries older than 7 days automatically.
+- `correlationId` is set in MDC per cycle (`StationWorker` binds it on each parallel pass thread and around
+  post-processing); a `station` MDC key is bound around each station.
+
+---
+
+## Observability & ops
+
+- **Actuator + Micrometer/Prometheus.** Exposed web endpoints ONLY: `health,info,prometheus,metrics`
+  (never `env`/`beans`/`configprops` — would leak config/secrets). `health.show-details: never`.
+- **Liveness vs readiness** (`management.endpoint.health.probes.enabled: true`):
+  - `/actuator/health/liveness` — process alive, NOT DB-dependent (so a DB blip doesn't restart the pod).
+  - `/actuator/health/readiness` — includes the `db` indicator ⇒ 503 when the datasource is unreachable.
+  - Custom `/health` ({status,version,uptime}) stays lightweight = the Docker HEALTHCHECK target.
+- **Metrics:** `/actuator/prometheus` serves JVM/HTTP + Resilience4j metrics + custom
+  `water_station_processed_total{country,outcome}` (incremented per station in `runOnce`). Use it for a
+  sustained-failure-ratio alert.
+- **CI:** `.github/workflows/waterservice-ci.yml` runs `mvn test` + `package` on `service/waterservice/**` changes.
 
 ---
 
