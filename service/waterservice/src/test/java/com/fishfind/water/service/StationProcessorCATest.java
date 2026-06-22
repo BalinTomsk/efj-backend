@@ -2,9 +2,11 @@ package com.fishfind.water.service;
 
 import com.fishfind.water.domain.Reading;
 import com.fishfind.water.repo.WaterDataRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,19 +20,18 @@ class StationProcessorCATest {
 
     private final CsvFetcherCA fetcher = mock(CsvFetcherCA.class);
     private final WaterDataRepository dataRepo = mock(WaterDataRepository.class);
-    private final StationProcessorCA processor = new StationProcessorCA(fetcher, dataRepo);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final StationProcessorCA processor = new StationProcessorCA(fetcher, dataRepo, meterRegistry);
 
     @Test
     void processFetchesParsesAndSavesReadingsOnSuccess() throws Exception {
-        when(fetcher.fetch("QC", "02JE025")).thenReturn(List.of(
-                new String[]{"station", "stamp", "level", "x", "y", "z", "discharge"},
-                new String[]{"02JE025", "2024-01-02T03:04:05Z", "1.2", "", "", "", "3.4"}
-        ));
+        when(fetcher.fetch("QC", "02JE025")).thenReturn(
+                "station,stamp,level,x,y,z,discharge\n02JE025,2024-01-02T03:04:05Z,1.2,,,,3.4\n");
 
         processor.process("02JE025", "QC", -5);
 
         verify(dataRepo).saveStationData("02JE025", List.of(
-                new Reading("02JE025", java.time.OffsetDateTime.parse("2024-01-02T03:04:05Z"), 1.2, 3.4)
+                new Reading("02JE025", OffsetDateTime.parse("2024-01-02T03:04:05Z"), 1.2, 3.4)
         ));
     }
 
@@ -48,22 +49,32 @@ class StationProcessorCATest {
     }
 
     @Test
-    void parseSkipsHeaderAndMalformedRows() throws Exception {
-        @SuppressWarnings("unchecked")
-        List<Reading> readings = (List<Reading>) invokePrivate("parse", new Class<?>[]{List.class}, List.of(
-                new String[]{"station", "stamp", "level", "a", "b", "c", "discharge"},
-                new String[]{"bad"},
-                new String[]{"02JE025", "2024-01-02T03:04:05Z", "1.2", "", "", "", "3.4"},
-                new String[]{"", "2024-01-02T03:04:05Z", "1.2", "", "", "", "3.4"}
-        ));
+    void parseSkipsHeaderShortRowsBlankKeysAndUnparseableRowsAndCountsThem() throws Exception {
+        String csv = String.join("\n",
+                "station,stamp,level,a,b,c,discharge",   // header
+                "bad",                                      // too few columns
+                "02JE025,2024-01-02T03:04:05Z,1.2,,,,3.4",  // good
+                ",2024-01-02T03:04:05Z,1.2,,,,3.4",         // blank station id
+                "02JE025,not-a-timestamp,1.2,,,,3.4");      // unparseable timestamp
 
-        assertEquals(List.of(new Reading("02JE025", java.time.OffsetDateTime.parse("2024-01-02T03:04:05Z"), 1.2, 3.4)), readings);
+        @SuppressWarnings("unchecked")
+        List<Reading> readings = (List<Reading>) invokePrivate("parse",
+                new Class<?>[]{String.class, String.class}, csv, "02JE025");
+
+        assertEquals(List.of(
+                new Reading("02JE025", OffsetDateTime.parse("2024-01-02T03:04:05Z"), 1.2, 3.4)
+        ), readings);
+        // 3 bad rows skipped (short, blank-key, unparseable) recorded on the metric.
+        assertEquals(3.0, meterRegistry.counter("water.csv.rows.skipped", "country", "CA").count());
     }
 
     @Test
-    void trimReturnsTrimmedValueOrNull() throws Exception {
-        assertEquals("x", invokePrivate("trim", new Class<?>[]{String.class}, " x "));
-        assertNull(invokePrivate("trim", new Class<?>[]{String.class}, new Object[]{null}));
+    void parseReturnsEmptyForBlankBody() throws Exception {
+        @SuppressWarnings("unchecked")
+        List<Reading> readings = (List<Reading>) invokePrivate("parse",
+                new Class<?>[]{String.class, String.class}, "   ", "02JE025");
+
+        assertEquals(List.of(), readings);
     }
 
     @Test
