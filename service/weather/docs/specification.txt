@@ -70,11 +70,13 @@ com.fishfind.weather
 │   └── WeatherStationRepository.java
 └── service
     ├── ConsoleDebugRunner.java            --console one-shot mode
-    ├── OpenMeteoFetcher.java              HttpURLConnection HTTP client
+    ├── OpenMeteoFetcher.java              HTTP client (resilience4j + 429 Retry-After)
+    ├── ProcessingOutcome.java             enum PROCESSED / SKIPPED / FAILED
+    ├── RateLimitedException.java          IOException raised on exhausted 429 retries
     ├── StationPostProcessingService.java  stored procedure runner
-    ├── StationProcessorBase.java          template method exception handling
+    ├── StationProcessorBase.java          template method; returns ProcessingOutcome
     ├── StationProcessorOpen.java          fetch + persist flow
-    └── StationWorker.java                 ApplicationRunner background worker
+    └── StationWorker.java                 background worker + graceful shutdown + post-proc gate
 
 
 REQUIRED FILES
@@ -86,6 +88,8 @@ src/main/java/com/fishfind/weather/repo/WeatherDataRepository.java
 src/main/java/com/fishfind/weather/repo/WeatherStationRepository.java
 src/main/java/com/fishfind/weather/service/ConsoleDebugRunner.java
 src/main/java/com/fishfind/weather/service/OpenMeteoFetcher.java
+src/main/java/com/fishfind/weather/service/ProcessingOutcome.java
+src/main/java/com/fishfind/weather/service/RateLimitedException.java
 src/main/java/com/fishfind/weather/service/StationPostProcessingService.java
 src/main/java/com/fishfind/weather/service/StationProcessorBase.java
 src/main/java/com/fishfind/weather/service/StationProcessorOpen.java
@@ -121,6 +125,11 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  lifecycle:
+    timeout-per-shutdown-phase: 30s     # bound graceful-shutdown wait
+
+server:
+  shutdown: graceful
 
 resilience4j:
   retry:
@@ -128,9 +137,19 @@ resilience4j:
       sqlRetry:
         max-attempts: 3
         wait-duration: 2s
-        retry-exceptions:
-          - org.springframework.dao.DataAccessException
-          - java.sql.SQLException
+        retry-exceptions: [DataAccessException, SQLException]
+      openMeteo:                         # HTTP fetch retry
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions: [java.io.IOException]
+        ignore-exceptions:               # 404 / already-honoured 429 / open breaker
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
   circuitbreaker:
     instances:
       sqlBreaker:
@@ -138,11 +157,32 @@ resilience4j:
         minimum-number-of-calls: 5
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
+      openMeteo:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions: [java.io.IOException]
+        ignore-exceptions: [java.io.FileNotFoundException]
+  ratelimiter:
+    instances:
+      openMeteo:
+        limit-for-period: 5
+        limit-refresh-period: 1s
+        timeout-duration: 10s
 
 weather:
   worker:
     connect-timeout-ms: 15000
     read-timeout-ms: 30000
+    open-meteo-base-url: https://api.open-meteo.com/v1/forecast
+    rate-limit:                          # inline 429 Retry-After handling
+      max-retries: 2
+      default-wait-ms: 5000
+      max-wait-ms: 60000
+    post-processing:
+      max-failure-rate: 0.5              # skip post-processing above this failure rate
 
 management:
   server:
@@ -197,12 +237,23 @@ Thread
   Pauses (per-station pacing and between-cycle waits) go through a protected sleep(long ms)
   method so tests can subclass and run without real waits.
 
+Graceful shutdown
+  - A volatile `running` flag and the loop's interrupt check let the worker stop cleanly.
+  - @PreDestroy shutdown(): set running=false, interrupt the worker thread, join up to 25s.
+  - If a stop is requested mid-cycle the loop breaks and post-processing is SKIPPED.
+
 Per-cycle loop
   1. Load US stations from dbo.vwWeatherForecastToDay (max 1400).
   2. Compute target delay: max(8_hours_ms / stationCount, 2000). If count <= 1, use 2000 ms.
-  3. For each station: fetch JSON → save to dbo.ows_meteo → sleep (targetDelay - actualProcessingTime).
-     Skip sleep if negative.
-  4. Run post-processing procedures.
+  3. For each station (unless stopping): process() → tally PROCESSED/SKIPPED/FAILED →
+     sleep (targetDelay - actualProcessingTime). Skip sleep if negative.
+  4. Post-processing gate (maybeRunPostProcessing):
+       attempted = processed + failed   (skipped stations excluded)
+       if attempted > 0 and failed/attempted > weather.worker.post-processing.max-failure-rate
+         → log ERROR (cycle degraded) and SKIP post-processing
+       else → run post-processing procedures
+     Rationale: a high failure rate (e.g. open circuit / mass SQL failure) must not recompute
+     probabilities from partial data; legitimate no-feed skips never block post-processing.
   5. Sleep until next local midnight (skip if already past boundary).
 
 
@@ -236,9 +287,15 @@ User-Agent: Chrome-like, e.g.
   The two 537.NN WebKit/Safari build numbers are randomised in [11, 97]; seeded by the calendar
   day so they stay stable for a whole day and change from one day to the next
   (OpenMeteoFetcher.currentUserAgent).
-HTTP 200 → read response body as UTF-8 verbatim (no post-processing of the body)
-HTTP 404 → throw FileNotFoundException
-Any other non-200 → throw IOException
+
+Resilience (fetch is annotated @Retry + @CircuitBreaker + @RateLimiter, instance "openMeteo"):
+  HTTP 200 → read response body as UTF-8 verbatim (no post-processing of the body)
+  HTTP 404 → throw FileNotFoundException (not retried; maps to SKIPPED upstream)
+  HTTP 429 → honour Retry-After inline (delta-seconds or HTTP-date), clamped to
+             [0, weather.worker.rate-limit.max-wait-ms]; retry up to rate-limit.max-retries.
+             If still 429 → throw RateLimitedException (recorded by the breaker).
+  Other non-200 / timeout → throw IOException (retried with exponential backoff)
+  Resilience4j AOP is active only on the Spring-managed bean at runtime (not in direct unit tests).
 
 URL shape:
   https://api.open-meteo.com/v1/forecast
@@ -271,9 +328,11 @@ Post-processing procedures:
 PROCESSING PIPELINE
 -------------------
 StationProcessorBase (template method):
-  process(StationRef) is final; calls processStation() inside try/catch.
-  FileNotFoundException → log info: "Skipping US station with no published Open-Meteo source. station={mli} state={state}"
-  Any other exception   → log warning: "US station processing failed. station={mli} state={state}"; continue.
+  process(StationRef) is final; calls processStation() inside try/catch and returns a
+  ProcessingOutcome (PROCESSED / SKIPPED / FAILED) the worker uses for the post-processing gate:
+    success              → PROCESSED
+    FileNotFoundException → SKIPPED; log info "Skipping US station with no published Open-Meteo source. ..."
+    any other exception   → FAILED;  log warning "US station processing failed. station={mli} state={state}"
 
 StationProcessorOpen:
   1. Fetch JSON from Open-Meteo using station lat/lon.
@@ -298,11 +357,15 @@ ERROR HANDLING
   Missing DB_URL / DB_USERNAME / DB_PASSWORD → Spring datasource fails at startup
   Blank mli during save                      → throw IllegalArgumentException
   Blank / null JSON payload                  → skip save
-  HTTP 404 from Open-Meteo                   → throw FileNotFoundException; log skip; continue
-  HTTP non-200 other than 404                → throw IOException; log warning; continue
-  Per-station processing exception           → log warning with station and state; continue
-  SQL write failure                          → Resilience4j retry/circuit breaker; then propagates
+  HTTP 404 from Open-Meteo                   → FileNotFoundException; log skip; outcome SKIPPED
+  HTTP 429 from Open-Meteo                   → honour Retry-After inline; if exhausted RateLimitedException → FAILED
+  HTTP non-200 other than 404 / timeout      → IOException; retried (backoff); if exhausted → FAILED
+  Per-station processing exception           → log warning; outcome FAILED; continue
+  SQL write failure                          → Resilience4j retry/circuit breaker; then propagates → FAILED
+  Open Open-Meteo circuit                    → CallNotPermittedException fast-fail → FAILED
+  High cycle failure rate (> max-failure-rate) → log ERROR; SKIP post-processing for the cycle
   Post-processing emits result sets          → drain with getMoreResults; continue normally
+  Stop requested mid-cycle (@PreDestroy)     → break loop; skip post-processing; thread joins (<=25s)
   Worker thread interrupted                  → re-set interrupt flag; stop worker thread
   Unexpected worker loop exception           → log error; continue loop
 
@@ -376,16 +439,18 @@ functional classes. No Spring context is started; collaborators are mocked.
   StationRefTest                       record accessors + value equality
   OpenMeteoFetcherTest                 real loopback HttpServer: verbatim 200 body, daily UA +
                                        its [11,97] build numbers, coordinate/query params,
-                                       404→FileNotFoundException, other non-200→IOException
+                                       404→FileNotFoundException, other non-200→IOException,
+                                       429 Retry-After then success, exhausted 429→RateLimitedException
   WeatherStationRepositoryTest         query SQL + RowMapper column mapping
   WeatherDataRepositoryTest            save SQL/args, blank-mli reject, blank-payload skip,
                                        procedure execution + result-set drain, fallback wrappers
-  StationProcessorBaseTest             template-method handling via captured log events
-                                       (success/skip-info/failure-warn)
-  StationProcessorOpenTest             fetch+persist success, skip on FileNotFound, swallow IOException
+  StationProcessorBaseTest             template-method outcome (PROCESSED/SKIPPED/FAILED) via
+                                       captured log events
+  StationProcessorOpenTest             fetch+persist→PROCESSED, FileNotFound→SKIPPED, IOException→FAILED
   StationPostProcessingServiceTest     stored-procedure invocation order
-  StationWorkerTest                    delay budget math, millisUntilNextMidnight bounds,
-                                       runOnce all/filtered, console short-circuit
+  StationWorkerTest                    delay budget math, millisUntilNextMidnight bounds, runOnce
+                                       all/filtered, skipped-don't-block + degraded-cycle post-proc
+                                       gate, stop-requested short-circuit, shutdown flag, console
   ConsoleDebugRunnerTest               no-op without --console; runs + exits with/without --station
 
 Testability seams used by the tests (production behaviour unchanged):

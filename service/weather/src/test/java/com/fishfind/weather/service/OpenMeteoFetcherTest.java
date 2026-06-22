@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,23 +21,26 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Exercises {@link OpenMeteoFetcher} against a real loopback HTTP server so the
- * full request-building and response-handling paths are covered.
+ * full request-building, response-handling, and 429/Retry-After paths are covered.
+ * (Resilience4j retry/breaker/rate-limiter are AOP-applied at runtime and are not
+ * active when the bean is constructed directly here.)
  */
 class OpenMeteoFetcherTest {
 
     private HttpServer server;
     private int port;
-    private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastQuery = new AtomicReference<>();
     private final AtomicReference<String> lastUserAgent = new AtomicReference<>();
+    private final AtomicInteger requestCount = new AtomicInteger();
 
     private OpenMeteoFetcher fetcher;
 
     @BeforeEach
     void startServer() throws IOException {
+        requestCount.set(0);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
-            lastPath.set(exchange.getRequestURI().getPath());
+            int count = requestCount.incrementAndGet();
             lastQuery.set(exchange.getRequestURI().getRawQuery());
             lastUserAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
 
@@ -48,6 +52,12 @@ class OpenMeteoFetcherTest {
             }
             if (path.startsWith("/error")) {
                 exchange.sendResponseHeaders(500, -1);
+                exchange.close();
+                return;
+            }
+            if (path.startsWith("/ratelimit-always") || (path.startsWith("/ratelimit-once") && count == 1)) {
+                exchange.getResponseHeaders().set("Retry-After", "0");
+                exchange.sendResponseHeaders(429, -1);
                 exchange.close();
                 return;
             }
@@ -65,6 +75,9 @@ class OpenMeteoFetcherTest {
         fetcher = new OpenMeteoFetcher();
         ReflectionTestUtils.setField(fetcher, "connectTimeoutMs", 5000);
         ReflectionTestUtils.setField(fetcher, "readTimeoutMs", 5000);
+        ReflectionTestUtils.setField(fetcher, "rateLimitMaxRetries", 2);
+        ReflectionTestUtils.setField(fetcher, "rateLimitDefaultWaitMs", 10L);
+        ReflectionTestUtils.setField(fetcher, "rateLimitMaxWaitMs", 1000L);
     }
 
     @AfterEach
@@ -101,6 +114,42 @@ class OpenMeteoFetcherTest {
     }
 
     @Test
+    void throwsFileNotFoundOn404() {
+        pointAt("/notfound");
+
+        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                .isInstanceOf(FileNotFoundException.class);
+    }
+
+    @Test
+    void throwsIoExceptionOnOtherNon200() {
+        pointAt("/error");
+
+        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("HTTP 500");
+    }
+
+    @Test
+    void honoursRetryAfterThenSucceeds() throws IOException {
+        pointAt("/ratelimit-once");
+
+        String json = fetcher.fetch(1.0, 2.0);
+
+        assertThat(json).isEqualTo("{\"raw\":\"va\\\"lue\"}");
+        assertThat(requestCount.get()).isEqualTo(2); // one 429, one success
+    }
+
+    @Test
+    void throwsRateLimitedAfterExhaustingRetries() {
+        pointAt("/ratelimit-always");
+
+        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                .isInstanceOf(RateLimitedException.class);
+        assertThat(requestCount.get()).isEqualTo(3); // initial + 2 retries
+    }
+
+    @Test
     void userAgentBuildNumbersAreDailyStableAndInRange() {
         LocalDate day = LocalDate.of(2026, 6, 22);
 
@@ -124,22 +173,5 @@ class OpenMeteoFetcherTest {
                 .count();
 
         assertThat(distinct).isGreaterThan(1);
-    }
-
-    @Test
-    void throwsFileNotFoundOn404() {
-        pointAt("/notfound");
-
-        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
-                .isInstanceOf(FileNotFoundException.class);
-    }
-
-    @Test
-    void throwsIoExceptionOnOtherNon200() {
-        pointAt("/error");
-
-        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
-                .isInstanceOf(IOException.class)
-                .hasMessageContaining("HTTP 500");
     }
 }
