@@ -93,8 +93,6 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_river_sym' AND xtype = 'IF'
     DROP function dbo.fn_river_sym
 GO
 
-drop VIEW dbo.vw_lake
-GO
 ---- SELECT * FROM dbo.vw_lake WHERE lake_id = '45c0706e-d3aa-47eb-80b1-3f4712817916'
 ---- SELECT * FROM dbo.vw_lake WHERE state='ON' and LEFT(lake_name,1)= 'A'	
 ---- select * from vw_lake where lake_name = 'Seguin River' AND state='ON' 
@@ -550,6 +548,11 @@ GO
 -- 1 - sport, 2 - Coarse, 4 - commersial, 8 - invading, 128 - migrate pattern (inverted logic by default)
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
+
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vget_fish4push' AND type = 'V')
+    DROP VIEW dbo.vget_fish4push
+GO
+
 -- used in [spStepPushSpeciesFromLakeToStation]
 -- select * from vget_fish4push
 CREATE VIEW [dbo].[vget_fish4push]
@@ -1071,6 +1074,7 @@ AS
     SELECT row_number() over (order by id DESC) AS id, 
 	     news.id AS nid, news_id, news_title AS title, news_source AS source
 	     , CAST(CAST(news_stamp AS DATE) AS char(10)) AS stamp
+         , news_photo0
 	     , country AS flag, x.cnt 
 	FROM news
 		, (SELECT COUNT(*) AS cnt FROM news WHERE news_publish = 1)x

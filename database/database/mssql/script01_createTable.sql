@@ -825,6 +825,9 @@ CREATE TABLE Lake
     reviewed    bit,                    -- means review manually done by operator
     fish_type   tinyint,               -- bitmask: 1=sport, 2=commercial, 4=invading, 8=aquarium
     fish_guid   uniqueidentifier,      -- primary fish species reference (FK to fish)
+    ai_edit     int,                   -- ai edit impact 1 -assigned source, 2 - assigned mouth, 4 - assigned source coordinates, 8 - assigned mouth coordinates,
+                                       -- 16 - assigned source elevation, 32 - assigned mouth elevation, 64 - updated link, 128 - updated photo,
+                                       -- 256 - Description, 512 - assigned waterbody, 1024 - update fish
     CONSTRAINT PK_LAke PRIMARY KEY CLUSTERED (Lake_id),
 ) ;
 GO
