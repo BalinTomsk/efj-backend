@@ -35,7 +35,7 @@ Explicitly follows database schema at:
 | Service name | `debian-weather` |
 | Language | Java 21 |
 | Build | Maven |
-| Framework | Spring Boot 3.2.x |
+| Framework | Spring Boot 3.2.12 |
 | Main class | `com.fishfind.weather.WeatherStationPusherApplication` |
 
 ---
@@ -119,7 +119,8 @@ src/main/java/com/fishfind/weather/service/StationProcessorOpen.java
 src/main/java/com/fishfind/weather/service/StationWorker.java
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
-.env.example          (project root, placeholder values only)
+.env.example          (project root, placeholder values only; trustServerCertificate=false)
+.owasp-suppressions.xml
 Dockerfile
 .dockerignore
 ```
@@ -142,6 +143,10 @@ Dockerfile
 - SLF4J + Logback (via Spring Boot default)
 - `spring-boot-starter-test` (test scope)
 
+Build plugins:
+- `org.cyclonedx:cyclonedx-maven-plugin:2.9.2` — generates SBOM at `target/bom.json` during `package`
+- `org.owasp:dependency-check-maven:12.2.2` — CVE scan; run with `mvn dependency-check:check`; fails on CVSS ≥ 7; suppressions in `.owasp-suppressions.xml`
+
 ---
 
 ## Startup / credential loading
@@ -151,7 +156,8 @@ Dockerfile
    - if `DOTENV_PATH` is set and non-blank, load that path
    - otherwise, if a `.env` file exists in the working directory, load it
    - ignore missing or malformed dotenv files
-3. Copy loaded values into JVM system properties only when the corresponding env var and system property are both missing.
+3. Collect dotenv values into a `Map<String, Object>` and register them via `SpringApplication.setDefaultProperties()`.
+   **Never** call `System.setProperty()` for secrets — Spring default properties are the lowest-priority source, so real env/JVM properties still win, and secrets are not exposed in heap dumps or via `System.getProperty()`.
 
 ---
 
@@ -250,10 +256,11 @@ Model: `StationRef(String mli, double latitude, double longitude, String state)`
 ## HTTP fetch (`OpenMeteoFetcher`)
 
 - Transport: `HttpURLConnection`, method `GET`.
+- Base URL: `weather.worker.open-meteo-base-url` (default `https://api.open-meteo.com/v1/forecast`) — overridable for tests.
 - Connect timeout: `weather.worker.connect-timeout-ms` (default 15 000 ms).
 - Read timeout: `weather.worker.read-timeout-ms` (default 30 000 ms).
-- Browser-like `User-Agent` header.
-- HTTP 200 → read response body as UTF-8; replace `\\\"` → `\"`.
+- `User-Agent`: Chrome-like `Mozilla/5.0 (...) AppleWebKit/537.NN (...) Chrome/124.0 Safari/537.NN`. The two `537.NN` WebKit/Safari build numbers are randomised in `[11, 97]`, seeded by the calendar day so they're stable per day and change daily (`OpenMeteoFetcher.currentUserAgent`).
+- HTTP 200 → read response body as UTF-8 **verbatim** (no post-processing of the body).
 - HTTP 404 → throw `FileNotFoundException`.
 - Any other non-200 → throw `IOException`.
 
@@ -380,11 +387,16 @@ Structured JSON via `logstash-logback-encoder`. Every log line is a JSON object 
 Build stage: `maven:3.9.9-eclipse-temurin-21` — runs `mvn -B -DskipTests package`.  
 Runtime stage: `eclipse-temurin:21-jre` — copies jar to `/app/weather-station-pusher.jar`.
 
+Security:
+- Non-root user: `appgroup` (gid 1001) + `appuser` (uid 1001, no home directory).
+- `mkdir -p /app/logs` and `chown appuser:appgroup /app/weather-station-pusher.jar /app/logs` before `USER appuser`.
+- `exec java` in the entrypoint replaces the shell so Java is PID 1 and receives `SIGTERM` directly.
+
 ```sh
 EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD wget -qO- http://localhost:8081/actuator/health || exit 1
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 ```
 
 `.dockerignore` must exclude: `.git`, `.idea`, `target`, `docs`, `.env`.  
@@ -420,6 +432,19 @@ readinessProbe:
 
 ---
 
+## Testing
+
+Unit tests (JUnit 5 + Mockito + AssertJ, all via `spring-boot-starter-test`) cover every functional class — no Spring context is started; collaborators are mocked. One test class per production class, under `src/test/java/com/fishfind/weather/...`.
+
+Testability seams (production behaviour unchanged):
+- `OpenMeteoFetcher` — `weather.worker.open-meteo-base-url` lets tests target a local `HttpServer`.
+- `StationWorker` — `protected void sleep(long)` so tests run without real waits.
+- `ConsoleDebugRunner` — `protected void exit(int)` so the console path doesn't terminate the JVM.
+
+`OpenMeteoFetcherTest` spins up a real loopback `com.sun.net.httpserver.HttpServer` to exercise the 200 / 404 / non-200 branches and the verbatim body, plus the daily `User-Agent` (build numbers in `[11, 97]`, stable per day, varying across days).
+
+---
+
 ## Explicitly not implemented
 
 Do not add these unless explicitly requested:
@@ -437,19 +462,22 @@ Do not add these unless explicitly requested:
 
 1. Maven Java 21 Spring Boot project; coordinates `com.fishfind:weather-station-pusher:1.0.0`.
 2. Add dependencies (web, actuator, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback).
-3. Implement dotenv bootstrap in `WeatherStationPusherApplication` (before Spring starts).
-4. `StationRef` record: `mli`, `latitude`, `longitude`, `state`.
-5. `WeatherStationRepository` — `vwWeatherForecastToDay` US query.
-6. `OpenMeteoFetcher` — `HttpURLConnection` with response rules above.
-7. `WeatherDataRepository` — `UPDATE dbo.ows_meteo`, two stored procedure methods, Resilience4j.
-8. `StationProcessorBase` — template method exception handling.
-9. `StationProcessorOpen` — fetch + save flow.
-10. `StationPostProcessingService` — exact procedure order.
-11. `StationWorker` — background thread, 8-hour dynamic delay, midnight sleep.
-12. `ConsoleDebugRunner` — `--console` + `--station` one-shot mode.
-13. `application.yml` and `logback-spring.xml`.
-14. `.env.example`, `.dockerignore`, `Dockerfile`.
-15. Verify: `mvn -DskipTests compile`
+3. Add build plugins: `cyclonedx-maven-plugin:2.9.2` + `dependency-check-maven:12.2.2`.
+4. Implement dotenv bootstrap in `WeatherStationPusherApplication` using `setDefaultProperties()` — **no** `System.setProperty()` for secrets.
+5. `StationRef` record: `mli`, `latitude`, `longitude`, `state`.
+6. `WeatherStationRepository` — `vwWeatherForecastToDay` US query.
+7. `OpenMeteoFetcher` — `HttpURLConnection`; honest `User-Agent`; verbatim UTF-8 body (no replace).
+8. `WeatherDataRepository` — `UPDATE dbo.ows_meteo`, two stored procedure methods, Resilience4j.
+9. `StationProcessorBase` — template method exception handling.
+10. `StationProcessorOpen` — fetch + save flow.
+11. `StationPostProcessingService` — exact procedure order.
+12. `StationWorker` — background thread, 8-hour dynamic delay, midnight sleep.
+13. `ConsoleDebugRunner` — `--console` + `--station` one-shot mode.
+14. `application.yml` and `logback-spring.xml`.
+15. `.env.example` (`trustServerCertificate=false`), `.owasp-suppressions.xml`, `.dockerignore`.
+16. `Dockerfile`: non-root `appuser` (uid 1001), `exec java` entrypoint, `EXPOSE 8081` + `HEALTHCHECK`.
+17. Unit tests for all functional classes (see **Testing**) via the sleep/exit/base-url seams.
+18. Verify: `mvn test`
 
 ---
 

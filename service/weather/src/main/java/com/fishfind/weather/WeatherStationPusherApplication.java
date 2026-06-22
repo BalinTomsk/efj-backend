@@ -3,6 +3,8 @@ package com.fishfind.weather;
 import io.github.cdimascio.dotenv.Dotenv;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -16,16 +18,32 @@ public class WeatherStationPusherApplication {
     private static final String DOTENV_PATH_ENV = "DOTENV_PATH";
 
     public static void main(String[] args) {
-        loadDotenvCredentials();
-        SpringApplication.run(WeatherStationPusherApplication.class, args);
+        SpringApplication application = new SpringApplication(WeatherStationPusherApplication.class);
+
+        Map<String, Object> dotenvFallback = loadDotenvCredentials();
+        if (!dotenvFallback.isEmpty()) {
+            // Lowest-precedence source: the real process environment / system properties still win.
+            application.setDefaultProperties(dotenvFallback);
+        }
+
+        application.run(args);
     }
 
-    private static void loadDotenvCredentials() {
+    /**
+     * Collects DB credentials from a dotenv file as a fallback for keys not already supplied
+     * by the process environment or JVM system properties. The values are returned for use as
+     * Spring default properties rather than being copied into the JVM-global system properties
+     * table, so that secrets (notably {@code DB_PASSWORD}) are not exposed process-wide via
+     * {@link System#getProperty} or heap-dump diagnostics.
+     */
+    private static Map<String, Object> loadDotenvCredentials() {
         Dotenv dotenv = loadDotenv();
 
-        applyIfMissing(dotenv, "DB_URL");
-        applyIfMissing(dotenv, "DB_USERNAME");
-        applyIfMissing(dotenv, "DB_PASSWORD");
+        Map<String, Object> fallback = new HashMap<>();
+        addIfMissing(dotenv, fallback, "DB_URL");
+        addIfMissing(dotenv, fallback, "DB_USERNAME");
+        addIfMissing(dotenv, fallback, "DB_PASSWORD");
+        return fallback;
     }
 
     private static Dotenv loadDotenv() {
@@ -61,14 +79,14 @@ public class WeatherStationPusherApplication {
         return null;
     }
 
-    private static void applyIfMissing(Dotenv dotenv, String key) {
+    static void addIfMissing(Dotenv dotenv, Map<String, Object> fallback, String key) {
         if (System.getenv(key) != null || System.getProperty(key) != null) {
             return;
         }
 
         String value = dotenv.get(key);
         if (value != null && !value.isBlank()) {
-            System.setProperty(key, value);
+            fallback.put(key, value);
         }
     }
 }

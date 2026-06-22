@@ -1,7 +1,7 @@
 weather-station-pusher — Full Specification
 ============================================
 Version: 1.0.0
-Last updated: 2026-06-05
+Last updated: 2026-06-22
 
 This document is the single source of truth for recreating the service from scratch.
 It must be kept in sync with every source file change.
@@ -12,7 +12,7 @@ PROJECT IDENTITY
 Service name : debian-weather
 Language     : Java 21
 Build        : Maven
-Framework    : Spring Boot 3.2.5
+Framework    : Spring Boot 3.2.12
 Main class   : com.fishfind.weather.WeatherStationPusherApplication
 Artifact     : com.fishfind:weather-station-pusher:1.0.0
 
@@ -32,7 +32,7 @@ GOAL
 
 DEPENDENCIES (pom.xml)
 -----------------------
-Parent    : spring-boot-starter-parent 3.2.5
+Parent    : spring-boot-starter-parent 3.2.12
 Java      : 21
 
 Runtime:
@@ -50,6 +50,13 @@ Runtime:
 
 Test:
   spring-boot-starter-test
+
+Build plugins:
+  org.cyclonedx:cyclonedx-maven-plugin:2.9.2   (SBOM at target/bom.json, bound to package phase)
+  org.owasp:dependency-check-maven:12.2.2      (CVE scan; run: mvn dependency-check:check)
+    failBuildOnCVSS: 7
+    suppressions:   .owasp-suppressions.xml
+    NVD API key:    NVD_API_KEY env var
 
 
 PACKAGE LAYOUT
@@ -86,6 +93,7 @@ src/main/java/com/fishfind/weather/service/StationWorker.java
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
 .env.example
+.owasp-suppressions.xml
 Dockerfile
 .dockerignore
 docs/specification.txt
@@ -99,8 +107,10 @@ Before Spring initialises:
    - if DOTENV_PATH is set and non-blank → load that path
    - otherwise, if .env exists in the working directory → load it
    - ignore missing or malformed dotenv files
-3. Copy loaded values into JVM system properties only when the corresponding env var
-   and system property are both missing.
+3. Collect dotenv values as a Map and register them via SpringApplication.setDefaultProperties()
+   so secrets (especially DB_PASSWORD) are never written to the JVM-global System.setProperty()
+   table where they would be visible to heap dumps and diagnostic tools.
+   Real process env / JVM system properties always win (they take precedence over default properties).
 
 
 CONFIGURATION (application.yml)
@@ -184,6 +194,8 @@ Thread
   Thread name: weather-data-worker-open
   Non-daemon thread.
   If app starts with --console: do not launch the background thread.
+  Pauses (per-station pacing and between-cycle waits) go through a protected sleep(long ms)
+  method so tests can subclass and run without real waits.
 
 Per-cycle loop
   1. Load US stations from dbo.vwWeatherForecastToDay (max 1400).
@@ -199,6 +211,8 @@ CONSOLE / DEBUG MODE (--console)
 Activated by --console command-line arg (@Order(0); exits process when done).
 Optional: --station=<MLI> to filter to one station.
 Runs exactly one processing pass; no background thread started.
+Process termination goes through a protected exit(int) method (default System.exit) so tests
+can exercise the console path without terminating the JVM.
 
 
 STATION QUERY (WeatherStationRepository)
@@ -213,10 +227,16 @@ Model: StationRef(String mli, double latitude, double longitude, String state)
 HTTP FETCH (OpenMeteoFetcher)
 ------------------------------
 Transport: HttpURLConnection, method GET.
+Base URL: weather.worker.open-meteo-base-url (default https://api.open-meteo.com/v1/forecast).
+  Overridable so tests can target a local server; production default is unchanged.
 Connect timeout: weather.worker.connect-timeout-ms (default 15 000 ms).
 Read timeout: weather.worker.read-timeout-ms (default 30 000 ms).
-Browser-like User-Agent header.
-HTTP 200 → read response body as UTF-8; replace \" → "
+User-Agent: Chrome-like, e.g.
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.NN (KHTML, like Gecko) Chrome/124.0 Safari/537.NN"
+  The two 537.NN WebKit/Safari build numbers are randomised in [11, 97]; seeded by the calendar
+  day so they stay stable for a whole day and change from one day to the next
+  (OpenMeteoFetcher.currentUserAgent).
+HTTP 200 → read response body as UTF-8 verbatim (no post-processing of the body)
 HTTP 404 → throw FileNotFoundException
 Any other non-200 → throw IOException
 
@@ -320,10 +340,16 @@ DOCKER
 Build stage  : maven:3.9.9-eclipse-temurin-21, runs mvn -B -DskipTests package
 Runtime stage: eclipse-temurin:21-jre, copies jar to /app/weather-station-pusher.jar
 
+Security:
+  - Non-root user: groupadd appgroup (gid 1001) + useradd appuser (uid 1001, no home)
+  - /app/logs created (mkdir -p) and chowned to appuser:appgroup so Logback file appender can write
+  - jar is chowned to appuser:appgroup; USER appuser set before EXPOSE
+  - ENTRYPOINT uses "exec java ..." so Java replaces the shell and receives SIGTERM as PID 1
+
   EXPOSE 8081
   HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD wget -qO- http://localhost:8081/actuator/health || exit 1
-  ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
+  ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 
 .dockerignore must exclude: .git, .idea, target, docs, .env
 Do NOT bake a real .env into the image.
@@ -339,6 +365,33 @@ RUN MODES
 
   One-shot for a single station (by MLI identifier):
     java -jar target/weather-station-pusher-1.0.0.jar --console --station=<MLI>
+
+
+TESTING
+-------
+Unit tests (JUnit 5 + Mockito + AssertJ, all bundled by spring-boot-starter-test) cover all
+functional classes. No Spring context is started; collaborators are mocked.
+
+  WeatherStationPusherApplicationTest  addIfMissing fallback logic (env/sysprop/dotenv branches)
+  StationRefTest                       record accessors + value equality
+  OpenMeteoFetcherTest                 real loopback HttpServer: verbatim 200 body, daily UA +
+                                       its [11,97] build numbers, coordinate/query params,
+                                       404→FileNotFoundException, other non-200→IOException
+  WeatherStationRepositoryTest         query SQL + RowMapper column mapping
+  WeatherDataRepositoryTest            save SQL/args, blank-mli reject, blank-payload skip,
+                                       procedure execution + result-set drain, fallback wrappers
+  StationProcessorBaseTest             template-method handling via captured log events
+                                       (success/skip-info/failure-warn)
+  StationProcessorOpenTest             fetch+persist success, skip on FileNotFound, swallow IOException
+  StationPostProcessingServiceTest     stored-procedure invocation order
+  StationWorkerTest                    delay budget math, millisUntilNextMidnight bounds,
+                                       runOnce all/filtered, console short-circuit
+  ConsoleDebugRunnerTest               no-op without --console; runs + exits with/without --station
+
+Testability seams used by the tests (production behaviour unchanged):
+  - OpenMeteoFetcher: weather.worker.open-meteo-base-url
+  - StationWorker:    protected sleep(long)
+  - ConsoleDebugRunner: protected exit(int)
 
 
 BUILD COMMANDS
@@ -364,17 +417,23 @@ RECREATION CHECKLIST
 ---------------------
  1. Maven Java 21 Spring Boot project; coordinates com.fishfind:weather-station-pusher:1.0.0
  2. Add dependencies: web, actuator, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback
- 3. Implement dotenv bootstrap in WeatherStationPusherApplication (before Spring starts)
- 4. StationRef record: mli, latitude, longitude, state
- 5. WeatherStationRepository — vwWeatherForecastToDay US query
- 6. OpenMeteoFetcher — HttpURLConnection with response rules above
- 7. WeatherDataRepository — UPDATE dbo.ows_meteo, two stored procedure methods, Resilience4j
- 8. StationProcessorBase — template method exception handling
- 9. StationProcessorOpen — fetch + save flow
-10. StationPostProcessingService — exact procedure order
-11. StationWorker — background thread, 8-hour dynamic delay, midnight sleep
-12. ConsoleDebugRunner — --console + --station one-shot mode
-13. application.yml (datasource, resilience4j, weather.worker, management, logging)
-14. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
-15. .env.example, .dockerignore, Dockerfile (with EXPOSE 8081 + HEALTHCHECK)
-16. Verify: mvn -DskipTests compile
+ 3. Add build plugins: cyclonedx-maven-plugin:2.9.2 (bound to package), dependency-check-maven:12.2.2
+ 4. Implement dotenv bootstrap in WeatherStationPusherApplication using setDefaultProperties()
+    (secrets must NOT be written to System.setProperty — use Spring default properties map)
+ 5. StationRef record: mli, latitude, longitude, state
+ 6. WeatherStationRepository — vwWeatherForecastToDay US query
+ 7. OpenMeteoFetcher — HttpURLConnection; honest User-Agent; verbatim UTF-8 body (no replace)
+ 8. WeatherDataRepository — UPDATE dbo.ows_meteo, two stored procedure methods, Resilience4j
+ 9. StationProcessorBase — template method exception handling
+10. StationProcessorOpen — fetch + save flow
+11. StationPostProcessingService — exact procedure order
+12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep
+13. ConsoleDebugRunner — --console + --station one-shot mode
+14. application.yml (datasource, resilience4j, weather.worker, management, logging)
+15. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
+16. .env.example with trustServerCertificate=false
+17. .owasp-suppressions.xml stub
+18. .dockerignore
+19. Dockerfile: non-root appuser (uid 1001), exec java entrypoint, EXPOSE 8081 + HEALTHCHECK
+20. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
+21. Verify: mvn test
