@@ -10,11 +10,12 @@ import java.io.FileNotFoundException;
  */
 public abstract class StationProcessorBase {
 
-    public final void process(StationRef station) {
+    public final ProcessingOutcome process(StationRef station) {
         try {
             processStation(station);
+            return ProcessingOutcome.PROCESSED;
         } catch (Exception ex) {
-            handleProcessingException(station, ex);
+            return handleProcessingException(station, ex);
         }
     }
 
@@ -26,7 +27,7 @@ public abstract class StationProcessorBase {
 
     protected abstract String missingSourceDescription();
 
-    protected void handleProcessingException(StationRef station, Exception ex) {
+    protected ProcessingOutcome handleProcessingException(StationRef station, Exception ex) {
         if (ex instanceof FileNotFoundException) {
             logger().info(
                     "Skipping {} with no published {}. station={} state={}",
@@ -35,7 +36,7 @@ public abstract class StationProcessorBase {
                     station.mli(),
                     station.state()
             );
-            return;
+            return ProcessingOutcome.SKIPPED;
         }
 
         logger().warn(
@@ -45,6 +46,7 @@ public abstract class StationProcessorBase {
                 station.state(),
                 ex
         );
+        return ProcessingOutcome.FAILED;
     }
 
     private String stationLabel() {

@@ -37,7 +37,7 @@ class StationProcessorBaseTest {
 
     @Test
     void successPathDelegatesWithoutLogging() {
-        processor.process(station);
+        assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.PROCESSED);
 
         assertThat(processed).isTrue();
         assertThat(appender.list).isEmpty();
@@ -47,7 +47,7 @@ class StationProcessorBaseTest {
     void fileNotFoundLogsInfoSkipAndSwallows() {
         toThrow = new FileNotFoundException("no feed");
 
-        processor.process(station);
+        assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.SKIPPED);
 
         assertThat(appender.list).hasSize(1);
         ILoggingEvent event = appender.list.get(0);
@@ -63,7 +63,7 @@ class StationProcessorBaseTest {
     void otherExceptionLogsWarningAndSwallows() {
         toThrow = new IllegalStateException("kaboom");
 
-        processor.process(station);
+        assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED);
 
         assertThat(appender.list).hasSize(1);
         ILoggingEvent event = appender.list.get(0);
