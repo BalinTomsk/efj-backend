@@ -1,0 +1,1 @@
+org.springframework.boot.env.EnvironmentPostProcessor=com.fishfind.water.config.DotenvEnvironmentPostProcessor
