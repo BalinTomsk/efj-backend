@@ -1249,27 +1249,39 @@ GO
 CREATE TABLE zone_regulations
 (
     regulations_id          uniqueidentifier NOT NULL,
-    zone_id                 int              NOT NULL,  
+    zone_id                 int              NOT NULL,
     Lake_id                 uniqueidentifier     NULL,
-    fish_id                 uniqueidentifier     NULL,
+    fish_id                 uniqueidentifier     NULL,      -- NULL = applies to all fish on this zone
+    reg_year                smallint         NOT NULL,      -- regulation year (e.g. 2026)
     regulations_date_start  DATE,
-    regulations_start       varchar(64),      -- non standart date
+    regulations_start       varchar(64),                    -- non-standard date
     regulations_date_end    DATE,
-    regulations_end         varchar(64),      -- non standart date
-    regulations_sport_text  nvarchar(255), 
-    regulations_consr_text  nvarchar(255), 
-    regulations_code        int,              -- 1 - Fish sanctuary - no fishing, 2 -Live fish may not be used as bait or possessed for use as bait. 
+    regulations_end         varchar(64),                    -- non-standard date
+    regulations_sport       int,                            -- daily sport limit (NULL = N/A)
+    regulations_sport_text  nvarchar(255),
+    regulations_consr       int,                            -- daily conservation limit (NULL = N/A)
+    regulations_consr_text  nvarchar(255),
+    possession_sport        int,                            -- possession limit sport (NULL = same as daily)
+    possession_consr        int,                            -- possession limit conservation (NULL = same as daily)
+    min_length_cm           decimal(5,1),                   -- minimum size to keep (cm)
+    slot_min_cm             decimal(5,1),                   -- slot: fish >= slot_min AND <= slot_max must be released
+    slot_max_cm             decimal(5,1),                   -- slot upper bound
+    slot_over_limit         tinyint,                        -- max fish allowed above slot_max (NULL = no trophy sub-limit)
+    method_flags            tinyint,                        -- bitmask: 1=catch-and-release only, 2=artificial lures only, 4=no live bait
+    regulations_code        int,                            -- 1=Fish sanctuary, 2=no live bait, 3=combo, 4=no close time, 8=open
     regulations_link        nvarchar(255),
     regulations_stamp       DATETIME2,
     regulations_part        nvarchar(max),
     CONSTRAINT PK_zone_regulations PRIMARY KEY CLUSTERED (regulations_id),
     CONSTRAINT FK_zone_regulations FOREIGN KEY(fish_id) REFERENCES fish( fish_id )
- );
+);
 GO
 
-ALTER TABLE zone_regulations add constraint df_zone_regulations default NEWSEQUENTIALID() for regulations_id
+ALTER TABLE zone_regulations ADD CONSTRAINT df_zone_regulations       DEFAULT NEWSEQUENTIALID()       FOR regulations_id
 GO
-ALTER TABLE zone_regulations add constraint df_zone_regulations_stamp default getutcdate() for regulations_stamp
+ALTER TABLE zone_regulations ADD CONSTRAINT df_zone_regulations_stamp DEFAULT GETUTCDATE()             FOR regulations_stamp
+GO
+ALTER TABLE zone_regulations ADD CONSTRAINT df_zone_regulations_year  DEFAULT YEAR(GETUTCDATE())       FOR reg_year
 GO
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
@@ -1278,40 +1290,56 @@ GO
 --  drop function fn_GetLakeRegulations
 --  drop VIEW vw_regulations
 -- select * FROM regulations  
-CREATE TABLE regulations  
+CREATE TABLE regulations
 (
-    id                      int NOT NULL IDENTITY(1,1),
+    id                      int              NOT NULL IDENTITY(1,1),
     regulations_id          uniqueidentifier NOT NULL,
-    regulations_part        nvarchar(255),                  -- comment for this regulation
-    state                   char(2) NOT NULL,               -- ON - Ontario    
-    zone_id                 int     NULL,  
-    Lake_id                 uniqueidentifier,
-    fish_id                 uniqueidentifier NOT NULL,
-    chain                   uniqueidentifier, -- if regulation combain several fishes : Walleye or Sauger combined
+    regulations_part        nvarchar(255),                  -- comment / label for this regulation row
+    state                   char(2)          NOT NULL,      -- ON = Ontario
+    zone_id                 int              NULL,
+    Lake_id                 uniqueidentifier NULL,          -- NULL = zone-wide rule, no specific water body
+    fish_id                 uniqueidentifier NULL,          -- NULL = applies to all fish on this water body / zone
+    chain                   uniqueidentifier NULL,          -- combined-species group: e.g. Walleye + Sauger
+    reg_year                smallint         NOT NULL,      -- regulation year (e.g. 2026)
     regulations_date_start  DATE,
-    regulations_start       varchar(64),      -- non standart date
+    regulations_start       varchar(64),                    -- non-standard date text
     regulations_date_end    DATE,
-    regulations_end         varchar(64),      -- non standart date
-    regulations_sport       int,              -- NULL - N/A
-    regulations_sport_text  nvarchar(255), 
-    regulations_consr       int,              -- NULL - N/A
-    regulations_consr_text  nvarchar(255), 
-    regulations_code        int,              -- 1 - Fish sanctuary - no fishing, 2 -Live fish may not be used as bait or possessed for use as bait. 
+    regulations_end         varchar(64),                    -- non-standard date text
+    regulations_sport       int,                            -- daily catch limit — sport licence (NULL = N/A)
+    regulations_sport_text  nvarchar(255),
+    regulations_consr       int,                            -- daily catch limit — conservation licence (NULL = N/A)
+    regulations_consr_text  nvarchar(255),
+    possession_sport        int,                            -- possession limit sport (NULL = same as daily)
+    possession_consr        int,                            -- possession limit conservation (NULL = same as daily)
+    min_length_cm           decimal(5,1),                   -- minimum size to keep (cm); NULL = no minimum
+    slot_min_cm             decimal(5,1),                   -- protected slot lower bound: fish >= slot_min must be released...
+    slot_max_cm             decimal(5,1),                   -- ...if also <= slot_max (NULL = no slot limit)
+    slot_over_limit         tinyint,                        -- max fish allowed above slot_max (NULL = no trophy sub-limit)
+    method_flags            tinyint,                        -- bitmask: 1=catch-and-release only, 2=artificial lures only, 4=no live bait
+    regulations_code        int,                            -- 1=Fish sanctuary, 2=no live bait, 3=combo, 4=no close time, 8=open
     regulations_link        nvarchar(255),
     regulations_stamp       DATETIME2,
-    regulations_text        nvarchar(max), 
-    CONSTRAINT PK_Regulations PRIMARY KEY CLUSTERED (regulations_id),
+    regulations_text        nvarchar(max),
+    CONSTRAINT PK_Regulations  PRIMARY KEY CLUSTERED (regulations_id),
     CONSTRAINT FK_regulations_lake FOREIGN KEY(Lake_id) REFERENCES lake( Lake_id ),
     CONSTRAINT FK_regulations_fish FOREIGN KEY(fish_id) REFERENCES fish( fish_id ),
-    CONSTRAINT UK_regulations UNIQUE (state, zone_id, Lake_id, fish_id)
+    CONSTRAINT CH_regulations CHECK (fish_id IS NULL OR fish_id <> chain)
 );
 GO
 
-ALTER TABLE regulations add constraint df_regulations_id default NEWSEQUENTIALID() for regulations_id
+ALTER TABLE regulations ADD CONSTRAINT df_regulations_id    DEFAULT NEWSEQUENTIALID()   FOR regulations_id
 GO
-ALTER TABLE regulations add constraint df_regulations_stamp default getutcdate() for regulations_stamp
+ALTER TABLE regulations ADD CONSTRAINT df_regulations_stamp DEFAULT GETUTCDATE()         FOR regulations_stamp
 GO
-ALTER TABLE regulations ADD CONSTRAINT CH_regulations CHECK (fish_id <> chain)
+ALTER TABLE regulations ADD CONSTRAINT df_regulations_year  DEFAULT YEAR(GETUTCDATE())   FOR reg_year
+GO
+-- Fish-specific regulation: one row per (year, state, zone, lake, fish)
+CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id)
+    WHERE fish_id IS NOT NULL
+GO
+-- Water-body / zone rule with no specific fish: one row per (year, state, zone, lake)
+CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id)
+    WHERE fish_id IS NULL
 GO
 
 --------------------------------------------------------------------------------------------
@@ -2373,7 +2401,96 @@ INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, 
                  VALUES ('Tributaries', 'IUD', 2, '', 'Main_Lake_id,Lake_id', 'stamp', 'id')
 GO
 
-INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception) 
+INSERT INTO merge_table ( table_name,   operation, level, field_list, field_pk, field_stamp, field_exception)
                  VALUES ('news',        'IU', 2, '', 'news_id', 'stamp', '' )
 GO
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+-- PRODUCTION MIGRATION — regulations & zone_regulations schema update
+-- Apply once to any existing database that was created before this change.
+-- Safe to run multiple times (all steps are guarded with IF NOT EXISTS / IF EXISTS).
+-- -------------------------------------------------------------------------------
+-- 1. regulations: relax fish_id to nullable
+IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_regulations_fish')
+BEGIN
+    ALTER TABLE dbo.regulations DROP CONSTRAINT FK_regulations_fish
+    ALTER TABLE dbo.regulations ALTER COLUMN fish_id uniqueidentifier NULL
+    ALTER TABLE dbo.regulations ADD CONSTRAINT FK_regulations_fish
+        FOREIGN KEY (fish_id) REFERENCES dbo.fish(fish_id)
+END
+GO
+-- 2. regulations: fix CHECK (now fish_id can be NULL)
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CH_regulations')
+    ALTER TABLE dbo.regulations DROP CONSTRAINT CH_regulations
+GO
+ALTER TABLE dbo.regulations ADD CONSTRAINT CH_regulations CHECK (fish_id IS NULL OR fish_id <> chain)
+GO
+-- 3. regulations: drop old unique constraint; add two filtered unique indexes
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UK_regulations' AND object_id = OBJECT_ID('dbo.regulations'))
+    ALTER TABLE dbo.regulations DROP CONSTRAINT UK_regulations
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_with_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id) WHERE fish_id IS NOT NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_no_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id)          WHERE fish_id IS NULL
+GO
+-- 4. regulations: add new columns
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'reg_year')
+    ALTER TABLE dbo.regulations ADD reg_year smallint NOT NULL CONSTRAINT df_regulations_year DEFAULT (YEAR(GETUTCDATE()))
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'possession_sport')
+    ALTER TABLE dbo.regulations ADD possession_sport int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'possession_consr')
+    ALTER TABLE dbo.regulations ADD possession_consr int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'min_length_cm')
+    ALTER TABLE dbo.regulations ADD min_length_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'slot_min_cm')
+    ALTER TABLE dbo.regulations ADD slot_min_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'slot_max_cm')
+    ALTER TABLE dbo.regulations ADD slot_max_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'slot_over_limit')
+    ALTER TABLE dbo.regulations ADD slot_over_limit tinyint NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'method_flags')
+    ALTER TABLE dbo.regulations ADD method_flags tinyint NULL
+GO
+-- 5. zone_regulations: add new columns
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'reg_year')
+    ALTER TABLE dbo.zone_regulations ADD reg_year smallint NOT NULL CONSTRAINT df_zone_regulations_year DEFAULT (YEAR(GETUTCDATE()))
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'regulations_sport')
+    ALTER TABLE dbo.zone_regulations ADD regulations_sport int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'regulations_consr')
+    ALTER TABLE dbo.zone_regulations ADD regulations_consr int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'possession_sport')
+    ALTER TABLE dbo.zone_regulations ADD possession_sport int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'possession_consr')
+    ALTER TABLE dbo.zone_regulations ADD possession_consr int NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'min_length_cm')
+    ALTER TABLE dbo.zone_regulations ADD min_length_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'slot_min_cm')
+    ALTER TABLE dbo.zone_regulations ADD slot_min_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'slot_max_cm')
+    ALTER TABLE dbo.zone_regulations ADD slot_max_cm decimal(5,1) NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'slot_over_limit')
+    ALTER TABLE dbo.zone_regulations ADD slot_over_limit tinyint NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'method_flags')
+    ALTER TABLE dbo.zone_regulations ADD method_flags tinyint NULL
+GO
+-- After applying: re-run script01_createView.sql (vw_regulations, vw_zone_regulation)
+--                 and script02_Funct.sql (fn_GetLakeRegulations) to pick up new columns.
 ---------------------------------------------------------------------------------

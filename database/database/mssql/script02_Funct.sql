@@ -2882,8 +2882,11 @@ RETURN
         UNION ALL
         SELECT fish_id, regulations_id, 3 FROM dbo.regulations r JOIN dbo.fn_GetAllLakeStates( @lake_id ) z ON r.state = z.state WHERE r.lake_id Is NULL AND zone_id IS NULL
     )x
-)   SELECT r.regulations_id,[regulations_part],[state],[zone_id],[Lake_id],[fish_id],[chain],[regulations_date_start],[regulations_start]
-           ,[regulations_date_end],[regulations_end],[regulations_sport],[regulations_sport_text],[regulations_consr],[regulations_consr_text]
+)   SELECT r.regulations_id,[regulations_part],[state],[zone_id],[Lake_id],[fish_id],[chain],[reg_year]
+           ,[regulations_date_start],[regulations_start],[regulations_date_end],[regulations_end]
+           ,[regulations_sport],[regulations_sport_text],[regulations_consr],[regulations_consr_text]
+           ,[possession_sport],[possession_consr]
+           ,[min_length_cm],[slot_min_cm],[slot_max_cm],[slot_over_limit],[method_flags]
            ,[regulations_code],[regulations_link],[regulations_stamp],[regulations_text]
         FROM dbo.regulations r JOIN
         (SELECT regulations_id FROM cte WHERE num IN (SELECT MIN(num) AS num from cte GROUP BY fish_id)) z ON z.regulations_id = r.regulations_id
