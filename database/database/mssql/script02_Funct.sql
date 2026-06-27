@@ -2862,34 +2862,90 @@ GO
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_GetLakeRegulations' AND xtype = 'IF')
     DROP function dbo.fn_GetLakeRegulations
 GO
-/* 
+/*
  select * from dbo.fn_GetLakeRegulations( '0c369d7b-849c-20c3-6274-0fd28a9dbbf4' )
- Each River has list of regulations
+ Each River has list of EFFECTIVE (visible) regulations for the water body.
+
+ Resolution (see aspnet/Editor/REGULATIONS.md):
+   subject = (fish_id, regulations_part, resident_type)
+   1) Collect candidates at 3 levels:
+        level 1  lake-specific  (Lake_id = @lake_id)
+        level 2  zone-wide      (Lake_id NULL, zone in the lake's zones) -- fish rules gated by lake_fish
+        level 3  state fallback (Lake_id NULL, zone_id NULL, state in the lake's states)
+   2) Specificity: per subject keep the most specific level present (lake < zone < state).
+   3) Year version: per subject keep only the newest reg_year (older years stay in the table
+      as history but are NOT effective). Split-season rows of the winning year all survive.
  */
 CREATE FUNCTION dbo.fn_GetLakeRegulations( @lake_id uniqueidentifier )
-  RETURNS TABLE 
+  RETURNS TABLE
 WITH SCHEMABINDING
 AS
 RETURN
-    WITH cte AS 
- (
-    SELECT ROW_NUMBER() over (ORDER BY fish_id, level ASC) AS num, fish_id, regulations_id, level FROM
+    WITH candidates AS
     (
-        SELECT fish_id, regulations_id, 1 AS level FROM dbo.regulations WHERE lake_id = @lake_id
+        -- level 1: lake-specific
+        SELECT 1 AS level, r.regulations_id, r.regulations_part, r.state, r.zone_id, r.Lake_id, r.fish_id, r.chain, r.reg_year
+             , r.regulations_date_start, r.regulations_start, r.regulations_date_end, r.regulations_end
+             , r.regulations_sport, r.regulations_sport_text, r.regulations_consr, r.regulations_consr_text
+             , r.possession_sport, r.possession_consr, r.min_length_cm, r.slot_min_cm, r.slot_max_cm
+             , r.slot_over_limit, r.method_flags, r.resident_type, r.regulations_code, r.regulations_link, r.regulations_stamp, r.regulations_text
+            FROM dbo.regulations r
+            WHERE r.Lake_id = @lake_id
         UNION ALL
-        SELECT fish_id, regulations_id, 2 FROM dbo.regulations r 
-            JOIN dbo.fn_GetAllLakeZones( @lake_id ) z ON r.zone_id = z.zone_id WHERE r.lake_id Is NULL
+        -- level 2: zone-wide; a fish rule shows only if the fish is confirmed on this water body
+        SELECT 2 AS level, r.regulations_id, r.regulations_part, r.state, r.zone_id, r.Lake_id, r.fish_id, r.chain, r.reg_year
+             , r.regulations_date_start, r.regulations_start, r.regulations_date_end, r.regulations_end
+             , r.regulations_sport, r.regulations_sport_text, r.regulations_consr, r.regulations_consr_text
+             , r.possession_sport, r.possession_consr, r.min_length_cm, r.slot_min_cm, r.slot_max_cm
+             , r.slot_over_limit, r.method_flags, r.resident_type, r.regulations_code, r.regulations_link, r.regulations_stamp, r.regulations_text
+            FROM dbo.regulations r
+            JOIN dbo.fn_GetAllLakeZones( @lake_id ) z ON r.zone_id = z.zone_id
+            WHERE r.Lake_id IS NULL
+              AND ( r.fish_id IS NULL
+                    OR EXISTS ( SELECT 1 FROM dbo.lake_fish lf WHERE lf.lake_Id = @lake_id AND lf.fish_Id = r.fish_id ) )
         UNION ALL
-        SELECT fish_id, regulations_id, 3 FROM dbo.regulations r JOIN dbo.fn_GetAllLakeStates( @lake_id ) z ON r.state = z.state WHERE r.lake_id Is NULL AND zone_id IS NULL
-    )x
-)   SELECT r.regulations_id,[regulations_part],[state],[zone_id],[Lake_id],[fish_id],[chain],[reg_year]
-           ,[regulations_date_start],[regulations_start],[regulations_date_end],[regulations_end]
-           ,[regulations_sport],[regulations_sport_text],[regulations_consr],[regulations_consr_text]
-           ,[possession_sport],[possession_consr]
-           ,[min_length_cm],[slot_min_cm],[slot_max_cm],[slot_over_limit],[method_flags]
-           ,[regulations_code],[regulations_link],[regulations_stamp],[regulations_text]
-        FROM dbo.regulations r JOIN
-        (SELECT regulations_id FROM cte WHERE num IN (SELECT MIN(num) AS num from cte GROUP BY fish_id)) z ON z.regulations_id = r.regulations_id
+        -- level 3: state fallback
+        SELECT 3 AS level, r.regulations_id, r.regulations_part, r.state, r.zone_id, r.Lake_id, r.fish_id, r.chain, r.reg_year
+             , r.regulations_date_start, r.regulations_start, r.regulations_date_end, r.regulations_end
+             , r.regulations_sport, r.regulations_sport_text, r.regulations_consr, r.regulations_consr_text
+             , r.possession_sport, r.possession_consr, r.min_length_cm, r.slot_min_cm, r.slot_max_cm
+             , r.slot_over_limit, r.method_flags, r.resident_type, r.regulations_code, r.regulations_link, r.regulations_stamp, r.regulations_text
+            FROM dbo.regulations r
+            JOIN dbo.fn_GetAllLakeStates( @lake_id ) z ON r.state = z.state
+            WHERE r.Lake_id IS NULL AND r.zone_id IS NULL
+    ),
+    -- keep, per subject, only rows at the most specific level present
+    -- (SELECT * is disallowed under SCHEMABINDING, so columns are listed explicitly)
+    best_level AS
+    (
+        SELECT c.level, c.regulations_id, c.regulations_part, c.state, c.zone_id, c.Lake_id, c.fish_id, c.chain, c.reg_year
+             , c.regulations_date_start, c.regulations_start, c.regulations_date_end, c.regulations_end
+             , c.regulations_sport, c.regulations_sport_text, c.regulations_consr, c.regulations_consr_text
+             , c.possession_sport, c.possession_consr, c.min_length_cm, c.slot_min_cm, c.slot_max_cm
+             , c.slot_over_limit, c.method_flags, c.resident_type, c.regulations_code, c.regulations_link, c.regulations_stamp, c.regulations_text
+             , MIN(c.level) OVER ( PARTITION BY c.fish_id, c.regulations_part, c.resident_type ) AS lvl_keep
+            FROM candidates c
+    ),
+    -- of those, keep only the newest year (older years remain in the table but are not effective)
+    best_year AS
+    (
+        SELECT b.regulations_id, b.regulations_part, b.state, b.zone_id, b.Lake_id, b.fish_id, b.chain, b.reg_year
+             , b.regulations_date_start, b.regulations_start, b.regulations_date_end, b.regulations_end
+             , b.regulations_sport, b.regulations_sport_text, b.regulations_consr, b.regulations_consr_text
+             , b.possession_sport, b.possession_consr, b.min_length_cm, b.slot_min_cm, b.slot_max_cm
+             , b.slot_over_limit, b.method_flags, b.regulations_code, b.regulations_link, b.regulations_stamp, b.regulations_text
+             , MAX(b.reg_year) OVER ( PARTITION BY b.fish_id, b.regulations_part, b.resident_type ) AS yr_keep
+            FROM best_level b
+            WHERE b.level = b.lvl_keep
+    )
+    SELECT regulations_id, regulations_part, state, zone_id, Lake_id, fish_id, chain, reg_year
+         , regulations_date_start, regulations_start, regulations_date_end, regulations_end
+         , regulations_sport, regulations_sport_text, regulations_consr, regulations_consr_text
+         , possession_sport, possession_consr
+         , min_length_cm, slot_min_cm, slot_max_cm, slot_over_limit, method_flags
+         , regulations_code, regulations_link, regulations_stamp, regulations_text
+        FROM best_year
+        WHERE reg_year = yr_keep
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------------------------------------------------------------

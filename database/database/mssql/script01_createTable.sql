@@ -1251,7 +1251,7 @@ CREATE TABLE zone_regulations
     regulations_id          uniqueidentifier NOT NULL,
     zone_id                 int              NOT NULL,
     Lake_id                 uniqueidentifier     NULL,
-    fish_id                 uniqueidentifier     NULL,      -- NULL = applies to all fish on this zone
+    fish_id                 uniqueidentifier     NULL,      -- NULL = no specific fish
     reg_year                smallint         NOT NULL,      -- regulation year (e.g. 2026)
     regulations_date_start  DATE,
     regulations_start       varchar(64),                    -- non-standard date
@@ -1294,11 +1294,12 @@ CREATE TABLE regulations
 (
     id                      int              NOT NULL IDENTITY(1,1),
     regulations_id          uniqueidentifier NOT NULL,
-    regulations_part        nvarchar(255),                  -- comment / label for this regulation row
+    regulations_part        nvarchar(255)    NOT NULL,      -- part/section of the water body ('' = whole water body). Part of the unique key so one fish can have several rules on the same water/year for different parts.
+    resident_type           tinyint          NOT NULL,      -- 0=all residents, 1=Canadian/ON residents, 2=non-Canadian residents
     state                   char(2)          NOT NULL,      -- ON = Ontario
     zone_id                 int              NULL,
     Lake_id                 uniqueidentifier NULL,          -- NULL = zone-wide rule, no specific water body
-    fish_id                 uniqueidentifier NULL,          -- NULL = applies to all fish on this water body / zone
+    fish_id                 uniqueidentifier NULL,          -- NULL = no specific fish
     chain                   uniqueidentifier NULL,          -- combined-species group: e.g. Walleye + Sauger
     reg_year                smallint         NOT NULL,      -- regulation year (e.g. 2026)
     regulations_date_start  DATE,
@@ -1315,7 +1316,8 @@ CREATE TABLE regulations
     slot_min_cm             decimal(5,1),                   -- protected slot lower bound: fish >= slot_min must be released...
     slot_max_cm             decimal(5,1),                   -- ...if also <= slot_max (NULL = no slot limit)
     slot_over_limit         tinyint,                        -- max fish allowed above slot_max (NULL = no trophy sub-limit)
-    method_flags            tinyint,                        -- bitmask: 1=catch-and-release only, 2=artificial lures only, 4=no live bait
+    method_flags            tinyint,                        -- bitmask: 1=catch-and-release only, 2=artificial lures only, 4=no live bait, 8=barbless hooks only
+    day_flags               tinyint,                        -- NULL=all days; bitmask: 1=Sun,2=Mon,4=Tue,8=Wed,16=Thu,32=Fri,64=Sat (e.g. 2=every Monday)
     regulations_code        int,                            -- 1=Fish sanctuary, 2=no live bait, 3=combo, 4=no close time, 8=open
     regulations_link        nvarchar(255),
     regulations_stamp       DATETIME2,
@@ -1323,7 +1325,8 @@ CREATE TABLE regulations
     CONSTRAINT PK_Regulations  PRIMARY KEY CLUSTERED (regulations_id),
     CONSTRAINT FK_regulations_lake FOREIGN KEY(Lake_id) REFERENCES lake( Lake_id ),
     CONSTRAINT FK_regulations_fish FOREIGN KEY(fish_id) REFERENCES fish( fish_id ),
-    CONSTRAINT CH_regulations CHECK (fish_id IS NULL OR fish_id <> chain)
+    CONSTRAINT CH_regulations         CHECK (fish_id IS NULL OR fish_id <> chain),
+    CONSTRAINT CH_regulations_resident CHECK (resident_type IN (0, 1, 2))
 );
 GO
 
@@ -1333,12 +1336,18 @@ ALTER TABLE regulations ADD CONSTRAINT df_regulations_stamp DEFAULT GETUTCDATE()
 GO
 ALTER TABLE regulations ADD CONSTRAINT df_regulations_year  DEFAULT YEAR(GETUTCDATE())   FOR reg_year
 GO
--- Fish-specific regulation: one row per (year, state, zone, lake, fish)
-CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id)
+ALTER TABLE regulations ADD CONSTRAINT df_regulations_part     DEFAULT N''  FOR regulations_part
+GO
+ALTER TABLE regulations ADD CONSTRAINT df_regulations_resident DEFAULT 0    FOR resident_type
+GO
+-- Fish-specific regulation: one row per (year, state, zone, lake, fish, part, resident type, season start).
+-- resident_type + regulations_date_start allow split seasons (same fish, different date windows) and
+-- resident-specific limits (Canadian vs. non-Canadian) without conflicting on the same water body / year.
+CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id, regulations_part, resident_type, regulations_date_start)
     WHERE fish_id IS NOT NULL
 GO
--- Water-body / zone rule with no specific fish: one row per (year, state, zone, lake)
-CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id)
+-- Water-body / zone rule with no specific fish
+CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id, regulations_part, resident_type, regulations_date_start)
     WHERE fish_id IS NULL
 GO
 
@@ -2425,15 +2434,36 @@ IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CH_regulations')
 GO
 ALTER TABLE dbo.regulations ADD CONSTRAINT CH_regulations CHECK (fish_id IS NULL OR fish_id <> chain)
 GO
--- 3. regulations: drop old unique constraint; add two filtered unique indexes
+-- 3. regulations: water-body part is part of the unique key (default '', NOT NULL) so the
+--    same fish can have several rules on the same water body / year for different parts.
+UPDATE dbo.regulations SET regulations_part = N'' WHERE regulations_part IS NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = 'df_regulations_part')
+    ALTER TABLE dbo.regulations ADD CONSTRAINT df_regulations_part DEFAULT N'' FOR regulations_part
+GO
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'regulations_part' AND is_nullable = 1)
+    ALTER TABLE dbo.regulations ALTER COLUMN regulations_part nvarchar(255) NOT NULL
+GO
+-- 3a. regulations: add resident_type (0=all, 1=Canadian/ON, 2=non-Canadian)
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'resident_type')
+BEGIN
+    ALTER TABLE dbo.regulations ADD resident_type tinyint NOT NULL CONSTRAINT df_regulations_resident DEFAULT 0
+    ALTER TABLE dbo.regulations ADD CONSTRAINT CH_regulations_resident CHECK (resident_type IN (0, 1, 2))
+END
+GO
+-- drop old unique constraint / prior-shape indexes, then (re)create with part + resident_type + date_start in the key
 IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UK_regulations' AND object_id = OBJECT_ID('dbo.regulations'))
     ALTER TABLE dbo.regulations DROP CONSTRAINT UK_regulations
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_with_fish' AND object_id = OBJECT_ID('dbo.regulations'))
-    CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id) WHERE fish_id IS NOT NULL
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_with_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    DROP INDEX UIX_reg_with_fish ON dbo.regulations
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_no_fish' AND object_id = OBJECT_ID('dbo.regulations'))
-    CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id)          WHERE fish_id IS NULL
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_no_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    DROP INDEX UIX_reg_no_fish ON dbo.regulations
+GO
+CREATE UNIQUE INDEX UIX_reg_with_fish ON dbo.regulations (reg_year, state, zone_id, Lake_id, fish_id, regulations_part, resident_type, regulations_date_start) WHERE fish_id IS NOT NULL
+GO
+CREATE UNIQUE INDEX UIX_reg_no_fish   ON dbo.regulations (reg_year, state, zone_id, Lake_id, regulations_part, resident_type, regulations_date_start)          WHERE fish_id IS NULL
 GO
 -- 4. regulations: add new columns
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'reg_year')
@@ -2459,6 +2489,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regula
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'method_flags')
     ALTER TABLE dbo.regulations ADD method_flags tinyint NULL
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.regulations') AND name = 'day_flags')
+    ALTER TABLE dbo.regulations ADD day_flags tinyint NULL
 GO
 -- 5. zone_regulations: add new columns
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.zone_regulations') AND name = 'reg_year')
