@@ -829,33 +829,58 @@ GO
 create VIEW dbo.vw_regulations
 WITH SCHEMABINDING
 AS
-    SELECT l.Lake_id, l.lake_name, r.fish_id, f.fish_name, regulations_part AS part
-    , regulations_date_start AS date_start
-    , regulations_date_end AS date_end
-    , ( 
-          CASE WHEN ( regulations_code = 1 OR regulations_code = 3 OR regulations_code = 4 ) AND r.fish_id IS NULL 
-            THEN 'Fish sanctuary - no fishing. ' 
-            ELSE CASE WHEN ( regulations_code = 1 OR regulations_code = 3 OR regulations_code = 4 ) AND r.fish_id IS NOT NULL THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id ) + ' is closed '
-                + CASE WHEN regulations_date_start IS NULL AND regulations_date_end IS NULL THEN ' all the time. ' END
+    SELECT l.Lake_id, l.lake_name, r.fish_id, f.fish_name
+    , r.reg_year
+    , regulations_part        AS part
+    , regulations_date_start  AS date_start
+    , regulations_date_end    AS date_end
+    , regulations_sport, regulations_consr
+    , possession_sport,  possession_consr
+    , min_length_cm
+    , slot_min_cm, slot_max_cm, slot_over_limit
+    , method_flags
+    , (
+          -- closed / sanctuary
+          CASE WHEN ( regulations_code = 1 OR regulations_code = 3 OR regulations_code = 4 ) AND r.fish_id IS NULL
+            THEN 'Fish sanctuary - no fishing. '
+            ELSE CASE WHEN ( regulations_code = 1 OR regulations_code = 3 OR regulations_code = 4 ) AND r.fish_id IS NOT NULL
+                THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id) + ' is closed'
+                   + CASE WHEN regulations_date_start IS NULL AND regulations_date_end IS NULL THEN ' all the time. ' ELSE '. ' END
             ELSE '' END
           END
-        + CASE WHEN ( regulations_code = 2 OR regulations_code = 3 ) 
-            THEN 'Live fish may not be used as bait or possessed for use as bait. '  ELSE '' END
-        + CASE WHEN regulations_code = 2 AND r.fish_id IS NOT NULL THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id ) 
-          ELSE '' END
-        + CASE WHEN ( regulations_code = 8 AND r.fish_id IS NOT NULL ) 
-            THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id ) + ' is open ' 
-          ELSE '' END
-        + CASE WHEN regulations_date_start  IS NOT NULL OR regulations_start IS NOT NULL  THEN ' From ' ELSE '' END 
-        + CASE WHEN regulations_date_start  IS NOT NULL THEN datename(month, regulations_date_start) + '/' + datename(day, regulations_date_start) ELSE '' END 
-        + CASE WHEN regulations_start       IS NOT NULL THEN regulations_start ELSE '' END 
-        + CASE WHEN (regulations_date_start IS NOT NULL OR regulations_start IS NOT NULL) AND (regulations_date_end IS NOT NULL OR regulations_end IS NOT NULL) THEN ' to ' ELSE '' END 
-        + CASE WHEN regulations_end         IS NOT NULL THEN regulations_end ELSE '' END 
-        + CASE WHEN regulations_date_end    IS NOT NULL THEN datename(month, regulations_date_end) + '/' + datename(day, regulations_date_end) ELSE '' END 
-        + ' ' + COALESCE (regulations_text, '') 
-       ) AS Value
+        -- no live bait
+        + CASE WHEN ( regulations_code = 2 OR regulations_code = 3 )
+            THEN 'Live fish may not be used as bait or possessed for use as bait. ' ELSE '' END
+        + CASE WHEN regulations_code = 2 AND r.fish_id IS NOT NULL
+            THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id) ELSE '' END
+        -- open season
+        + CASE WHEN ( regulations_code = 8 AND r.fish_id IS NOT NULL )
+            THEN (SELECT fish_name FROM dbo.fish f WHERE f.fish_id = r.fish_id) + ' is open ' ELSE '' END
+        -- season dates
+        + CASE WHEN regulations_date_start IS NOT NULL OR regulations_start IS NOT NULL THEN ' From ' ELSE '' END
+        + CASE WHEN regulations_date_start IS NOT NULL THEN datename(month, regulations_date_start) + '/' + datename(day, regulations_date_start) ELSE '' END
+        + CASE WHEN regulations_start      IS NOT NULL THEN regulations_start ELSE '' END
+        + CASE WHEN (regulations_date_start IS NOT NULL OR regulations_start IS NOT NULL)
+                AND (regulations_date_end   IS NOT NULL OR regulations_end   IS NOT NULL) THEN ' to ' ELSE '' END
+        + CASE WHEN regulations_end        IS NOT NULL THEN regulations_end ELSE '' END
+        + CASE WHEN regulations_date_end   IS NOT NULL THEN datename(month, regulations_date_end) + '/' + datename(day, regulations_date_end) ELSE '' END
+        -- size / slot
+        + CASE WHEN min_length_cm IS NOT NULL
+            THEN ' Min size: ' + CAST(min_length_cm AS varchar(8)) + ' cm.' ELSE '' END
+        + CASE WHEN slot_min_cm IS NOT NULL AND slot_max_cm IS NOT NULL
+            THEN ' Release fish ' + CAST(slot_min_cm AS varchar(8)) + '-' + CAST(slot_max_cm AS varchar(8)) + ' cm'
+               + CASE WHEN slot_over_limit IS NOT NULL
+                    THEN '; max ' + CAST(slot_over_limit AS varchar(4)) + ' fish over ' + CAST(slot_max_cm AS varchar(8)) + ' cm.'
+                    ELSE '.' END
+            ELSE '' END
+        -- method flags
+        + CASE WHEN method_flags & 1 = 1 THEN ' Catch-and-release only.' ELSE '' END
+        + CASE WHEN method_flags & 2 = 2 THEN ' Artificial lures only.'  ELSE '' END
+        + CASE WHEN method_flags & 4 = 4 THEN ' No live bait.'           ELSE '' END
+        + ' ' + COALESCE(regulations_text, '')
+      ) AS Value
     , regulations_code AS code, regulations_link AS link, regulations_stamp AS stamp
-    FROM dbo.regulations r 
+    FROM dbo.regulations r
         LEFT JOIN dbo.lake l ON l.lake_id = r.lake_id
         LEFT JOIN dbo.fish f ON f.fish_id = r.fish_id
 GO
@@ -868,16 +893,25 @@ GO
 ---     SELECT * FROM vw_zone_regulation WHERE zone_id = 2 ORDER BY regulations_stamp DESC;
 create VIEW vw_zone_regulation
   WITH SCHEMABINDING
-AS 
-    SELECT f.fish_name, f.fish_id, zone_id,
-        CASE 
-            WHEN regulations_code  = 4 THEN 'No close time'
-            WHEN regulations_code  = 8 THEN 
-                ISNULL(CAST(regulations_date_start AS varchar(16)), regulations_start) + ' to ' + ISNULL(CAST(regulations_date_end AS varchar(16)), regulations_end)
-        END AS close_time,
-        regulations_sport_text, regulations_consr_text, regulations_code, regulations_link, regulations_stamp,
-        regulations_date_start, regulations_date_end
-        FROM dbo.zone_regulations z JOIn dbo.fish f ON z.fish_id = f.fish_id
+AS
+    SELECT f.fish_name, f.fish_id, z.zone_id, z.reg_year
+        , CASE
+            WHEN regulations_code = 4 THEN 'No close time'
+            WHEN regulations_code = 8 THEN
+                ISNULL(CAST(regulations_date_start AS varchar(16)), regulations_start)
+                + ' to '
+                + ISNULL(CAST(regulations_date_end AS varchar(16)), regulations_end)
+          END AS close_time
+        , regulations_sport, regulations_sport_text
+        , regulations_consr, regulations_consr_text
+        , possession_sport,  possession_consr
+        , min_length_cm
+        , slot_min_cm, slot_max_cm, slot_over_limit
+        , method_flags
+        , regulations_code, regulations_link, regulations_stamp
+        , regulations_date_start, regulations_date_end
+        FROM dbo.zone_regulations z
+            LEFT JOIN dbo.fish f ON z.fish_id = f.fish_id   -- LEFT JOIN: NULL fish_id = zone-wide rule
 GO
 ---------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vLastCurrentWaterState' AND type = 'V')
