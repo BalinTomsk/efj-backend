@@ -656,4 +656,75 @@ END CATCH
 
 ROLLBACK TRAN TestOAL11
 GO
+
+-- TEST 12: After a soft-delete (Users.deleted = 1 + external-login row removed), the same provider
+--          account signing in again gets a BRAND-NEW user, not the old one.
+-----------------------------------------------------------------------------------------------------------------------------------------------
+BEGIN TRAN TestOAL12
+DECLARE @test_name SYSNAME = 'TestOAL12 [spOAuthLoginOrCreateUser] re-auth after soft-delete creates a new profile';
+DECLARE @fail_message nvarchar(4000);
+
+BEGIN TRY
+    SET NOCOUNT ON;
+
+    DECLARE @sub        nvarchar(256) = N'UT_DEL_0012';
+    DECLARE @email      nvarchar(255) = N'ut_softdelete@example.com';
+    DECLARE @firstId    uniqueidentifier;
+    DECLARE @secondId   uniqueidentifier;
+    DECLARE @userName   nvarchar(256);
+    DECLARE @isNewUser  bit;
+
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
+    DELETE FROM dbo.Users WHERE email = @email;
+
+    -- First sign-in: creates the original profile.
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider = N'Google', @providerUserId = @sub, @email = @email
+        , @givenName = N'Dora', @familyName = N'Deleted'
+        , @userId = @firstId OUTPUT, @userName = @userName OUTPUT, @isNewUser = @isNewUser OUTPUT;
+
+    IF @isNewUser <> 1
+    BEGIN
+        SET @fail_message = 'FAILED: ' + @test_name + ' first sign-in should create a user';
+        RAISERROR(@fail_message, 16, 1);
+    END
+    ELSE
+    BEGIN
+        -- Soft-delete exactly like Account/Profile.aspx does: keep the row, free the identity.
+        UPDATE dbo.Users SET deleted = 1, deletedUtc = SYSUTCDATETIME() WHERE id = @firstId;
+        DELETE FROM dbo.UserExternalLogin WHERE userId = @firstId;
+
+        -- Same Google account signs in again.
+        EXEC dbo.spOAuthLoginOrCreateUser
+              @provider = N'Google', @providerUserId = @sub, @email = @email
+            , @givenName = N'Dora', @familyName = N'Deleted'
+            , @userId = @secondId OUTPUT, @userName = @userName OUTPUT, @isNewUser = @isNewUser OUTPUT;
+
+        IF @isNewUser <> 1 OR @secondId = @firstId
+        BEGIN
+            SET @fail_message = 'FAILED: ' + @test_name + ' re-auth should create a NEW user id (got isNew='
+                + CAST(@isNewUser AS varchar(1)) + ', sameId=' + CASE WHEN @secondId = @firstId THEN '1' ELSE '0' END + ')';
+            RAISERROR(@fail_message, 16, 1);
+        END
+        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @firstId AND deleted = 1)
+        BEGIN
+            SET @fail_message = 'FAILED: ' + @test_name + ' the old row should be kept with deleted = 1';
+            RAISERROR(@fail_message, 16, 1);
+        END
+        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @secondId AND deleted = 0 AND email = @email)
+        BEGIN
+            SET @fail_message = 'FAILED: ' + @test_name + ' the new live row should reuse the freed email';
+            RAISERROR(@fail_message, 16, 1);
+        END
+        ELSE
+            PRINT 'PASSED ' + @test_name;
+    END
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
+           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+ROLLBACK TRAN TestOAL12
+GO
 -----------------------------------------------------------------------------------------------------------------------------------------------

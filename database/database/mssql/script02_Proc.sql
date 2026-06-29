@@ -91,6 +91,7 @@ IF EXISTS (
         ON b.email = u.email OR (b.cell IS NOT NULL AND b.cell = u.cell)
     WHERE l.provider = NULLIF(LTRIM(RTRIM(@provider)), N'')
       AND l.providerUserId = NULLIF(LTRIM(RTRIM(@providerUserId)), N'')
+      AND u.deleted = 0
 )
 BEGIN
     RAISERROR(@banMsg, 16, 1);
@@ -136,7 +137,8 @@ BEGIN TRY
     FROM dbo.UserExternalLogin l
     INNER JOIN dbo.Users u ON u.id = l.userId
     WHERE l.provider = @provider
-      AND l.providerUserId = @providerUserId;
+      AND l.providerUserId = @providerUserId
+      AND u.deleted = 0;          -- a soft-deleted account is not reused; fall through to create a new one
 
     IF @userId IS NOT NULL
     BEGIN
@@ -171,7 +173,8 @@ BEGIN TRY
           @userId   = id
         , @userName = userName
     FROM dbo.Users
-    WHERE email = @email;
+    WHERE email = @email
+      AND deleted = 0;            -- ignore a soft-deleted row with this email; a new profile is created
 
     IF @userId IS NULL
     BEGIN
