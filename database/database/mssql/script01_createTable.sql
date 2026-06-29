@@ -1669,7 +1669,11 @@ CREATE TABLE Users
     agent      varchar(128) NULL,
     host       varchar(1024) NULL,
     country    char(2) NULL,
-    authType            varchar(16) not null   -- 'Local' | 'OAuth'. External-login details live in UserExternalLogin.
+    authType            varchar(16) not null,  -- 'Local' | 'OAuth'. External-login details live in UserExternalLogin.
+    deleted             bit NOT NULL,          -- 1 = soft-deleted (self/admin). Row is KEPT for history; its
+                                               -- email/external-login identity is freed so the person can sign
+                                               -- in again and get a brand-new profile (see spOAuthLoginOrCreateUser).
+    deletedUtc          datetime2 NULL
 )
 GO
 
@@ -1685,7 +1689,11 @@ ALTER TABLE Users add constraint df_USer_access default 0 for access;
 GO
 ALTER TABLE Users add constraint df_USer_authType default('Local') for authType;
 GO
-CREATE UNIQUE NONCLUSTERED INDEX UK_Users_Email ON Users(email);
+ALTER TABLE Users add constraint df_USer_deleted default(0) for deleted;
+GO
+-- Email is unique only among LIVE users (deleted = 0), so a soft-deleted row keeps its real email
+-- on file without blocking the same person from re-registering with a fresh profile.
+CREATE UNIQUE NONCLUSTERED INDEX UK_Users_Email ON Users(email) WHERE deleted = 0;
 GO
 ALTER TABLE users ADD CONSTRAINT CH_users_email CHECK ( datalength(email) >= 6 and email not like '%@%@%' and email not like '%[^a-zA-Z0-9_.+@-]%');
 GO
