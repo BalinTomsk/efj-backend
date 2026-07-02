@@ -1,0 +1,1 @@
+create SKILL on project level update_water with tag version  - savenew  verstion in do-update.md and do all steps to build/register/upload flie to droplet , run service and verify it started correctly

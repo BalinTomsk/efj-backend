@@ -10,6 +10,7 @@ Everything below is about `mssql/` unless stated otherwise.
 - **`mssql/ffi2.sql` is GENERATED — do not hand-edit it.** It is rebuilt from the
   `scriptNN` files by `mssql/generate_db_script_ffi2.cmd` and is the image consumed by
   the database unit tests. Any manual edit to `ffi2.sql` is overwritten on the next build.
+ 
 
 ## How `ffi2.sql` is generated
 
@@ -42,6 +43,7 @@ files are standalone and are **not** concatenated. Don't rely on them for test c
 - New / altered **stored procedure** → `script02_Proc.sql`
 - **Seed / reference data** → `script08_Data.sql` (or `script09_fish_data.sql` for fish)
 - **Moving DATA between databases / one-off backfills against a live DB** → `script20_Migration.sql`
+
 
 **DDL belongs in the schema scripts, not the migration script.** `script20_Migration.sql` is for
 *data* migration between databases. Do NOT put `CREATE TABLE` / `ALTER TABLE` / `CREATE PROCEDURE`
@@ -126,6 +128,43 @@ must be updated — otherwise every run keeps reporting a diff.
 - Normal success output is a **single line** per assertion, e.g.
   `TEST 5 PASS: fn_fish_image_handler returned correct image binary`.
 - Add new tests for new schema objects, then re-run `autorun.bat` and confirm `cleaned.txt`.
+
+## Structure unit tests
+-- Each unit test must have next structure:
+
+BEGIN TRAN TestSpecificCase
+    declare @test_name sysname = N'TestSpecificCase [fn_SpecificCaseModule] : Specific Case'
+BEGIN TRY  SET NOCOUNT ON;
+
+-- 1. prepare data for unit test
+
+insert into UsedTable (column1, column2) values (999, N'TestSpecificCase');
+
+declare @column1 uniqueidentifier = (select column1 from UsedTable where column2 = N'SpecificCaseValue') 
+
+-- 2. execute unit test   
+
+declare @doc xml = dbo.fn_SpecificCaseModule( @column1 );
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+
+-- 3. result verification
+
+declare @rst sysname =  @doc.value('(/root/node/text())[1]','varchar(100)')
+
+IF  @rst IS NULL OR @rst <> N'TestSpecificCase'
+   RAISERROR ('FAILED: %s result must have name %s', 16, -1, @test_name, @rst ) 
+ELSE
+    print 'PASSED ' + @test_name
+
+ROLLBACK TRAN TestSpecificCase
+GO
+
+
 
 ## Secrets
 - `mssql/UNIT_TESTS/config.ini` contains **live SMTP credentials** under `[mail]`.
