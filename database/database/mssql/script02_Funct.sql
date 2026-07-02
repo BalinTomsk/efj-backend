@@ -3702,6 +3702,7 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_list' AND xtype 
     DROP function dbo.fn_catch_memo_list
 GO
 --    @viewer_id NULL  => guest (coordinates are returned as NULL).
+--    Private memos are returned only to their author and to admins.
 --    can_edit reflects author + 60-day lock (admins always 1).
 CREATE OR ALTER FUNCTION dbo.fn_catch_memo_list
 (
@@ -3727,8 +3728,15 @@ RETURN
         m.catch_memo_tackle,
         m.catch_memo_lure,
         m.catch_memo_catch_date,
+        m.catch_memo_weight,
+        m.catch_memo_weight_unit,
+        m.catch_memo_length,
+        m.catch_memo_length_unit,
+        m.catch_memo_released,
+        m.catch_memo_private,
         m.catch_memo_created,
         m.catch_memo_updated,
+        u.userName AS catch_memo_user_name,
         (SELECT COUNT(*)        FROM dbo.catch_memo_photo p WHERE p.catch_memo_photo_memoid = m.catch_memo_id) AS photo_count,
         CAST(CASE
             WHEN @is_admin = 1 THEN 1
@@ -3737,8 +3745,12 @@ RETURN
             ELSE 0
         END AS BIT) AS can_edit
     FROM dbo.catch_memo m
-    LEFT JOIN dbo.fish f ON f.fish_id = m.catch_memo_fish_id
+    LEFT JOIN dbo.fish  f ON f.fish_id = m.catch_memo_fish_id
+    LEFT JOIN dbo.Users u ON u.id      = m.catch_memo_userid
     WHERE m.catch_memo_lake_id = @lake_id
+      AND ( m.catch_memo_private = 0
+            OR @is_admin = 1
+            OR ( @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id ) )
 );
 GO
 
@@ -3772,6 +3784,12 @@ RETURN
         m.catch_memo_tackle,
         m.catch_memo_lure,
         m.catch_memo_catch_date,
+        m.catch_memo_weight,
+        m.catch_memo_weight_unit,
+        m.catch_memo_length,
+        m.catch_memo_length_unit,
+        m.catch_memo_released,
+        m.catch_memo_private,
         m.catch_memo_created,
         m.catch_memo_updated,
         CAST(CASE
@@ -3803,6 +3821,57 @@ BEGIN
       AND catch_memo_photo_id     = @photo_id;
     RETURN @pic;
 END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_photo_list' AND xtype = 'IF')
+    DROP function dbo.fn_catch_memo_photo_list
+GO
+-- fn_catch_memo_photo_list : photo ids for one memo (gallery) ----------------
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_list (@memo_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord
+    FROM dbo.catch_memo_photo
+    WHERE catch_memo_photo_memoid = @memo_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_fish_list' AND xtype = 'IF')
+    DROP function dbo.fn_lake_fish_list
+GO
+-- fn_lake_fish_list : the species assigned to a water body (catch-memo dropdown)
+CREATE OR ALTER FUNCTION dbo.fn_lake_fish_list (@lake_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT f.fish_id, f.fish_name
+    FROM dbo.lake_fish lf
+    JOIN dbo.fish f ON f.fish_id = lf.fish_id
+    WHERE lf.lake_Id = @lake_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_pending_fish_list' AND xtype = 'IF')
+    DROP function dbo.fn_catch_pending_fish_list
+GO
+-- fn_catch_pending_fish_list : still-pending species suggestions for a water body
+CREATE OR ALTER FUNCTION dbo.fn_catch_pending_fish_list (@lake_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT catch_pending_fish_id, catch_pending_fish_name,
+           catch_pending_fish_userid, catch_pending_fish_created
+    FROM dbo.catch_pending_fish
+    WHERE catch_pending_fish_lake_id = @lake_id
+      AND catch_pending_fish_status  = 0
+);
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
