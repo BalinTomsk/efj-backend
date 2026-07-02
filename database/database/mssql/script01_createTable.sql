@@ -2578,6 +2578,13 @@ CREATE TABLE dbo.catch_memo
         catch_memo_tackle     NVARCHAR(200)    NULL,        -- rod / reel / line / tools
         catch_memo_lure       NVARCHAR(200)    NULL,        -- lures / bait
         catch_memo_catch_date DATETIME2        NULL,        -- when the fish was caught
+        catch_memo_weight      FLOAT           NULL,        -- as entered, unit alongside
+        catch_memo_weight_unit NVARCHAR(8)     NULL,        -- 'kg' | 'lb'
+        catch_memo_length      FLOAT           NULL,
+        catch_memo_length_unit NVARCHAR(8)     NULL,        -- 'cm' | 'in'
+        catch_memo_released   BIT              NULL,        -- 1 = catch & release, NULL = not specified
+        catch_memo_private    BIT              NOT NULL
+            CONSTRAINT DF_catch_memo_private DEFAULT 0,     -- 1 = visible only to author + admins
         catch_memo_created    DATETIME2        NOT NULL
             CONSTRAINT DF_catch_memo_created DEFAULT SYSUTCDATETIME(),  -- drives the 60-day lock
         catch_memo_updated    DATETIME2        NULL
@@ -2586,6 +2593,19 @@ GO
 CREATE INDEX IX_catch_memo_lake ON dbo.catch_memo (catch_memo_lake_id, catch_memo_created DESC);
 GO
 CREATE INDEX IX_catch_memo_user ON dbo.catch_memo (catch_memo_userid);
+GO
+-- Upgrade an existing catch_memo table in place (idempotent; no-op on a fresh build).
+IF COL_LENGTH('dbo.catch_memo', 'catch_memo_weight') IS NULL
+BEGIN
+    ALTER TABLE dbo.catch_memo ADD
+        catch_memo_weight      FLOAT       NULL,
+        catch_memo_weight_unit NVARCHAR(8) NULL,
+        catch_memo_length      FLOAT       NULL,
+        catch_memo_length_unit NVARCHAR(8) NULL,
+        catch_memo_released    BIT         NULL,
+        catch_memo_private     BIT         NOT NULL
+            CONSTRAINT DF_catch_memo_private DEFAULT 0;
+END
 GO
 
 CREATE TABLE dbo.catch_memo_photo
@@ -2607,16 +2627,27 @@ GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
--- 4. fn_catch_memo_photo_list : photo ids for one memo (gallery) -------------
-CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_list (@memo_id UNIQUEIDENTIFIER)
-RETURNS TABLE
-AS
-RETURN
+-- catch_pending_fish : angler-suggested species awaiting admin approval.
+-- A typed (unlisted) species on the catch-memo form is queued here; approval
+-- (page code via dbo.spAddFish) adds it to lake_fish, until then it never
+-- touches lake_fish.  Status: 0 pending, 1 approved, 2 dismissed.
+CREATE TABLE dbo.catch_pending_fish
 (
-    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord
-    FROM dbo.catch_memo_photo
-    WHERE catch_memo_photo_memoid = @memo_id
+    catch_pending_fish_id         INT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_catch_pending_fish PRIMARY KEY,
+    catch_pending_fish_lake_id    UNIQUEIDENTIFIER NOT NULL,  -- water body
+    catch_pending_fish_userid     UNIQUEIDENTIFIER NOT NULL,  -- who suggested it
+    catch_pending_fish_name       NVARCHAR(120)    NOT NULL,  -- typed species name
+    catch_pending_fish_status     TINYINT          NOT NULL
+        CONSTRAINT DF_catch_pending_fish_status DEFAULT 0,
+    catch_pending_fish_created    DATETIME2        NOT NULL
+        CONSTRAINT DF_catch_pending_fish_created DEFAULT SYSUTCDATETIME(),
+    catch_pending_fish_decided    DATETIME2        NULL,
+    catch_pending_fish_decided_by UNIQUEIDENTIFIER NULL
 );
+GO
+CREATE INDEX IX_catch_pending_fish_lake
+    ON dbo.catch_pending_fish (catch_pending_fish_lake_id, catch_pending_fish_status);
 GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------

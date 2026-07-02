@@ -3301,20 +3301,26 @@ GO
 
 -- 7. sp_add_catch_memo : upsert (author + 60-day lock enforced) --------------
 CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo
-    @id         UNIQUEIDENTIFIER,
-    @lake_id    UNIQUEIDENTIFIER,
-    @userid     UNIQUEIDENTIFIER,
-    @fish_id    UNIQUEIDENTIFIER = NULL,
-    @species    NVARCHAR(120)    = NULL,
-    @title      NVARCHAR(200)    = NULL,
-    @text       NVARCHAR(MAX)    = NULL,
-    @lat        FLOAT            = NULL,
-    @lon        FLOAT            = NULL,
-    @method     NVARCHAR(200)    = NULL,
-    @tackle     NVARCHAR(200)    = NULL,
-    @lure       NVARCHAR(200)    = NULL,
-    @catch_date DATETIME2        = NULL,
-    @is_admin   BIT              = 0
+    @id          UNIQUEIDENTIFIER,
+    @lake_id     UNIQUEIDENTIFIER,
+    @userid      UNIQUEIDENTIFIER,
+    @fish_id     UNIQUEIDENTIFIER = NULL,
+    @species     NVARCHAR(120)    = NULL,
+    @title       NVARCHAR(200)    = NULL,
+    @text        NVARCHAR(MAX)    = NULL,
+    @lat         FLOAT            = NULL,
+    @lon         FLOAT            = NULL,
+    @method      NVARCHAR(200)    = NULL,
+    @tackle      NVARCHAR(200)    = NULL,
+    @lure        NVARCHAR(200)    = NULL,
+    @catch_date  DATETIME2        = NULL,
+    @weight      FLOAT            = NULL,
+    @weight_unit NVARCHAR(8)      = NULL,   -- 'kg' | 'lb'
+    @length      FLOAT            = NULL,
+    @length_unit NVARCHAR(8)      = NULL,   -- 'cm' | 'in'
+    @released    BIT              = NULL,   -- 1 = catch & release
+    @private     BIT              = 0,      -- 1 = only author + admins see it
+    @is_admin    BIT              = 0
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -3322,17 +3328,23 @@ BEGIN
     IF EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @id)
     BEGIN
         UPDATE dbo.catch_memo
-        SET catch_memo_fish_id    = @fish_id,
-            catch_memo_species    = @species,
-            catch_memo_title      = @title,
-            catch_memo_text       = @text,
-            catch_memo_lat        = @lat,
-            catch_memo_lon        = @lon,
-            catch_memo_method     = @method,
-            catch_memo_tackle     = @tackle,
-            catch_memo_lure       = @lure,
-            catch_memo_catch_date = @catch_date,
-            catch_memo_updated    = SYSUTCDATETIME()
+        SET catch_memo_fish_id     = @fish_id,
+            catch_memo_species     = @species,
+            catch_memo_title       = @title,
+            catch_memo_text        = @text,
+            catch_memo_lat         = @lat,
+            catch_memo_lon         = @lon,
+            catch_memo_method      = @method,
+            catch_memo_tackle      = @tackle,
+            catch_memo_lure        = @lure,
+            catch_memo_catch_date  = @catch_date,
+            catch_memo_weight      = @weight,
+            catch_memo_weight_unit = @weight_unit,
+            catch_memo_length      = @length,
+            catch_memo_length_unit = @length_unit,
+            catch_memo_released    = @released,
+            catch_memo_private     = ISNULL(@private, 0),
+            catch_memo_updated     = SYSUTCDATETIME()
         WHERE catch_memo_id = @id
           AND ( @is_admin = 1
                 OR ( catch_memo_userid = @userid
@@ -3343,11 +3355,15 @@ BEGIN
         INSERT INTO dbo.catch_memo
             (catch_memo_id, catch_memo_lake_id, catch_memo_userid, catch_memo_fish_id,
              catch_memo_species, catch_memo_title, catch_memo_text, catch_memo_lat, catch_memo_lon,
-             catch_memo_method, catch_memo_tackle, catch_memo_lure, catch_memo_catch_date)
+             catch_memo_method, catch_memo_tackle, catch_memo_lure, catch_memo_catch_date,
+             catch_memo_weight, catch_memo_weight_unit, catch_memo_length, catch_memo_length_unit,
+             catch_memo_released, catch_memo_private)
         VALUES
             (@id, @lake_id, @userid, @fish_id,
              @species, @title, @text, @lat, @lon,
-             @method, @tackle, @lure, @catch_date);
+             @method, @tackle, @lure, @catch_date,
+             @weight, @weight_unit, @length, @length_unit,
+             @released, ISNULL(@private, 0));
     END
 END
 GO
@@ -3429,6 +3445,59 @@ BEGIN
 END
 GO
 
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_pending_fish' AND type = 'P')
+    DROP PROCEDURE dbo.sp_add_catch_pending_fish
+GO
+-- sp_add_catch_pending_fish : queue a typed species suggestion (dedup + skip-known)
+CREATE OR ALTER PROCEDURE dbo.sp_add_catch_pending_fish
+    @lake_id   UNIQUEIDENTIFIER,
+    @userid    UNIQUEIDENTIFIER,
+    @fish_name NVARCHAR(120)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @fish_name IS NULL OR LTRIM(RTRIM(@fish_name)) = N'' RETURN;
+    SET @fish_name = LTRIM(RTRIM(@fish_name));
+
+    -- already a species of this water body? then it isn't "new"
+    IF EXISTS (SELECT 1 FROM dbo.lake_fish lf JOIN dbo.fish f ON f.fish_id = lf.fish_id
+               WHERE lf.lake_Id = @lake_id AND f.fish_name = @fish_name)
+        RETURN;
+
+    -- already queued for this water body?
+    IF EXISTS (SELECT 1 FROM dbo.catch_pending_fish
+               WHERE catch_pending_fish_lake_id = @lake_id
+                 AND catch_pending_fish_name    = @fish_name
+                 AND catch_pending_fish_status  = 0)
+        RETURN;
+
+    INSERT INTO dbo.catch_pending_fish
+        (catch_pending_fish_lake_id, catch_pending_fish_userid, catch_pending_fish_name)
+    VALUES (@lake_id, @userid, @fish_name);
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_set_catch_pending_fish_status' AND type = 'P')
+    DROP PROCEDURE dbo.sp_set_catch_pending_fish_status
+GO
+-- sp_set_catch_pending_fish_status : admin approve(1) / dismiss(2) ----------
+CREATE OR ALTER PROCEDURE dbo.sp_set_catch_pending_fish_status
+    @id           INT,
+    @status       TINYINT,
+    @admin_userid UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE dbo.catch_pending_fish
+    SET catch_pending_fish_status     = @status,
+        catch_pending_fish_decided    = SYSUTCDATETIME(),
+        catch_pending_fish_decided_by = @admin_userid
+    WHERE catch_pending_fish_id = @id;
+END
+GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 
