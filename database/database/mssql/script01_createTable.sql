@@ -2427,6 +2427,19 @@ GO
 -- Apply once to any existing database that was created before this change.
 -- Safe to run multiple times (all steps are guarded with IF NOT EXISTS / IF EXISTS).
 -- -------------------------------------------------------------------------------
+-- 0. drop unique indexes/constraints that reference fish_id so the column can be
+--    altered in step 1 (they are recreated in their final shape in step 3b below).
+--    Without this, ALTER COLUMN fish_id fails with Msg 5074 / 4922 on a fresh build
+--    where these filtered indexes already exist.
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_with_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    DROP INDEX UIX_reg_with_fish ON dbo.regulations
+GO
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UIX_reg_no_fish' AND object_id = OBJECT_ID('dbo.regulations'))
+    DROP INDEX UIX_reg_no_fish ON dbo.regulations
+GO
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UK_regulations' AND object_id = OBJECT_ID('dbo.regulations'))
+    ALTER TABLE dbo.regulations DROP CONSTRAINT UK_regulations
+GO
 -- 1. regulations: relax fish_id to nullable
 IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_regulations_fish')
 BEGIN
@@ -2535,3 +2548,78 @@ GO
 -- After applying: re-run script01_createView.sql (vw_regulations, vw_zone_regulation)
 --                 and script02_Funct.sql (fn_GetLakeRegulations) to pick up new columns.
 ---------------------------------------------------------------------------------
+-- ============================================================================
+--  Catch Memo  вЂ”  angler catch logs attached to a water body (lake / river).
+--
+--  Normally a memo is created from the phone app (wbAddCatchMemo.aspx); the web
+--  Fishing page (wfRiverViewFishing.aspx / wfCatchMemoEdit.aspx) can also create
+--  and edit them.  Permission model:
+--      * Guests (no logged-in user) may VIEW everything except coordinates.
+--      * A logged-in user may CREATE memos and EDIT/DELETE their OWN, but only
+--        within 60 days of the memo's creation date (then it is read-only).
+--      * Admins may edit/delete any memo and bypass the 60-day lock.
+--
+--  Apply through the standard prod-DB workflow (this script is idempotent and
+--  safe to re-run).
+-- ============================================================================
+CREATE TABLE dbo.catch_memo
+    (
+        catch_memo_id         UNIQUEIDENTIFIER NOT NULL
+            CONSTRAINT PK_catch_memo PRIMARY KEY DEFAULT NEWID(),
+        catch_memo_lake_id    UNIQUEIDENTIFIER NOT NULL,   -- water body  (dbo.lake.lake_id)
+        catch_memo_userid     UNIQUEIDENTIFIER NOT NULL,   -- author      (Session["user"])
+        catch_memo_fish_id    UNIQUEIDENTIFIER NULL,       -- resolved species (dbo.fish.fish_id)
+        catch_memo_species    NVARCHAR(120)    NULL,        -- free-text species as typed
+        catch_memo_title      NVARCHAR(200)    NULL,
+        catch_memo_text       NVARCHAR(MAX)    NULL,        -- free notes / message
+        catch_memo_lat        FLOAT            NULL,        -- catch point (hidden from guests)
+        catch_memo_lon        FLOAT            NULL,
+        catch_memo_method     NVARCHAR(200)    NULL,        -- how it was caught (trolling, fly, ...)
+        catch_memo_tackle     NVARCHAR(200)    NULL,        -- rod / reel / line / tools
+        catch_memo_lure       NVARCHAR(200)    NULL,        -- lures / bait
+        catch_memo_catch_date DATETIME2        NULL,        -- when the fish was caught
+        catch_memo_created    DATETIME2        NOT NULL
+            CONSTRAINT DF_catch_memo_created DEFAULT SYSUTCDATETIME(),  -- drives the 60-day lock
+        catch_memo_updated    DATETIME2        NULL
+    );
+GO
+CREATE INDEX IX_catch_memo_lake ON dbo.catch_memo (catch_memo_lake_id, catch_memo_created DESC);
+GO
+CREATE INDEX IX_catch_memo_user ON dbo.catch_memo (catch_memo_userid);
+GO
+
+CREATE TABLE dbo.catch_memo_photo
+(
+    catch_memo_photo_id     INT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_catch_memo_photo PRIMARY KEY,
+    catch_memo_photo_memoid UNIQUEIDENTIFIER NOT NULL,
+    catch_memo_photo_pic    VARBINARY(MAX)   NOT NULL,
+    catch_memo_photo_label  NVARCHAR(260)    NULL,
+    catch_memo_photo_ord    INT              NOT NULL DEFAULT 0,
+    catch_memo_photo_stamp  DATETIME2        NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_catch_memo_photo_memo FOREIGN KEY (catch_memo_photo_memoid)
+        REFERENCES dbo.catch_memo (catch_memo_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IX_catch_memo_photo_memo
+    ON dbo.catch_memo_photo (catch_memo_photo_memoid, catch_memo_photo_ord);
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- 4. fn_catch_memo_photo_list : photo ids for one memo (gallery) -------------
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_list (@memo_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord
+    FROM dbo.catch_memo_photo
+    WHERE catch_memo_photo_memoid = @memo_id
+);
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+

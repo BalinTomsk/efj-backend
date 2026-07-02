@@ -3295,4 +3295,140 @@ END CATCH;
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_memo' AND type = 'P')
+    DROP PROCEDURE dbo.sp_add_catch_memo
+GO
+
+-- 7. sp_add_catch_memo : upsert (author + 60-day lock enforced) --------------
+CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo
+    @id         UNIQUEIDENTIFIER,
+    @lake_id    UNIQUEIDENTIFIER,
+    @userid     UNIQUEIDENTIFIER,
+    @fish_id    UNIQUEIDENTIFIER = NULL,
+    @species    NVARCHAR(120)    = NULL,
+    @title      NVARCHAR(200)    = NULL,
+    @text       NVARCHAR(MAX)    = NULL,
+    @lat        FLOAT            = NULL,
+    @lon        FLOAT            = NULL,
+    @method     NVARCHAR(200)    = NULL,
+    @tackle     NVARCHAR(200)    = NULL,
+    @lure       NVARCHAR(200)    = NULL,
+    @catch_date DATETIME2        = NULL,
+    @is_admin   BIT              = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @id)
+    BEGIN
+        UPDATE dbo.catch_memo
+        SET catch_memo_fish_id    = @fish_id,
+            catch_memo_species    = @species,
+            catch_memo_title      = @title,
+            catch_memo_text       = @text,
+            catch_memo_lat        = @lat,
+            catch_memo_lon        = @lon,
+            catch_memo_method     = @method,
+            catch_memo_tackle     = @tackle,
+            catch_memo_lure       = @lure,
+            catch_memo_catch_date = @catch_date,
+            catch_memo_updated    = SYSUTCDATETIME()
+        WHERE catch_memo_id = @id
+          AND ( @is_admin = 1
+                OR ( catch_memo_userid = @userid
+                     AND DATEDIFF(DAY, catch_memo_created, SYSUTCDATETIME()) <= 60 ) );
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.catch_memo
+            (catch_memo_id, catch_memo_lake_id, catch_memo_userid, catch_memo_fish_id,
+             catch_memo_species, catch_memo_title, catch_memo_text, catch_memo_lat, catch_memo_lon,
+             catch_memo_method, catch_memo_tackle, catch_memo_lure, catch_memo_catch_date)
+        VALUES
+            (@id, @lake_id, @userid, @fish_id,
+             @species, @title, @text, @lat, @lon,
+             @method, @tackle, @lure, @catch_date);
+    END
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_memo_photo' AND type = 'P')
+    DROP PROCEDURE dbo.sp_add_catch_memo_photo
+GO
+-- 8. sp_add_catch_memo_photo : attach one photo (author + lock enforced) -----
+CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo_photo
+    @memo_id  UNIQUEIDENTIFIER,
+    @userid   UNIQUEIDENTIFIER,
+    @pic      VARBINARY(MAX),
+    @label    NVARCHAR(260) = NULL,
+    @ord      INT           = 0,
+    @is_admin BIT           = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1 FROM dbo.catch_memo
+        WHERE catch_memo_id = @memo_id
+          AND ( @is_admin = 1
+                OR ( catch_memo_userid = @userid
+                     AND DATEDIFF(DAY, catch_memo_created, SYSUTCDATETIME()) <= 60 ) ) )
+    BEGIN
+        INSERT INTO dbo.catch_memo_photo
+            (catch_memo_photo_memoid, catch_memo_photo_pic, catch_memo_photo_label, catch_memo_photo_ord)
+        VALUES (@memo_id, @pic, @label, @ord);
+    END
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_del_catch_memo' AND type = 'P')
+    DROP PROCEDURE dbo.sp_del_catch_memo
+GO
+
+-- 9. sp_del_catch_memo : delete a memo (photos cascade) ----------------------
+CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo
+    @id       UNIQUEIDENTIFIER,
+    @userid   UNIQUEIDENTIFIER,
+    @is_admin BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DELETE FROM dbo.catch_memo
+    WHERE catch_memo_id = @id
+      AND ( @is_admin = 1
+            OR ( catch_memo_userid = @userid
+                 AND DATEDIFF(DAY, catch_memo_created, SYSUTCDATETIME()) <= 60 ) );
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_del_catch_memo_photo' AND type = 'P')
+    DROP PROCEDURE dbo.sp_del_catch_memo_photo
+GO
+
+ 
+
+-- 10. sp_del_catch_memo_photo : delete a single photo ------------------------
+CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo_photo
+    @photo_id INT,
+    @userid   UNIQUEIDENTIFIER,
+    @is_admin BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DELETE p
+    FROM dbo.catch_memo_photo p
+    JOIN dbo.catch_memo m ON m.catch_memo_id = p.catch_memo_photo_memoid
+    WHERE p.catch_memo_photo_id = @photo_id
+      AND ( @is_admin = 1
+            OR ( m.catch_memo_userid = @userid
+                 AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60 ) );
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 
