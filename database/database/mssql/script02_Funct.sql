@@ -3698,3 +3698,112 @@ END
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_list' AND xtype = 'IF')
+    DROP function dbo.fn_catch_memo_list
+GO
+--    @viewer_id NULL  => guest (coordinates are returned as NULL).
+--    can_edit reflects author + 60-day lock (admins always 1).
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_list
+(
+    @lake_id   UNIQUEIDENTIFIER,
+    @viewer_id UNIQUEIDENTIFIER,
+    @is_admin  BIT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        m.catch_memo_id,
+        m.catch_memo_lake_id,
+        m.catch_memo_userid,
+        m.catch_memo_fish_id,
+        COALESCE(NULLIF(m.catch_memo_species, N''), f.fish_name) AS catch_memo_species,
+        m.catch_memo_title,
+        m.catch_memo_text,
+        CASE WHEN @viewer_id IS NULL THEN NULL ELSE m.catch_memo_lat END AS catch_memo_lat,
+        CASE WHEN @viewer_id IS NULL THEN NULL ELSE m.catch_memo_lon END AS catch_memo_lon,
+        m.catch_memo_method,
+        m.catch_memo_tackle,
+        m.catch_memo_lure,
+        m.catch_memo_catch_date,
+        m.catch_memo_created,
+        m.catch_memo_updated,
+        (SELECT COUNT(*)        FROM dbo.catch_memo_photo p WHERE p.catch_memo_photo_memoid = m.catch_memo_id) AS photo_count,
+        CAST(CASE
+            WHEN @is_admin = 1 THEN 1
+            WHEN @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id
+                 AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60 THEN 1
+            ELSE 0
+        END AS BIT) AS can_edit
+    FROM dbo.catch_memo m
+    LEFT JOIN dbo.fish f ON f.fish_id = m.catch_memo_fish_id
+    WHERE m.catch_memo_lake_id = @lake_id
+);
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_get' AND xtype = 'IF')
+    DROP function dbo.fn_catch_memo_get
+GO
+-- 5. fn_catch_memo_get : single memo for the edit form -----------------------
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_get
+(
+    @memo_id   UNIQUEIDENTIFIER,
+    @viewer_id UNIQUEIDENTIFIER,
+    @is_admin  BIT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        m.catch_memo_id,
+        m.catch_memo_lake_id,
+        m.catch_memo_userid,
+        m.catch_memo_fish_id,
+        m.catch_memo_species,
+        m.catch_memo_title,
+        m.catch_memo_text,
+        m.catch_memo_lat,
+        m.catch_memo_lon,
+        m.catch_memo_method,
+        m.catch_memo_tackle,
+        m.catch_memo_lure,
+        m.catch_memo_catch_date,
+        m.catch_memo_created,
+        m.catch_memo_updated,
+        CAST(CASE
+            WHEN @is_admin = 1 THEN 1
+            WHEN @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id
+                 AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60 THEN 1
+            ELSE 0
+        END AS BIT) AS can_edit
+    FROM dbo.catch_memo m
+    WHERE m.catch_memo_id = @memo_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+-- 6. fn_catch_memo_photo_handler : raw bytes for HandlerImage.ashx -----------
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_handler
+(
+    @memo_id  UNIQUEIDENTIFIER,
+    @photo_id INT
+)
+RETURNS VARBINARY(MAX)
+AS
+BEGIN
+    DECLARE @pic VARBINARY(MAX);
+    SELECT TOP 1 @pic = catch_memo_photo_pic
+    FROM dbo.catch_memo_photo
+    WHERE catch_memo_photo_memoid = @memo_id
+      AND catch_memo_photo_id     = @photo_id;
+    RETURN @pic;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
