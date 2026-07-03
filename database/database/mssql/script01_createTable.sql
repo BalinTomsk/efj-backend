@@ -2630,19 +2630,34 @@ GO
 
 CREATE TABLE dbo.catch_memo_photo
 (
-    catch_memo_photo_id     INT IDENTITY(1,1) NOT NULL
+    catch_memo_photo_id          INT IDENTITY(1,1) NOT NULL
         CONSTRAINT PK_catch_memo_photo PRIMARY KEY,
-    catch_memo_photo_memoid UNIQUEIDENTIFIER NOT NULL,
-    catch_memo_photo_pic    VARBINARY(MAX)   NOT NULL,
-    catch_memo_photo_label  NVARCHAR(260)    NULL,
-    catch_memo_photo_ord    INT              NOT NULL DEFAULT 0,
-    catch_memo_photo_stamp  DATETIME2        NOT NULL DEFAULT SYSUTCDATETIME(),
+    catch_memo_photo_memoid      UNIQUEIDENTIFIER NOT NULL,
+    catch_memo_photo_pic         VARBINARY(MAX)   NOT NULL,
+    catch_memo_photo_label       NVARCHAR(260)    NULL,
+    catch_memo_photo_ord         INT              NOT NULL DEFAULT 0,
+    catch_memo_photo_stamp       DATETIME2        NOT NULL DEFAULT SYSUTCDATETIME(),
+    catch_memo_photo_description NVARCHAR(500)    NULL,        -- caption entered with the upload
+    catch_memo_photo_author      NVARCHAR(200)    NULL,        -- photo credit, if not the angler
+    catch_memo_photo_hidden      BIT              NOT NULL
+        CONSTRAINT DF_catch_memo_photo_hidden DEFAULT 0,        -- non-admin "delete" only hides it;
+                                                                 -- only an admin can physically remove the row
     CONSTRAINT FK_catch_memo_photo_memo FOREIGN KEY (catch_memo_photo_memoid)
         REFERENCES dbo.catch_memo (catch_memo_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IX_catch_memo_photo_memo
     ON dbo.catch_memo_photo (catch_memo_photo_memoid, catch_memo_photo_ord);
+GO
+-- Upgrade an existing catch_memo_photo table in place (idempotent; no-op on a fresh build).
+IF COL_LENGTH('dbo.catch_memo_photo', 'catch_memo_photo_description') IS NULL
+BEGIN
+    ALTER TABLE dbo.catch_memo_photo ADD
+        catch_memo_photo_description NVARCHAR(500) NULL,
+        catch_memo_photo_author      NVARCHAR(200) NULL,
+        catch_memo_photo_hidden      BIT           NOT NULL
+            CONSTRAINT DF_catch_memo_photo_hidden DEFAULT 0;
+END
 GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------

@@ -1,10 +1,11 @@
 SET QUOTED_IDENTIFIER ON
 GO
 /*
-  Unit tests for the Catch Log (catch memo) feature: dbo.catch_memo, dbo.catch_pending_fish,
-  dbo.sp_add_catch_memo, dbo.fn_catch_memo_list, dbo.fn_catch_memo_get,
+  Unit tests for the Catch Log (catch memo) feature: dbo.catch_memo, dbo.catch_memo_photo,
+  dbo.catch_pending_fish, dbo.sp_add_catch_memo, dbo.fn_catch_memo_list, dbo.fn_catch_memo_get,
   dbo.sp_add_catch_pending_fish, dbo.sp_set_catch_pending_fish_status, dbo.fn_lake_fish_list,
-  dbo.fn_catch_weather_snapshot.
+  dbo.fn_catch_weather_snapshot, dbo.sp_add_catch_memo_photo, dbo.sp_del_catch_memo_photo,
+  dbo.fn_catch_memo_photo_list.
 
   Uses real tables (catch_memo / catch_pending_fish have no FKs, so no parent setup is
   needed for them; lake_fish needs a real fish + fish_family row as fixtures for the
@@ -32,6 +33,12 @@ GO
   TEST 15 - fn_catch_memo_list flags the max-weight catch as personal best (unit-normalized)
   TEST 16 - fn_catch_memo_list never flags a personal best when the catch has no fish_id
   TEST 17 - fn_catch_weather_snapshot never attaches today's water temp to an old catch date
+  TEST 18 - sp_add_catch_memo_photo stores description/author and fn_catch_memo_photo_list
+            returns them
+  TEST 19 - sp_del_catch_memo_photo by a non-admin only hides the photo (row kept, excluded
+            from the listing)
+  TEST 20 - sp_del_catch_memo_photo by an admin physically deletes the row
+  TEST 21 - sp_add_catch_memo_photo caps a memo at 4 non-hidden photos
 */
 
 -- ============================================================================
@@ -758,4 +765,180 @@ ELSE
     print 'TEST 17 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: old catch date correctly got no water temp'
 
 ROLLBACK TRAN CM_Test17
+GO
+
+-- ============================================================================
+-- TEST 18: sp_add_catch_memo_photo stores description/author and fn_catch_memo_photo_list returns them
+-- ============================================================================
+BEGIN TRAN CM_Test18
+    declare @test_name sysname = N'CM_Test18 [sp_add_catch_memo_photo] : stores description/author'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Desc nvarchar(500), @Auth nvarchar(200);
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake18   uniqueidentifier = NEWID();
+DECLARE @Author18 uniqueidentifier = NEWID();
+DECLARE @Memo18   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo18, @lake_id=@Lake18, @userid=@Author18,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+
+-- 2. execute unit test
+
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo18, @userid=@Author18, @pic=0x89504E47,
+    @label=N'pike.jpg', @ord=0, @description=N'Nice fight near the dock', @author=N'Jane Doe';
+SELECT @Desc=catch_memo_photo_description, @Auth=catch_memo_photo_author
+FROM dbo.fn_catch_memo_photo_list(@Memo18);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Desc IS NULL OR @Desc <> N'Nice fight near the dock' OR @Auth IS NULL OR @Auth <> N'Jane Doe'
+   RAISERROR ('TEST 18 FAIL [%dms]: description/author not stored/returned as expected', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 18 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: photo description/author stored and returned'
+
+ROLLBACK TRAN CM_Test18
+GO
+
+-- ============================================================================
+-- TEST 19: sp_del_catch_memo_photo by a non-admin only hides the photo
+-- ============================================================================
+BEGIN TRAN CM_Test19
+    declare @test_name sysname = N'CM_Test19 [sp_del_catch_memo_photo] : non-admin delete only hides the photo'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @RowCnt int, @Hidden bit, @ListedCnt int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake19   uniqueidentifier = NEWID();
+DECLARE @Author19 uniqueidentifier = NEWID();
+DECLARE @Memo19   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo19, @lake_id=@Lake19, @userid=@Author19,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo19, @userid=@Author19, @pic=0x89504E47, @label=N'pike.jpg';
+DECLARE @PhotoId19 int;
+SELECT @PhotoId19 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo19;
+
+-- 2. execute unit test
+
+EXEC dbo.sp_del_catch_memo_photo @photo_id=@PhotoId19, @userid=@Author19, @is_admin=0;
+SELECT @RowCnt = COUNT(*), @Hidden = MAX(CAST(catch_memo_photo_hidden AS int))
+FROM dbo.catch_memo_photo WHERE catch_memo_photo_id = @PhotoId19;
+SELECT @ListedCnt = COUNT(*) FROM dbo.fn_catch_memo_photo_list(@Memo19) WHERE catch_memo_photo_id = @PhotoId19;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @RowCnt IS NULL OR @RowCnt <> 1 OR @Hidden IS NULL OR @Hidden <> 1 OR @ListedCnt IS NULL OR @ListedCnt <> 0
+   RAISERROR ('TEST 19 FAIL [%dms]: non-admin delete did not hide the photo as expected', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 19 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: non-admin delete hid the photo (row kept, excluded from listing)'
+
+ROLLBACK TRAN CM_Test19
+GO
+
+-- ============================================================================
+-- TEST 20: sp_del_catch_memo_photo by an admin physically deletes the photo
+-- ============================================================================
+BEGIN TRAN CM_Test20
+    declare @test_name sysname = N'CM_Test20 [sp_del_catch_memo_photo] : admin delete physically removes the row'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @RowCnt int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake20   uniqueidentifier = NEWID();
+DECLARE @Author20 uniqueidentifier = NEWID();
+DECLARE @Admin20  uniqueidentifier = NEWID();
+DECLARE @Memo20   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo20, @lake_id=@Lake20, @userid=@Author20,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo20, @userid=@Author20, @pic=0x89504E47, @label=N'pike.jpg';
+DECLARE @PhotoId20 int;
+SELECT @PhotoId20 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo20;
+
+-- 2. execute unit test
+
+EXEC dbo.sp_del_catch_memo_photo @photo_id=@PhotoId20, @userid=@Admin20, @is_admin=1;
+SELECT @RowCnt = COUNT(*) FROM dbo.catch_memo_photo WHERE catch_memo_photo_id = @PhotoId20;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @RowCnt IS NULL OR @RowCnt <> 0
+   RAISERROR ('TEST 20 FAIL [%dms]: admin delete did not physically remove the row', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 20 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: admin delete physically removed the photo row'
+
+ROLLBACK TRAN CM_Test20
+GO
+
+-- ============================================================================
+-- TEST 21: sp_add_catch_memo_photo caps a memo at 4 non-hidden photos
+-- ============================================================================
+BEGIN TRAN CM_Test21
+    declare @test_name sysname = N'CM_Test21 [sp_add_catch_memo_photo] : caps a memo at 4 photos'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @PhotoCnt int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake21   uniqueidentifier = NEWID();
+DECLARE @Author21 uniqueidentifier = NEWID();
+DECLARE @Memo21   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo21, @lake_id=@Lake21, @userid=@Author21,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+
+-- 2. execute unit test
+
+-- 5 attempts, only 4 should ever land
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=0;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=1;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=2;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=3;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=4;
+SELECT @PhotoCnt = COUNT(*) FROM dbo.fn_catch_memo_photo_list(@Memo21);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @PhotoCnt IS NULL OR @PhotoCnt <> 4
+   RAISERROR ('TEST 21 FAIL [%dms]: expected exactly 4 photos, got a different count', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 21 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: 5th photo was rejected, memo capped at 4'
+
+ROLLBACK TRAN CM_Test21
 GO

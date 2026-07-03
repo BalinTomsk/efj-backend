@@ -3387,19 +3387,28 @@ GO
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_memo_photo' AND type = 'P')
     DROP PROCEDURE dbo.sp_add_catch_memo_photo
 GO
--- 8. sp_add_catch_memo_photo : attach one photo (author + lock enforced) -----
+-- 8. sp_add_catch_memo_photo : attach one photo (author + lock enforced, max 4
+--    non-hidden photos per memo -- covers both the web form and the mobile
+--    endpoint, which both call this proc) -------------------------------------
 CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo_photo
-    @memo_id  UNIQUEIDENTIFIER,
-    @userid   UNIQUEIDENTIFIER,
-    @pic      VARBINARY(MAX),
-    @label    NVARCHAR(260) = NULL,
-    @ord      INT           = 0,
-    @is_admin BIT           = 0
+    @memo_id     UNIQUEIDENTIFIER,
+    @userid      UNIQUEIDENTIFIER,
+    @pic         VARBINARY(MAX),
+    @label       NVARCHAR(260) = NULL,
+    @ord         INT           = 0,
+    @description NVARCHAR(500) = NULL,
+    @author      NVARCHAR(200) = NULL,
+    @is_admin    BIT           = 0
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    IF EXISTS (
+    DECLARE @photo_count INT;
+    SELECT @photo_count = COUNT(*) FROM dbo.catch_memo_photo
+    WHERE catch_memo_photo_memoid = @memo_id AND catch_memo_photo_hidden = 0;
+
+    IF @photo_count < 4
+       AND EXISTS (
         SELECT 1 FROM dbo.catch_memo
         WHERE catch_memo_id = @memo_id
           AND ( @is_admin = 1
@@ -3407,8 +3416,9 @@ BEGIN
                      AND DATEDIFF(DAY, catch_memo_created, SYSUTCDATETIME()) <= 60 ) ) )
     BEGIN
         INSERT INTO dbo.catch_memo_photo
-            (catch_memo_photo_memoid, catch_memo_photo_pic, catch_memo_photo_label, catch_memo_photo_ord)
-        VALUES (@memo_id, @pic, @label, @ord);
+            (catch_memo_photo_memoid, catch_memo_photo_pic, catch_memo_photo_label, catch_memo_photo_ord,
+             catch_memo_photo_description, catch_memo_photo_author)
+        VALUES (@memo_id, @pic, @label, @ord, @description, @author);
     END
 END
 GO
@@ -3441,7 +3451,11 @@ GO
 
  
 
--- 10. sp_del_catch_memo_photo : delete a single photo ------------------------
+-- 10. sp_del_catch_memo_photo : remove a single photo (author + lock enforced) -
+--     Admins physically delete the row. Everyone else only "hides" it (sets
+--     catch_memo_photo_hidden = 1) -- the row/bytes stay for admin review;
+--     fn_catch_memo_photo_list / fn_catch_memo_photo_handler both exclude
+--     hidden photos, so it disappears from every view either way.
 CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo_photo
     @photo_id INT,
     @userid   UNIQUEIDENTIFIER,
@@ -3449,13 +3463,21 @@ CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo_photo
 AS
 BEGIN
     SET NOCOUNT ON;
-    DELETE p
-    FROM dbo.catch_memo_photo p
-    JOIN dbo.catch_memo m ON m.catch_memo_id = p.catch_memo_photo_memoid
-    WHERE p.catch_memo_photo_id = @photo_id
-      AND ( @is_admin = 1
-            OR ( m.catch_memo_userid = @userid
-                 AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60 ) );
+
+    IF @is_admin = 1
+    BEGIN
+        DELETE FROM dbo.catch_memo_photo WHERE catch_memo_photo_id = @photo_id;
+    END
+    ELSE
+    BEGIN
+        UPDATE p
+        SET catch_memo_photo_hidden = 1
+        FROM dbo.catch_memo_photo p
+        JOIN dbo.catch_memo m ON m.catch_memo_id = p.catch_memo_photo_memoid
+        WHERE p.catch_memo_photo_id = @photo_id
+          AND m.catch_memo_userid = @userid
+          AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60;
+    END
 END
 GO
 
