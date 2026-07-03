@@ -1,110 +1,91 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for news' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
--- database may not be empty
-----------------------------------------------------------------------------------------------------------
+/*
+  Unit tests for dbo.fn_river_view_news.
+  Uses real tables dbo.lake / dbo.news. Transaction is rolled back at end -
+  database state restored.
 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestT2
-DECLARE @test_name SYSNAME = 'TestT2 [fn_river_view_news] find single news';
+  TEST 1 - find single news
+  TEST 2 - find no news
+  TEST 3 - find 2 news
+  TEST 4 - find 3 news
+*/
+SET NOCOUNT ON;
 
-BEGIN TRY  SET NOCOUNT ON;
-    -- 1. prepare data for unit test
-    insert into lake (lake_id, locType, lake_name, CGNDB) values ('00000000-0000-0000-0000-000000000000', 2, N'River', 'ABCDE');
-    insert into news ( news_title , news_author, lake_id) values ('test news', 'author', '00000000-0000-0000-0000-000000000000');
- 
-    -- 2. execute unit test 
-    declare @result1 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',1  ));
-    declare @result2 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',0  ));
- END TRY
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    -- ----------------------------------------------------------------
+    -- TEST 1: find single news
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake1 uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_id, locType, lake_name, CGNDB) VALUES (@Lake1, 2, N'River', 'UTTB1');
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news', 'author', @Lake1);
+    DECLARE @R1a int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake1, 1));
+    DECLARE @R1b int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake1, 0));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R1a = 1 AND @R1b = 0
+        PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: single news item found';
+    ELSE
+        PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: flag1=' + CAST(@R1a AS varchar) + ' flag0=' + CAST(@R1b AS varchar);
+
+    -- ----------------------------------------------------------------
+    -- TEST 2: find no news
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake2 uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_id, locType, lake_name, CGNDB) VALUES (@Lake2, 2, N'River', 'UTTB2');
+    DECLARE @R2a int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake2, 1));
+    DECLARE @R2b int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake2, 0));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R2a = 0 AND @R2b = 0
+        PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: no news items found';
+    ELSE
+        PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: flag1=' + CAST(@R2a AS varchar) + ' flag0=' + CAST(@R2b AS varchar);
+
+    -- ----------------------------------------------------------------
+    -- TEST 3: find 2 news
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake3 uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_id, locType, lake_name, CGNDB) VALUES (@Lake3, 2, N'River', 'UTTB3');
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news1 T3', 'author', @Lake3);
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news2 T3', 'author', @Lake3);
+    DECLARE @R3a int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake3, 1));
+    DECLARE @R3b int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake3, 0));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R3a = 1 AND @R3b = 1
+        PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: two news items found';
+    ELSE
+        PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: flag1=' + CAST(@R3a AS varchar) + ' flag0=' + CAST(@R3b AS varchar);
+
+    -- ----------------------------------------------------------------
+    -- TEST 4: find 3 news
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake4 uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_id, locType, lake_name, CGNDB) VALUES (@Lake4, 2, N'River', 'UTTB4');
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news1 T4', 'author', @Lake4);
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news2 T4', 'author', @Lake4);
+    INSERT INTO news (news_title, news_author, lake_id) VALUES ('test news3 T4', 'author', @Lake4);
+    DECLARE @R4a int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake4, 1));
+    DECLARE @R4b int = (SELECT COUNT(*) FROM dbo.fn_river_view_news(@Lake4, 0));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R4a = 2 AND @R4b = 1
+        PRINT 'TEST 4 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: three news items -> flag1=2, flag0=1';
+    ELSE
+        PRINT 'TEST 4 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: flag1=' + CAST(@R4a AS varchar) + ' flag0=' + CAST(@R4b AS varchar);
+
+    ROLLBACK TRANSACTION;
+
+END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-               @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine,         ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-    
-	IF  @result1 <> 1 OR @result2 <> 0
-	   RAISERROR ('FAILED: %s result must have single record %d ', 16, -1, @test_name, @result1 ) 
-	ELSE
-		print 'PASSED ' + @test_name
-ROLLBACK TRAN TestT2 
-GO
- --  delete  from Tributaries ;delete  from lake; delete  from news; 
-
-BEGIN TRAN TestT1
-DECLARE @test_name SYSNAME = 'TestT1 [fn_river_view_news] find no news';
-
-BEGIN TRY  SET NOCOUNT ON;
-    -- 1. prepare data for unit test
-    insert into lake (lake_id, locType, lake_name, CGNDB) values ('00000000-0000-0000-0000-000000000000', 2, N'River', 'ABCDE');
-
- 
-    -- 2. execute unit test 
-    declare @result1 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',1  ));
-    declare @result2 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',0  ));
- END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-               @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine,         ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-    
-	IF  @result1 <> 0 OR @result2 <> 0
-	   RAISERROR ('FAILED: %s result must be empty %d ', 16, -1, @test_name, @result1 ) 
-	ELSE
-		print 'PASSED ' + @test_name
-ROLLBACK TRAN TestT1 
-GO
- 
-
-BEGIN TRAN TestT3
-DECLARE @test_name SYSNAME = 'TestT3 [fn_river_view_news] find 2 news';
-
-BEGIN TRY  SET NOCOUNT ON;
-    -- 1. prepare data for unit test
-    insert into lake (lake_id, locType, lake_name, CGNDB) values ('00000000-0000-0000-0000-000000000000', 2, N'River', 'ABCDE');
-    insert into news ( news_title , news_author, lake_id) values ('test news1', 'author', '00000000-0000-0000-0000-000000000000');
-    insert into news ( news_title , news_author, lake_id) values ('test news2', 'author', '00000000-0000-0000-0000-000000000000');
- 
-    -- 2. execute unit test 
-    declare @result1 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',1  ));
-    declare @result2 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',0  ));
- END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-               @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine,         ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-    
-	IF  @result1 <> 1 OR @result2 <> 1
-	   RAISERROR ('FAILED: %s result must have single record %d - %d', 16, -1, @test_name, @result1, @result2 ) 
-	ELSE
-		print 'PASSED ' + @test_name
-ROLLBACK TRAN TestT3 
-GO
-
-
-BEGIN TRAN TestT4
-DECLARE @test_name SYSNAME = 'TestT4 [fn_river_view_news] find 3 news';
-
-BEGIN TRY  SET NOCOUNT ON;
-    -- 1. prepare data for unit test
-    insert into lake (lake_id, locType, lake_name, CGNDB) values ('00000000-0000-0000-0000-000000000000', 2, N'River', 'ABCDE');
-    insert into news ( news_title , news_author, lake_id) values ('test news1', 'author', '00000000-0000-0000-0000-000000000000');
-    insert into news ( news_title , news_author, lake_id) values ('test news2', 'author', '00000000-0000-0000-0000-000000000000');
-    insert into news ( news_title , news_author, lake_id) values ('test news3', 'author', '00000000-0000-0000-0000-000000000000');
- 
-    -- 2. execute unit test 
-    declare @result1 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',1  ));
-    declare @result2 int = ( select count(*) from dbo.fn_river_view_news('00000000-0000-0000-0000-000000000000',0  ));
- END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-               @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine,         ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-    
-	IF  @result1 <> 2 OR @result2 <> 1
-	   RAISERROR ('FAILED: %s result must have single record %d - %d', 16, -1, @test_name, @result1, @result2 ) 
-	ELSE
-		print 'PASSED ' + @test_name
-ROLLBACK TRAN TestT4 
-GO
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;

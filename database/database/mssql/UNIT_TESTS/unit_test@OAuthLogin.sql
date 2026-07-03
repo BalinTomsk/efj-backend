@@ -1,730 +1,293 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for spOAuthLoginOrCreateUser / UserExternalLogin'
-PRINT '-----------------------------------------------------------------------------------------------------------------------------'
+/*
+  Unit tests for dbo.spOAuthLoginOrCreateUser / dbo.UserExternalLogin (Google, Twitter,
+  LinkedIn, Outlook, GitHub, Email magic-link providers).
+  Uses real tables dbo.Users, dbo.UserExternalLogin, dbo.BannedUser. Each test scrubs its
+  own fixture rows (by sub/email) before running, so merging into one shared transaction
+  does not create cross-test interference. Transaction is rolled back at end.
 
------------------------------------------------------------------------------------------------------------------------------------------------
--- Unit tests for dbo.spOAuthLoginOrCreateUser (Google + Twitter + LinkedIn + Outlook + GitHub external login via UserExternalLogin)
------------------------------------------------------------------------------------------------------------------------------------------------
+  TEST  1 - first Google login creates a Users row AND a linked UserExternalLogin row
+  TEST  2 - returning Google login (same provider+sub) reuses the user, no duplicate login row
+  TEST  3 - Google login for an email that already has a Users row links to it (no new user)
+  TEST  4 - first Twitter login (no real email -> synthetic) creates user with handle userName
+  TEST  5 - returning Twitter login reuses user; same sub under Google stays a separate account
+  TEST  6 - first LinkedIn login creates user with display-name userName
+  TEST  7 - first Outlook login creates user with display-name userName
+  TEST  8 - first GitHub login creates user with display-name userName
+  TEST  9 - first Email (magic-link) login creates user keyed by address
+  TEST 10 - Google userName is the display name, and returning login self-heals an email-as-userName row
+  TEST 11 - a banned email is refused at sign-in (proc raises an error), no user created
+  TEST 12 - re-auth after soft-delete creates a brand-new user, not the old one
+*/
+SET NOCOUNT ON;
 
--- TEST 1: First Google login creates a Users row AND a linked UserExternalLogin row
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL1
-DECLARE @test_name SYSNAME = 'TestOAL1 [spOAuthLoginOrCreateUser] first Google login creates user + external login';
-DECLARE @fail_message nvarchar(4000);
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
 
 BEGIN TRY
-    SET NOCOUNT ON;
+    BEGIN TRANSACTION;
 
-    DECLARE @sub          nvarchar(256) = N'UT_SUB_0001';
-    DECLARE @email        nvarchar(255) = N'ut_oauth_new@example.com';
-    DECLARE @userId       uniqueidentifier;
-    DECLARE @userName     nvarchar(256);
-    DECLARE @isNewUser    bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 1: first Google login creates a Users row AND a linked UserExternalLogin row
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub1 nvarchar(256) = N'UT_SUB_0001';
+    DECLARE @Email1 nvarchar(255) = N'ut_oauth_new@example.com';
+    DECLARE @UserId1 uniqueidentifier, @UserName1 nvarchar(256), @IsNew1 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub1;
+    DELETE FROM dbo.Users WHERE email = @Email1;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'Google'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = N'New'
-        , @familyName     = N'Angler'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1, actual ' + ISNULL(CAST(@isNewUser AS varchar(1)), 'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row for returned @userId/email';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'Google' AND providerUserId = @sub
-          AND email = 'ut_oauth_new@example.com' AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Google', @providerUserId=@Sub1, @email=@Email1, @givenName=N'New', @familyName=N'Angler',
+          @userId=@UserId1 OUTPUT, @userName=@UserName1 OUTPUT, @isNewUser=@IsNew1 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew1 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId1 AND email = @Email1)
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId1 AND provider = N'Google' AND providerUserId = @Sub1 AND email = @Email1 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first Google login created user + linked external login';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew1 AS varchar),'NULL');
 
-ROLLBACK TRAN TestOAL1
-GO
-
-
--- TEST 2: Returning Google login (same provider+sub) reuses the user, no duplicate login row
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL2
-DECLARE @test_name SYSNAME = 'TestOAL2 [spOAuthLoginOrCreateUser] returning login reuses user, no duplicate external login';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub       nvarchar(256) = N'UT_SUB_0002';
-    DECLARE @email     nvarchar(255) = N'ut_oauth_ret@example.com';
-    DECLARE @uid1      uniqueidentifier, @uid2 uniqueidentifier;
-    DECLARE @un        nvarchar(256);
-    DECLARE @new1      bit, @new2 bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Google', @providerUserId = @sub, @email = @email
-        , @userId = @uid1 OUTPUT, @userName = @un OUTPUT, @isNewUser = @new1 OUTPUT;
-
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Google', @providerUserId = @sub, @email = @email
-        , @userId = @uid2 OUTPUT, @userName = @un OUTPUT, @isNewUser = @new2 OUTPUT;
-
-    IF @new1 <> 1 OR @new2 <> 0
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected isNew 1 then 0, actual '
-            + ISNULL(CAST(@new1 AS varchar(1)),'NULL') + '/' + ISNULL(CAST(@new2 AS varchar(1)),'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF @uid1 <> @uid2
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected same @userId on both calls';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF (SELECT COUNT(*) FROM dbo.UserExternalLogin WHERE provider = N'Google' AND providerUserId = @sub) <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected exactly one external login row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+    -- ----------------------------------------------------------------
+    -- TEST 2: returning Google login (same provider+sub) reuses the user, no duplicate login row
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub2 nvarchar(256) = N'UT_SUB_0002';
+    DECLARE @Email2 nvarchar(255) = N'ut_oauth_ret@example.com';
+    DECLARE @Uid2a uniqueidentifier, @Uid2b uniqueidentifier, @Un2 nvarchar(256), @New2a bit, @New2b bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub2;
+    DELETE FROM dbo.Users WHERE email = @Email2;
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Google', @providerUserId=@Sub2, @email=@Email2, @userId=@Uid2a OUTPUT, @userName=@Un2 OUTPUT, @isNewUser=@New2a OUTPUT;
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Google', @providerUserId=@Sub2, @email=@Email2, @userId=@Uid2b OUTPUT, @userName=@Un2 OUTPUT, @isNewUser=@New2b OUTPUT;
+    DECLARE @LoginCnt2 int = (SELECT COUNT(*) FROM dbo.UserExternalLogin WHERE provider = N'Google' AND providerUserId = @Sub2);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @New2a = 1 AND @New2b = 0 AND @Uid2a = @Uid2b AND @LoginCnt2 = 1
+        PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: returning login reused user, single external login row';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: new=' + ISNULL(CAST(@New2a AS varchar),'?') + '/' + ISNULL(CAST(@New2b AS varchar),'?') + ' sameId=' + CASE WHEN @Uid2a=@Uid2b THEN '1' ELSE '0' END + ' loginCnt=' + CAST(@LoginCnt2 AS varchar);
 
-ROLLBACK TRAN TestOAL2
-GO
-
-
--- TEST 3: Google login for an email that already has a Users row links to it (no new user)
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL3
-DECLARE @test_name SYSNAME = 'TestOAL3 [spOAuthLoginOrCreateUser] links external login to existing user by email';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub       nvarchar(256) = N'UT_SUB_0003';
-    DECLARE @email     nvarchar(255) = N'ut_oauth_link@example.com';
-    DECLARE @existing  uniqueidentifier = NEWID();
-    DECLARE @uid       uniqueidentifier;
-    DECLARE @un        nvarchar(256);
-    DECLARE @isNew     bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
-    -- pre-existing (e.g. legacy/local) account with this email, no external login yet
+    -- ----------------------------------------------------------------
+    -- TEST 3: Google login for an email that already has a Users row links to it (no new user)
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub3 nvarchar(256) = N'UT_SUB_0003';
+    DECLARE @Email3 nvarchar(255) = N'ut_oauth_link@example.com';
+    DECLARE @Existing3 uniqueidentifier = NEWID();
+    DECLARE @Uid3 uniqueidentifier, @Un3 nvarchar(256), @New3 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub3;
+    DELETE FROM dbo.Users WHERE email = @Email3;
     INSERT INTO dbo.Users (id, userName, psw, firstName, lastName, email, question, answer, authType)
-    VALUES (@existing, 'ut_link_user', HASHBYTES('MD5','ut*pwd'), 'Linked', 'User', @email, 'q', 0x0024, 'Local');
-
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Google', @providerUserId = @sub, @email = @email
-        , @userId = @uid OUTPUT, @userName = @un OUTPUT, @isNewUser = @isNew OUTPUT;
-
-    IF @isNew <> 0
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 0 (linked existing)';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF @uid <> @existing
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected returned @userId to equal existing user id';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @existing AND provider = N'Google' AND providerUserId = @sub)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected external login linked to existing user';
-        RAISERROR(@fail_message, 16, 1);
-    END
+    VALUES (@Existing3, 'ut_link_user', HASHBYTES('MD5','ut*pwd'), 'Linked', 'User', @Email3, 'q', 0x0024, 'Local');
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Google', @providerUserId=@Sub3, @email=@Email3, @userId=@Uid3 OUTPUT, @userName=@Un3 OUTPUT, @isNewUser=@New3 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @New3 = 0 AND @Uid3 = @Existing3
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @Existing3 AND provider = N'Google' AND providerUserId = @Sub3)
+        PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: linked external login to existing user by email';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: new=' + ISNULL(CAST(@New3 AS varchar),'?') + ' uid=' + ISNULL(CAST(@Uid3 AS varchar),'NULL');
 
-ROLLBACK TRAN TestOAL3
-GO
-
-
--- TEST 4: First Twitter login (no real email -> synthetic) creates user whose userName is the
---         display name (the @handle), plus a UserExternalLogin row with provider='Twitter'
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL4
-DECLARE @test_name SYSNAME = 'TestOAL4 [spOAuthLoginOrCreateUser] first Twitter login creates user with handle userName';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_TW_0004';
-    DECLARE @email      nvarchar(255) = N'twitter_ut0004@users.fishfind.info';  -- synthetic, supplied by caller
-    DECLARE @handle     nvarchar(64)  = N'CoolAngler';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 4: first Twitter login (synthetic email) creates user with handle userName
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub4 nvarchar(256) = N'UT_TW_0004';
+    DECLARE @Email4 nvarchar(255) = N'twitter_ut0004@users.fishfind.info';
+    DECLARE @Handle4 nvarchar(64) = N'CoolAngler';
+    DECLARE @UserId4 uniqueidentifier, @UserName4 nvarchar(256), @IsNew4 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub4;
+    DELETE FROM dbo.Users WHERE email = @Email4;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'Twitter'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = @handle      -- caller passes the X display name / @handle here
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = @handle)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with synthetic email and handle userName, got userName=' + ISNULL(@userName,'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'Twitter' AND providerUserId = @sub
-          AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Twitter UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Twitter', @providerUserId=@Sub4, @email=@Email4, @givenName=@Handle4,
+          @userId=@UserId4 OUTPUT, @userName=@UserName4 OUTPUT, @isNewUser=@IsNew4 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew4 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId4 AND email = @Email4 AND userName = @Handle4)
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId4 AND provider = N'Twitter' AND providerUserId = @Sub4 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 4 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first Twitter login created user with handle userName';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 4 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew4 AS varchar),'NULL') + ' userName=' + ISNULL(@UserName4,'NULL');
 
-ROLLBACK TRAN TestOAL4
-GO
-
-
--- TEST 5: Returning Twitter login (same provider+sub) reuses the user, no duplicate login row,
---         and a Google login with the SAME sub string stays a separate account (provider-scoped)
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL5
-DECLARE @test_name SYSNAME = 'TestOAL5 [spOAuthLoginOrCreateUser] returning Twitter login reuses user; provider-scoped sub';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub      nvarchar(256) = N'UT_DUP_0005';
-    DECLARE @twMail   nvarchar(255) = N'twitter_ut0005@users.fishfind.info';
-    DECLARE @ggMail   nvarchar(255) = N'ut_oauth_0005@example.com';
-    DECLARE @tw1 uniqueidentifier, @tw2 uniqueidentifier, @gg uniqueidentifier;
-    DECLARE @un nvarchar(256);
-    DECLARE @n1 bit, @n2 bit, @ng bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email IN (@twMail, @ggMail);
-
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Twitter', @providerUserId = @sub, @email = @twMail, @givenName = N'TwUser'
-        , @userId = @tw1 OUTPUT, @userName = @un OUTPUT, @isNewUser = @n1 OUTPUT;
-
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Twitter', @providerUserId = @sub, @email = @twMail, @givenName = N'TwUser'
-        , @userId = @tw2 OUTPUT, @userName = @un OUTPUT, @isNewUser = @n2 OUTPUT;
-
-    -- same sub value but a different provider must NOT collide with the Twitter login
-    EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Google', @providerUserId = @sub, @email = @ggMail
-        , @userId = @gg OUTPUT, @userName = @un OUTPUT, @isNewUser = @ng OUTPUT;
-
-    IF @n1 <> 1 OR @n2 <> 0
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Twitter isNew 1 then 0';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF @tw1 <> @tw2
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected same @userId on repeat Twitter login';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF (SELECT COUNT(*) FROM dbo.UserExternalLogin WHERE provider = N'Twitter' AND providerUserId = @sub) <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected exactly one Twitter external login row';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF @ng <> 1 OR @gg = @tw1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Google sub to create a separate user';
-        RAISERROR(@fail_message, 16, 1);
-    END
+    -- ----------------------------------------------------------------
+    -- TEST 5: returning Twitter login reuses user; Google with same sub is a separate account
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub5 nvarchar(256) = N'UT_DUP_0005';
+    DECLARE @TwMail5 nvarchar(255) = N'twitter_ut0005@users.fishfind.info';
+    DECLARE @GgMail5 nvarchar(255) = N'ut_oauth_0005@example.com';
+    DECLARE @Tw5a uniqueidentifier, @Tw5b uniqueidentifier, @Gg5 uniqueidentifier, @Un5 nvarchar(256), @N5a bit, @N5b bit, @Ng5 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub5;
+    DELETE FROM dbo.Users WHERE email IN (@TwMail5, @GgMail5);
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Twitter', @providerUserId=@Sub5, @email=@TwMail5, @givenName=N'TwUser', @userId=@Tw5a OUTPUT, @userName=@Un5 OUTPUT, @isNewUser=@N5a OUTPUT;
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Twitter', @providerUserId=@Sub5, @email=@TwMail5, @givenName=N'TwUser', @userId=@Tw5b OUTPUT, @userName=@Un5 OUTPUT, @isNewUser=@N5b OUTPUT;
+    EXEC dbo.spOAuthLoginOrCreateUser @provider=N'Google', @providerUserId=@Sub5, @email=@GgMail5, @userId=@Gg5 OUTPUT, @userName=@Un5 OUTPUT, @isNewUser=@Ng5 OUTPUT;
+    DECLARE @TwLoginCnt5 int = (SELECT COUNT(*) FROM dbo.UserExternalLogin WHERE provider = N'Twitter' AND providerUserId = @Sub5);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @N5a = 1 AND @N5b = 0 AND @Tw5a = @Tw5b AND @TwLoginCnt5 = 1 AND @Ng5 = 1 AND @Gg5 <> @Tw5a
+        PRINT 'TEST 5 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Twitter reuse + provider-scoped sub confirmed';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 5 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: tw_new=' + ISNULL(CAST(@N5a AS varchar),'?') + '/' + ISNULL(CAST(@N5b AS varchar),'?') + ' gg_new=' + ISNULL(CAST(@Ng5 AS varchar),'?');
 
-ROLLBACK TRAN TestOAL5
-GO
-
-
--- TEST 6: First LinkedIn login (OIDC: real email + given/family names) creates a user whose
---         userName is the display name, plus a UserExternalLogin row with provider='LinkedIn'
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL6
-DECLARE @test_name SYSNAME = 'TestOAL6 [spOAuthLoginOrCreateUser] first LinkedIn login creates user with display-name userName';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_LI_0006';
-    DECLARE @email      nvarchar(255) = N'ut_oauth_li@example.com';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 6: first LinkedIn login creates user with display-name userName
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub6 nvarchar(256) = N'UT_LI_0006';
+    DECLARE @Email6 nvarchar(255) = N'ut_oauth_li@example.com';
+    DECLARE @UserId6 uniqueidentifier, @UserName6 nvarchar(256), @IsNew6 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub6;
+    DELETE FROM dbo.Users WHERE email = @Email6;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'LinkedIn'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = N'Linked'
-        , @familyName     = N'Angler'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'Linked Angler')
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'LinkedIn' AND providerUserId = @sub
-          AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked LinkedIn UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'LinkedIn', @providerUserId=@Sub6, @email=@Email6, @givenName=N'Linked', @familyName=N'Angler',
+          @userId=@UserId6 OUTPUT, @userName=@UserName6 OUTPUT, @isNewUser=@IsNew6 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew6 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId6 AND email = @Email6 AND userName = N'Linked Angler')
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId6 AND provider = N'LinkedIn' AND providerUserId = @Sub6 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 6 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first LinkedIn login created user with display-name userName';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 6 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew6 AS varchar),'NULL') + ' userName=' + ISNULL(@UserName6,'NULL');
 
-ROLLBACK TRAN TestOAL6
-GO
-
-
--- TEST 7: First Outlook login (OIDC: real email + given/family names via Microsoft Graph)
---         creates a user whose userName is the display name, plus UserExternalLogin row with provider='Outlook'
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL7
-DECLARE @test_name SYSNAME = 'TestOAL7 [spOAuthLoginOrCreateUser] first Outlook login creates user with display-name userName';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_OL_0007';
-    DECLARE @email      nvarchar(255) = N'ut_outlook_angler@outlook.com';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 7: first Outlook login creates user with display-name userName
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub7 nvarchar(256) = N'UT_OL_0007';
+    DECLARE @Email7 nvarchar(255) = N'ut_outlook_angler@outlook.com';
+    DECLARE @UserId7 uniqueidentifier, @UserName7 nvarchar(256), @IsNew7 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub7;
+    DELETE FROM dbo.Users WHERE email = @Email7;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'Outlook'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = N'Outlook'
-        , @familyName     = N'Angler'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'Outlook Angler')
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'Outlook' AND providerUserId = @sub
-          AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Outlook UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Outlook', @providerUserId=@Sub7, @email=@Email7, @givenName=N'Outlook', @familyName=N'Angler',
+          @userId=@UserId7 OUTPUT, @userName=@UserName7 OUTPUT, @isNewUser=@IsNew7 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew7 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId7 AND email = @Email7 AND userName = N'Outlook Angler')
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId7 AND provider = N'Outlook' AND providerUserId = @Sub7 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 7 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first Outlook login created user with display-name userName';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 7 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew7 AS varchar),'NULL') + ' userName=' + ISNULL(@UserName7,'NULL');
 
-ROLLBACK TRAN TestOAL7
-GO
-
-
--- TEST 8: First GitHub login (display name split into given/family by the callback)
---         creates a user whose userName is the display name, plus UserExternalLogin row with provider='GitHub'
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL8
-DECLARE @test_name SYSNAME = 'TestOAL8 [spOAuthLoginOrCreateUser] first GitHub login creates user with display-name userName';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_GH_0008';
-    DECLARE @email      nvarchar(255) = N'ut_oauth_gh@example.com';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 8: first GitHub login creates user with display-name userName
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub8 nvarchar(256) = N'UT_GH_0008';
+    DECLARE @Email8 nvarchar(255) = N'ut_oauth_gh@example.com';
+    DECLARE @UserId8 uniqueidentifier, @UserName8 nvarchar(256), @IsNew8 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub8;
+    DELETE FROM dbo.Users WHERE email = @Email8;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'GitHub'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = N'GitHub'
-        , @familyName     = N'Angler'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email AND userName = N'GitHub Angler')
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row with display-name userName, got userName=' + ISNULL(@userName,'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'GitHub' AND providerUserId = @sub
-          AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked GitHub UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'GitHub', @providerUserId=@Sub8, @email=@Email8, @givenName=N'GitHub', @familyName=N'Angler',
+          @userId=@UserId8 OUTPUT, @userName=@UserName8 OUTPUT, @isNewUser=@IsNew8 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew8 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId8 AND email = @Email8 AND userName = N'GitHub Angler')
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId8 AND provider = N'GitHub' AND providerUserId = @Sub8 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 8 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first GitHub login created user with display-name userName';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 8 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew8 AS varchar),'NULL') + ' userName=' + ISNULL(@UserName8,'NULL');
 
-ROLLBACK TRAN TestOAL8
-GO
-
-
--- TEST 9: First Email (magic-link) login: providerUserId IS the address, givenName = local part;
---         creates a user plus UserExternalLogin row with provider='Email'
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL9
-DECLARE @test_name SYSNAME = 'TestOAL9 [spOAuthLoginOrCreateUser] first Email login creates user keyed by address';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @email      nvarchar(255) = N'ut_magic_angler@example.com';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @email;
-    DELETE FROM dbo.Users WHERE email = @email;
-
+    -- ----------------------------------------------------------------
+    -- TEST 9: first Email (magic-link) login creates user keyed by address
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Email9 nvarchar(255) = N'ut_magic_angler@example.com';
+    DECLARE @UserId9 uniqueidentifier, @UserName9 nvarchar(256), @IsNew9 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Email9;
+    DELETE FROM dbo.Users WHERE email = @Email9;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'Email'
-        , @providerUserId = @email
-        , @email          = @email
-        , @givenName      = N'ut_magic_angler'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected @isNewUser = 1';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND email = @email)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected Users row for returned @userId/email';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF NOT EXISTS (
-        SELECT 1 FROM dbo.UserExternalLogin
-        WHERE userId = @userId AND provider = N'Email' AND providerUserId = @email
-          AND lastLoginUtc IS NOT NULL)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected linked Email UserExternalLogin row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Email', @providerUserId=@Email9, @email=@Email9, @givenName=N'ut_magic_angler',
+          @userId=@UserId9 OUTPUT, @userName=@UserName9 OUTPUT, @isNewUser=@IsNew9 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @IsNew9 = 1
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId9 AND email = @Email9)
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @UserId9 AND provider = N'Email' AND providerUserId = @Email9 AND lastLoginUtc IS NOT NULL)
+        PRINT 'TEST 9 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first Email magic-link login created user keyed by address';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 9 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@IsNew9 AS varchar),'NULL');
 
-ROLLBACK TRAN TestOAL9
-GO
-
-
--- TEST 10: Google userName uses the real display name (not the email), and a returning login
---          self-heals a userName that was previously stored as the email.
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL10
-DECLARE @test_name SYSNAME = 'TestOAL10 [spOAuthLoginOrCreateUser] Google userName is display name + self-heals email userName';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_GG_0010';
-    DECLARE @email      nvarchar(255) = N'ut_google_name@example.com';
-    DECLARE @userId     uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
-    -- First Google login: userName should be the display name "Anton Fulton", not the email.
+    -- ----------------------------------------------------------------
+    -- TEST 10: Google userName is the display name; returning login self-heals email-as-userName
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub10 nvarchar(256) = N'UT_GG_0010';
+    DECLARE @Email10 nvarchar(255) = N'ut_google_name@example.com';
+    DECLARE @UserId10 uniqueidentifier, @UserName10 nvarchar(256), @IsNew10 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub10;
+    DELETE FROM dbo.Users WHERE email = @Email10;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider       = N'Google'
-        , @providerUserId = @sub
-        , @email          = @email
-        , @givenName      = N'Anton'
-        , @familyName     = N'Fulton'
-        , @userId         = @userId   OUTPUT
-        , @userName       = @userName OUTPUT
-        , @isNewUser      = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1 OR @userName <> N'Anton Fulton'
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected new user with userName=''Anton Fulton'', got userName=' + ISNULL(@userName,'NULL');
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Google', @providerUserId=@Sub10, @email=@Email10, @givenName=N'Anton', @familyName=N'Fulton',
+          @userId=@UserId10 OUTPUT, @userName=@UserName10 OUTPUT, @isNewUser=@IsNew10 OUTPUT;
+    DECLARE @FirstOk10 bit = CASE WHEN @IsNew10 = 1 AND @UserName10 = N'Anton Fulton' THEN 1 ELSE 0 END;
+    UPDATE dbo.Users SET userName = @Email10 WHERE id = @UserId10;
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider=N'Google', @providerUserId=@Sub10, @email=@Email10, @givenName=N'Anton', @familyName=N'Fulton',
+          @userId=@UserId10 OUTPUT, @userName=@UserName10 OUTPUT, @isNewUser=@IsNew10 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @FirstOk10 = 1 AND @IsNew10 = 0 AND @UserName10 = N'Anton Fulton'
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @UserId10 AND userName = N'Anton Fulton')
+        PRINT 'TEST 10 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Google userName is display name and self-heals on return';
     ELSE
-    BEGIN
-        -- Simulate a legacy row whose userName was stored as the email, then log in again.
-        UPDATE dbo.Users SET userName = @email WHERE id = @userId;
+        PRINT 'TEST 10 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: firstOk=' + CAST(@FirstOk10 AS varchar) + ' isNew=' + ISNULL(CAST(@IsNew10 AS varchar),'NULL') + ' userName=' + ISNULL(@UserName10,'NULL');
 
-        EXEC dbo.spOAuthLoginOrCreateUser
-              @provider       = N'Google'
-            , @providerUserId = @sub
-            , @email          = @email
-            , @givenName      = N'Anton'
-            , @familyName     = N'Fulton'
-            , @userId         = @userId   OUTPUT
-            , @userName       = @userName OUTPUT
-            , @isNewUser      = @isNewUser OUTPUT;
-
-        IF @isNewUser <> 0 OR @userName <> N'Anton Fulton'
-        BEGIN
-            SET @fail_message = 'FAILED: ' + @test_name + ' expected returning login to self-heal userName to ''Anton Fulton'', got userName=' + ISNULL(@userName,'NULL');
-            RAISERROR(@fail_message, 16, 1);
-        END
-        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @userId AND userName = N'Anton Fulton')
-        BEGIN
-            SET @fail_message = 'FAILED: ' + @test_name + ' expected Users.userName persisted as ''Anton Fulton''';
-            RAISERROR(@fail_message, 16, 1);
-        END
-        ELSE
-            PRINT 'PASSED ' + @test_name;
-    END
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-
-ROLLBACK TRAN TestOAL10
-GO
-
-
--- TEST 11: A banned email is refused at sign-in (proc raises an error) and creates no user.
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL11
-DECLARE @test_name SYSNAME = 'TestOAL11 [spOAuthLoginOrCreateUser] banned email is refused, no user created';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @email     nvarchar(255) = N'ut_banned_user@example.com';
-    DECLARE @sub       nvarchar(256) = N'UT_BAN_0011';
-    DECLARE @uid       uniqueidentifier, @un nvarchar(256), @new bit;
-    DECLARE @raised    bit = 0;
-
-    DELETE FROM dbo.BannedUser WHERE email = @email;
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
-    INSERT INTO dbo.BannedUser (email) VALUES (@email);
-
+    -- ----------------------------------------------------------------
+    -- TEST 11: a banned email is refused at sign-in (proc raises an error), no user created
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Email11 nvarchar(255) = N'ut_banned_user@example.com';
+    DECLARE @Sub11 nvarchar(256) = N'UT_BAN_0011';
+    DECLARE @Uid11 uniqueidentifier, @Un11 nvarchar(256), @New11 bit;
+    DECLARE @Raised11 bit = 0;
+    DELETE FROM dbo.BannedUser WHERE email = @Email11;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub11;
+    DELETE FROM dbo.Users WHERE email = @Email11;
+    INSERT INTO dbo.BannedUser (email) VALUES (@Email11);
     BEGIN TRY
         EXEC dbo.spOAuthLoginOrCreateUser
-              @provider = N'Google', @providerUserId = @sub, @email = @email
-            , @givenName = N'Banned', @familyName = N'User'
-            , @userId = @uid OUTPUT, @userName = @un OUTPUT, @isNewUser = @new OUTPUT;
+              @provider=N'Google', @providerUserId=@Sub11, @email=@Email11, @givenName=N'Banned', @familyName=N'User',
+              @userId=@Uid11 OUTPUT, @userName=@Un11 OUTPUT, @isNewUser=@New11 OUTPUT;
     END TRY
     BEGIN CATCH
-        SET @raised = 1;   -- expected: the proc raised the ban error
+        SET @Raised11 = 1;
     END CATCH
-
-    IF @raised <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' expected the proc to raise a ban error';
-        RAISERROR(@fail_message, 16, 1);
-    END
-    ELSE IF EXISTS (SELECT 1 FROM dbo.Users WHERE email = @email)
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' a banned sign-in must NOT create a Users row';
-        RAISERROR(@fail_message, 16, 1);
-    END
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Raised11 = 1 AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE email = @Email11)
+        PRINT 'TEST 11 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: banned email refused, no user created';
     ELSE
-        PRINT 'PASSED ' + @test_name;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
+        PRINT 'TEST 11 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: raised=' + CAST(@Raised11 AS varchar);
 
-ROLLBACK TRAN TestOAL11
-GO
-
--- TEST 12: After a soft-delete (Users.deleted = 1 + external-login row removed), the same provider
---          account signing in again gets a BRAND-NEW user, not the old one.
------------------------------------------------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestOAL12
-DECLARE @test_name SYSNAME = 'TestOAL12 [spOAuthLoginOrCreateUser] re-auth after soft-delete creates a new profile';
-DECLARE @fail_message nvarchar(4000);
-
-BEGIN TRY
-    SET NOCOUNT ON;
-
-    DECLARE @sub        nvarchar(256) = N'UT_DEL_0012';
-    DECLARE @email      nvarchar(255) = N'ut_softdelete@example.com';
-    DECLARE @firstId    uniqueidentifier;
-    DECLARE @secondId   uniqueidentifier;
-    DECLARE @userName   nvarchar(256);
-    DECLARE @isNewUser  bit;
-
-    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @sub;
-    DELETE FROM dbo.Users WHERE email = @email;
-
-    -- First sign-in: creates the original profile.
+    -- ----------------------------------------------------------------
+    -- TEST 12: re-auth after soft-delete creates a brand-new user, not the old one
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub12 nvarchar(256) = N'UT_DEL_0012';
+    DECLARE @Email12 nvarchar(255) = N'ut_softdelete@example.com';
+    DECLARE @FirstId12 uniqueidentifier, @SecondId12 uniqueidentifier, @UserName12 nvarchar(256), @IsNew12 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub12;
+    DELETE FROM dbo.Users WHERE email = @Email12;
     EXEC dbo.spOAuthLoginOrCreateUser
-          @provider = N'Google', @providerUserId = @sub, @email = @email
-        , @givenName = N'Dora', @familyName = N'Deleted'
-        , @userId = @firstId OUTPUT, @userName = @userName OUTPUT, @isNewUser = @isNewUser OUTPUT;
-
-    IF @isNewUser <> 1
-    BEGIN
-        SET @fail_message = 'FAILED: ' + @test_name + ' first sign-in should create a user';
-        RAISERROR(@fail_message, 16, 1);
-    END
+          @provider=N'Google', @providerUserId=@Sub12, @email=@Email12, @givenName=N'Dora', @familyName=N'Deleted',
+          @userId=@FirstId12 OUTPUT, @userName=@UserName12 OUTPUT, @isNewUser=@IsNew12 OUTPUT;
+    DECLARE @FirstOk12 bit = @IsNew12;
+    UPDATE dbo.Users SET deleted = 1, deletedUtc = SYSUTCDATETIME() WHERE id = @FirstId12;
+    DELETE FROM dbo.UserExternalLogin WHERE userId = @FirstId12;
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider=N'Google', @providerUserId=@Sub12, @email=@Email12, @givenName=N'Dora', @familyName=N'Deleted',
+          @userId=@SecondId12 OUTPUT, @userName=@UserName12 OUTPUT, @isNewUser=@IsNew12 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @FirstOk12 = 1 AND @IsNew12 = 1 AND @SecondId12 <> @FirstId12
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @FirstId12 AND deleted = 1)
+       AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @SecondId12 AND deleted = 0 AND email = @Email12)
+        PRINT 'TEST 12 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: re-auth after soft-delete created a new profile';
     ELSE
-    BEGIN
-        -- Soft-delete exactly like Account/Profile.aspx does: keep the row, free the identity.
-        UPDATE dbo.Users SET deleted = 1, deletedUtc = SYSUTCDATETIME() WHERE id = @firstId;
-        DELETE FROM dbo.UserExternalLogin WHERE userId = @firstId;
+        PRINT 'TEST 12 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: firstOk=' + CAST(@FirstOk12 AS varchar) + ' isNew=' + ISNULL(CAST(@IsNew12 AS varchar),'NULL') + ' sameId=' + CASE WHEN @SecondId12=@FirstId12 THEN '1' ELSE '0' END;
 
-        -- Same Google account signs in again.
-        EXEC dbo.spOAuthLoginOrCreateUser
-              @provider = N'Google', @providerUserId = @sub, @email = @email
-            , @givenName = N'Dora', @familyName = N'Deleted'
-            , @userId = @secondId OUTPUT, @userName = @userName OUTPUT, @isNewUser = @isNewUser OUTPUT;
+    ROLLBACK TRANSACTION;
 
-        IF @isNewUser <> 1 OR @secondId = @firstId
-        BEGIN
-            SET @fail_message = 'FAILED: ' + @test_name + ' re-auth should create a NEW user id (got isNew='
-                + CAST(@isNewUser AS varchar(1)) + ', sameId=' + CASE WHEN @secondId = @firstId THEN '1' ELSE '0' END + ')';
-            RAISERROR(@fail_message, 16, 1);
-        END
-        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @firstId AND deleted = 1)
-        BEGIN
-            SET @fail_message = 'FAILED: ' + @test_name + ' the old row should be kept with deleted = 1';
-            RAISERROR(@fail_message, 16, 1);
-        END
-        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE id = @secondId AND deleted = 0 AND email = @email)
-        BEGIN
-            SET @fail_message = 'FAILED: ' + @test_name + ' the new live row should reuse the freed email';
-            RAISERROR(@fail_message, 16, 1);
-        END
-        ELSE
-            PRINT 'PASSED ' + @test_name;
-    END
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE() AS ErrorState,
-           @test_name AS ErrorProcedure, ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
-END CATCH
-
-ROLLBACK TRAN TestOAL12
-GO
------------------------------------------------------------------------------------------------------------------------------------------------
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;

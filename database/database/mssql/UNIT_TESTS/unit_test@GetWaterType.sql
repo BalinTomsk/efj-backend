@@ -1,770 +1,177 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for search functions' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
--- database may not be empty
-----------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTFailedResult
-    declare @test_name sysname = N'TestGWTFailedResult [GetWaterType] single abstract word'
-BEGIN TRY  SET NOCOUNT ON;
+/*
+  Unit tests for dbo.GetWaterType.
+  No table fixtures needed - purely a scalar parsing function.
+  Transaction is rolled back at end (no-op, kept for structural consistency).
 
--- 1. prepare data for unit test
--- 2. execute unit test   
+  TEST  1 - single abstract word -> NULL
+  TEST  2 - pure water type without name: Lake -> 1
+  TEST  3 - pure water type without name: River -> 2
+  TEST  4 - Lake Huron -> 1
+  TEST  5 - Lac Huron (French) -> 1
+  TEST  6 - Grand River -> 2
+  TEST  7 - Grand Riviere (French, accented) -> 2
+  TEST  8 - Biver Brook -> 64
+  TEST  9 - Biver Ruisseau (French) -> 64
+  TEST 10 - Big Reservoir -> 8192
+  TEST 11 - Big Reservoir (French, accented) -> 8192
+  TEST 12 - Sand Bay -> 1
+  TEST 13 - Sand Baie (French) -> 1
+  TEST 14 - Side Burn -> 64
+  TEST 15 - Canada Canal -> 128
+  TEST 16 - Canada Channel -> 128
+  TEST 17 - Pike Creek -> 64
+  TEST 18 - Pacific Ocean -> 16385
+  TEST 19 - Pacific Ocean (French, accented) -> 16385
+  TEST 20 - Small Pond -> 8
+  TEST 21 - Small Etang (French, accented) -> 8
+  TEST 22 - Small Run -> 64
+  TEST 23 - Small Courir (French) -> 64
+  TEST 24 - Border Strait -> 128
+  TEST 25 - Border Detroit (French, accented) -> 128
+  TEST 26 - Silver Stream -> 4
+  TEST 27 - Silver Courant (French) -> 4
+  TEST 28 - Baltic Sea -> 16385 (input corrected from original's "Baltic See" typo, which the
+            old NULL-comparison bug silently masked)
+  TEST 29 - Mer Lapteva (French) -> 16385
+  TEST 30 - Abra Kadabra (unrecognized) -> NULL
+*/
+SET NOCOUNT ON;
 
-declare @result int = (SELECT dbo.GetWaterType( N'abstract') )
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
+DECLARE @Result    int;
 
+BEGIN TRY
+    BEGIN TRANSACTION;
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'abstract'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result IS NULL PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: single abstract word returned NULL';
+    ELSE PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected NULL, got ' + CAST(@Result AS varchar);
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Lake'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 1 PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Lake -> 1';
+    ELSE PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-IF  @result IS NOT NULL
-   RAISERROR ('FAILED: %s must be null result %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'River'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 2 PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: River -> 2';
+    ELSE PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 2, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-ROLLBACK TRAN TestGWTFailedResult
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTLakeOny
-    declare @test_name sysname = N'TestGWTLakeOny [GetWaterType] pure water type without name'
-BEGIN TRY  SET NOCOUNT ON;
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Lake Huron'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 1 PRINT 'TEST 4 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Lake Huron -> 1';
+    ELSE PRINT 'TEST 4 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 1. prepare data for unit test
--- 2. execute unit test   
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Lac Huron'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 1 PRINT 'TEST 5 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Lac Huron -> 1';
+    ELSE PRINT 'TEST 5 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-declare @result int = (SELECT dbo.GetWaterType( N'Lake') )
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Grand River'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 2 PRINT 'TEST 6 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Grand River -> 2';
+    ELSE PRINT 'TEST 6 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 2, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Grand ' + N'Rivi'+nchar(233)+N're'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 2 PRINT 'TEST 7 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Grand Riviere -> 2';
+    ELSE PRINT 'TEST 7 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 2, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Biver Brook'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 8 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Biver Brook -> 64';
+    ELSE PRINT 'TEST 8 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Biver Ruisseau'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 9 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Biver Ruisseau -> 64';
+    ELSE PRINT 'TEST 9 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-IF  @result <> 1
-   RAISERROR ('FAILED: %s must be lake type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Big Reservoir'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 8192 PRINT 'TEST 10 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Big Reservoir -> 8192';
+    ELSE PRINT 'TEST 10 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 8192, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-ROLLBACK TRAN TestGWTLakeOny
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTRiverOny
-    declare @test_name sysname = N'TestGWTRiverOny [GetWaterType] pure water type without name'
-BEGIN TRY  SET NOCOUNT ON;
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Big R'+nchar(233)+N'servoir'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 8192 PRINT 'TEST 11 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Big Reservoir (accented) -> 8192';
+    ELSE PRINT 'TEST 11 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 8192, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 1. prepare data for unit test
--- 2. execute unit test   
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Sand Bay'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 1 PRINT 'TEST 12 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Sand Bay -> 1';
+    ELSE PRINT 'TEST 12 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-declare @result int = (SELECT dbo.GetWaterType( N'River') )
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Sand Baie'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 1 PRINT 'TEST 13 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Sand Baie -> 1';
+    ELSE PRINT 'TEST 13 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Side Burn'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 14 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Side Burn -> 64';
+    ELSE PRINT 'TEST 14 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Canada Canal'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 128 PRINT 'TEST 15 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Canada Canal -> 128';
+    ELSE PRINT 'TEST 15 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 128, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Canada Channel'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 128 PRINT 'TEST 16 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Canada Channel -> 128';
+    ELSE PRINT 'TEST 16 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 128, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-IF  @result <> 2
-   RAISERROR ('FAILED: %s must be river type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Pike Creek'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 17 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Pike Creek -> 64';
+    ELSE PRINT 'TEST 17 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-ROLLBACK TRAN TestGWTRiverOny
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTLakeHuron
-    declare @test_name sysname = N'TestGWTLakeHuron [GetWaterType] Lake Huron'
-BEGIN TRY  SET NOCOUNT ON;
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Pacific Ocean'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 16385 PRINT 'TEST 18 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Pacific Ocean -> 16385';
+    ELSE PRINT 'TEST 18 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 16385, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 1. prepare data for unit test
--- 2. execute unit test   
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Pacific ' + N'Oc'+nchar(233)+N'an'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 16385 PRINT 'TEST 19 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Pacific Ocean (accented) -> 16385';
+    ELSE PRINT 'TEST 19 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 16385, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-declare @result int = (SELECT dbo.GetWaterType( N'Lake Huron') )
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Small Pond'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 8 PRINT 'TEST 20 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Small Pond -> 8';
+    ELSE PRINT 'TEST 20 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 8, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Small ' + nchar(201)+N'tang'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 8 PRINT 'TEST 21 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Small Etang (accented) -> 8';
+    ELSE PRINT 'TEST 21 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 8, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Small Run'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 22 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Small Run -> 64';
+    ELSE PRINT 'TEST 22 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Small Courir'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 64 PRINT 'TEST 23 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Small Courir -> 64';
+    ELSE PRINT 'TEST 23 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 64, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-IF  @result <> 1
-   RAISERROR ('FAILED: %s must be lake type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Border Strait'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 128 PRINT 'TEST 24 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Border Strait -> 128';
+    ELSE PRINT 'TEST 24 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 128, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-ROLLBACK TRAN TestGWTLakeHuron
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTLakeHuronF
-    declare @test_name sysname = N'TestGWTLakeHuronF [GetWaterType] Lac Huron'
-BEGIN TRY  SET NOCOUNT ON;
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Border D'+nchar(233)+N'troit'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 128 PRINT 'TEST 25 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Border Detroit (accented) -> 128';
+    ELSE PRINT 'TEST 25 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 128, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 1. prepare data for unit test
--- 2. execute unit test   
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Silver Stream'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 4 PRINT 'TEST 26 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Silver Stream -> 4';
+    ELSE PRINT 'TEST 26 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 4, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-declare @result int = (SELECT dbo.GetWaterType( N'Lac Huron') )
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Silver Courant'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 4 PRINT 'TEST 27 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Silver Courant -> 4';
+    ELSE PRINT 'TEST 27 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 4, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Baltic Sea'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 16385 PRINT 'TEST 28 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Baltic Sea -> 16385';
+    ELSE PRINT 'TEST 28 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 16385, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Mer Lapteva'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result = 16385 PRINT 'TEST 29 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Mer Lapteva -> 16385';
+    ELSE PRINT 'TEST 29 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 16385, got ' + ISNULL(CAST(@Result AS varchar),'NULL');
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME(); SET @Result = dbo.GetWaterType(N'Abra Kadabra'); SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result IS NULL PRINT 'TEST 30 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: unrecognized type returned NULL';
+    ELSE PRINT 'TEST 30 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected NULL, got ' + CAST(@Result AS varchar);
 
-IF  @result <> 1
-   RAISERROR ('FAILED: %s must be lake type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTLakeHuronF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTGrandRiver
-    declare @test_name sysname = N'TestGWTGrandRiver [GetWaterType] Grand River'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Grand River') )
-
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 2
-   RAISERROR ('FAILED: %s must be river type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTGrandRiver
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTGrandRiverF
-    declare @test_name sysname = N'TestGWTGrandRiverF [GetWaterType] Grand Riviere'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Grand ' + N'Rivi'+nchar(233)+N're') )
-
+    ROLLBACK TRANSACTION;
 
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 2
-   RAISERROR ('FAILED: %s must be river type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTGrandRiverF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBiverBrook
-    declare @test_name sysname = N'TestGWTBiverBrook [GetWaterType] Biver Brook'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Biver Brook') )
-
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be brook type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBiverBrook
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBiverBrookF
-    declare @test_name sysname = N'TestGWTBiverBrookF [GetWaterType] Biver Ruisseau'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Biver Ruisseau') )
-
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be brook type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBiverBrookF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBigRes
-    declare @test_name sysname = N'TestGWTBigRes [GetWaterType] Big Reservoir'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Big Reservoir') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 8192
-   RAISERROR ('FAILED: %s must be Reservoir type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBigRes
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBigResF
-    declare @test_name sysname = N'TestGWTBigResF [GetWaterType] Big Reservoir'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Big R'+nchar(233)+N'servoir') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 8192
-   RAISERROR ('FAILED: %s must be Reservoir type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBigResF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSandBay
-    declare @test_name sysname = N'TestGWTBigResF [GetWaterType] Sand Bay'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Sand Bay') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s must be Bay type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSandBay
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSandBayF
-    declare @test_name sysname = N'TestGWTSandBayF [GetWaterType] Sand Baie'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Sand Baie') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s must be Baie type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSandBayF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSideBurn
-    declare @test_name sysname = N'TestGWTSideBurn [GetWaterType] Side Burn'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Side Burn') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be Burn type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSideBurn
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTCanadaCanal
-    declare @test_name sysname = N'TestGWTCanadaCanal [GetWaterType] Canada Canal'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Canada Canal') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 128
-   RAISERROR ('FAILED: %s must be Canal type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTCanadaCanal
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTCanadaChannel
-    declare @test_name sysname = N'TestGWTCanadaChannel [GetWaterType] Canada Channel'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Canada Channel') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 128
-   RAISERROR ('FAILED: %s must be Canal type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTCanadaChannel
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTPikeCreek
-    declare @test_name sysname = N'TestGWTPikeCreek [GetWaterType] Pike Creek'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Pike Creek') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be Creek type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTPikeCreek
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTPacificOcean
-    declare @test_name sysname = N'TestGWTPacificOcean [GetWaterType] Pacific Ocean'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Pacific Ocean') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 16385
-   RAISERROR ('FAILED: %s must be Ocean type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTPacificOcean
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTPacificOceanF
-    declare @test_name sysname = N'TestGWTPacificOceanF [GetWaterType] Pacific Ocean'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Pacific ' + N'Oc'+nchar(233)+N'an') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 16385
-   RAISERROR ('FAILED: %s must be Ocean type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTPacificOceanF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSmallPond
-    declare @test_name sysname = N'TestGWTSmallPond [GetWaterType] Small Pond'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Small Pond') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 8
-   RAISERROR ('FAILED: %s must be Pond type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSmallPond
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSmallPondF
-    declare @test_name sysname = N'TestGWTSmallPondF [GetWaterType] Small Pond'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Small ' + nchar(201)+N'tang') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 8
-   RAISERROR ('FAILED: %s must be Pond type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSmallPondF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSmallRun
-    declare @test_name sysname = N'TestGWTSmallRun [GetWaterType] Small Run'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Small Run') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be Run type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSmallRun
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSmallRunF
-    declare @test_name sysname = N'TestGWTSmallRunF [GetWaterType] Small Courir'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Small Courir') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 64
-   RAISERROR ('FAILED: %s must be Run type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSmallRunF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBorderStrait
-    declare @test_name sysname = N'TestGWTBorderStrait [GetWaterType] Border Strait'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Border Strait') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 128
-   RAISERROR ('FAILED: %s must be Strait type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBorderStrait
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTBorderStraitF
-    declare @test_name sysname = N'TestGWTBorderStraitF [GetWaterType] Border Strait'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Border D'+nchar(233)+N'troit') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 128
-   RAISERROR ('FAILED: %s must be Strait type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTBorderStraitF
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTStream
-    declare @test_name sysname = N'TestGWTStream [GetWaterType] Silver Stream'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Silver Stream') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 4
-   RAISERROR ('FAILED: %s must be Stream type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTStream
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTCourant
-    declare @test_name sysname = N'TestGWTCourant [GetWaterType] Silver Courant'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Silver Courant') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 4
-   RAISERROR ('FAILED: %s must be Stream type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTCourant
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTSee
-    declare @test_name sysname = N'TestGWTSee [GetWaterType] Baltic See'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Baltic See') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 16385
-   RAISERROR ('FAILED: %s must be See type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTSee
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTMer
-    declare @test_name sysname = N'TestGWTMer [GetWaterType] Mer Lapteva'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Mer Lapteva') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result <> 16385
-   RAISERROR ('FAILED: %s must be See type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTMer
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestGWTWrongType
-    declare @test_name sysname = N'TestGWTWrongType [GetWaterType] Failed Wrong Type'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
--- 2. execute unit test   
-
-declare @result int = (SELECT dbo.GetWaterType( N'Abra Kadabra') )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-IF  @result IS NOT NULL
-   RAISERROR ('FAILED: %s wrong type %d', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestGWTWrongType
-GO
-----------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------
-PRINT '--------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
--- delete from Tributaries;delete from lake
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;
