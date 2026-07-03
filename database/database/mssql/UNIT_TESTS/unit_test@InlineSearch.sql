@@ -1,103 +1,70 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for search functions' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
--- database may not be empty
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestFish1
-    declare @test_name sysname = N'TestFish1 [FishSearchVariant] : Black Bullhead'
-BEGIN TRY  SET NOCOUNT ON;
+/*
+  Unit tests for dbo.FishSearchVariant.
+  Database may not be empty - relies on pre-existing fish rows matching the searched names.
+  Transaction is rolled back at end (no-op, kept for structural consistency).
 
--- 1. prepare data for unit test
+  TEST 1 - Black Bullhead -> single exact match
+  TEST 2 - Sucker, Longnose -> six variants, one exact match
+  TEST 3 - Salmon -> single exact match
+*/
+SET NOCOUNT ON;
 
-declare @tbl TABLE ( line sysname, irank int ) 
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
 
+BEGIN TRY
+    BEGIN TRANSACTION;
 
--- 2. execute unit test   --  
+    -- ----------------------------------------------------------------
+    -- TEST 1: Black Bullhead
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl1 TABLE (line sysname, irank int);
+    INSERT INTO @Tbl1 SELECT * FROM dbo.FishSearchVariant(N'Black Bullhead');
+    DECLARE @T1Total int = (SELECT COUNT(*) FROM @Tbl1);
+    DECLARE @T1Exact int = (SELECT COUNT(*) FROM @Tbl1 WHERE line LIKE N'Black Bullhead');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @T1Total = 1 AND @T1Exact = 1
+        PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Black Bullhead returned single exact match';
+    ELSE
+        PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@T1Total AS varchar) + ', exact=' + CAST(@T1Exact AS varchar);
 
-insert into @tbl SELECT * FROM dbo.FishSearchVariant( N'Black Bullhead' )
+    -- ----------------------------------------------------------------
+    -- TEST 2: Sucker, Longnose
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl2 TABLE (line sysname, irank int);
+    INSERT INTO @Tbl2 SELECT * FROM dbo.FishSearchVariant(N'Sucker, Longnose');
+    DECLARE @T2Total int = (SELECT COUNT(*) FROM @Tbl2);
+    DECLARE @T2Exact int = (SELECT COUNT(*) FROM @Tbl2 WHERE line LIKE N'Sucker, Longnose');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @T2Total = 6 AND @T2Exact = 1
+        PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Sucker, Longnose returned six variants with one exact match';
+    ELSE
+        PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@T2Total AS varchar) + ', exact=' + CAST(@T2Exact AS varchar);
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    -- ----------------------------------------------------------------
+    -- TEST 3: Salmon
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl3 TABLE (line sysname, irank int);
+    INSERT INTO @Tbl3 SELECT * FROM dbo.FishSearchVariant(N'Salmon');
+    DECLARE @T3Total int = (SELECT COUNT(*) FROM @Tbl3);
+    DECLARE @T3Exact int = (SELECT COUNT(*) FROM @Tbl3 WHERE line LIKE N'Salmon');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @T3Total = 1 AND @T3Exact = 1
+        PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Salmon returned single exact match';
+    ELSE
+        PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@T3Total AS varchar) + ', exact=' + CAST(@T3Exact AS varchar);
 
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'Black Bullhead')
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be six %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestFish1
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestFish1a
-    declare @test_name sysname = N'TestFish1a [FishSearchVariant] : Sucker, Longnose'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @tbl TABLE ( line sysname, irank int ) 
-
--- 2. execute unit test   
-
-insert into @tbl SELECT * FROM dbo.FishSearchVariant( N'Sucker, Longnose' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'Sucker, Longnose')
-
-IF  @result1 <> 6 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be six %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestFish1a
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestSalmon1
-    declare @test_name sysname = N'TestSalmon1 [FishSearchVariant] : Salmon'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @tbl TABLE ( line sysname, irank int ) 
-
--- 2. execute unit test   
-
-insert into @tbl SELECT * FROM dbo.FishSearchVariant( N'Salmon' )
+    ROLLBACK TRANSACTION;
 
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'Salmon')
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be single %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestSalmon1
-GO
-----------------------------------------------------------------------------------------------------------
-PRINT '--------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
--- delete from Tributaries;delete from lake;delete from fish_Rule;delete from fish
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;

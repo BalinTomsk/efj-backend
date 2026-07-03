@@ -1,432 +1,191 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for search functions' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1
-    declare @test_name sysname = N'TestS1 [SearchLakeList] : null parameter'
-BEGIN TRY  SET NOCOUNT ON;
+/*
+  Unit tests for dbo.SearchLakeList.
+  Uses real table dbo.lake. Each test deletes the fixture lake_name values used anywhere
+  in this file before inserting its own fixture, so accumulation across tests sharing one
+  transaction cannot inflate another test's exact-count assertion. Transaction is rolled
+  back at end - database state restored.
 
--- 1. prepare data for unit test
+  TEST  1 - NULL parameter -> 0 rows
+  TEST  2 - empty parameter -> 0 rows
+  TEST  3 - find: test lake
+  TEST  4 - fail to find: test lake (only "test river" exists)
+  TEST  5 - find: French spelling of test lake (Lac test)
+  TEST  6 - find: all 4 variants of test lake
+  TEST  7 - find by lake guid (dashed)
+  TEST  8 - find by lake hex guid (no dashes)
+  TEST  9 - find single-name lake by a double-name search
+  TEST 10 - find double-name lake by a single-name search
+  TEST 11 - "Ha! Ha! Lake" is NOT matched by "Ha Lake"
+  TEST 12 - find: River Lake
+  TEST 13 - find: Lac gold
+*/
+SET NOCOUNT ON;
 
-insert into lake (lake_name, locType) values ('test lake', 1)
-declare @tbl table (lake_name sysname, locType int)
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
+DECLARE @FixtureNames TABLE (n sysname);
+INSERT INTO @FixtureNames (n) VALUES
+    (N'test lake'), (N'test river'), (N'Lac test'), (N'test Lac'), (N'test Lake'), (N'Lake test'),
+    (N'Single Lake'), (N'Great Double Lake'), (N'Ha! Ha! Lake'), (N'River Lake'), (N'Lac gold');
 
--- 2. execute unit test   
+BEGIN TRY
+    BEGIN TRANSACTION;
 
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( null )
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('test lake', 1);
+    DECLARE @Tbl1 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl1 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(NULL);
+    DECLARE @R1 int = (SELECT COUNT(*) FROM @Tbl1);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R1 = 0 PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: NULL parameter returned 0 rows';
+    ELSE PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 0, got ' + CAST(@R1 AS varchar);
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('test lake', 1);
+    DECLARE @Tbl2 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl2 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList('');
+    DECLARE @R2 int = (SELECT COUNT(*) FROM @Tbl2);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R2 = 0 PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: empty parameter returned 0 rows';
+    ELSE PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 0, got ' + CAST(@R2 AS varchar);
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('test lake', 1);
+    DECLARE @Tbl3 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl3 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'test lake');
+    DECLARE @R3 int = (SELECT COUNT(*) FROM @Tbl3);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R3 = 1 PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found test lake';
+    ELSE PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + CAST(@R3 AS varchar);
 
-declare @result int = (SELECT COUNT(*) FROM @tbl)
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('test river', 1);
+    DECLARE @Tbl4 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl4 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'test lake');
+    DECLARE @R4 int = (SELECT COUNT(*) FROM @Tbl4);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R4 = 0 PRINT 'TEST 4 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: correctly failed to find test lake';
+    ELSE PRINT 'TEST 4 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 0, got ' + CAST(@R4 AS varchar);
 
-IF  @result <> 0
-   RAISERROR ('FAILED: %s result must be empty %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Lid5 uniqueidentifier = NEWID();
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid5, 'Lac test', 1);
+    DECLARE @Tbl5 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl5 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'test lake');
+    DECLARE @R5 int = (SELECT COUNT(*) FROM @Tbl5);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R5 = 1 PRINT 'TEST 5 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found French spelling Lac test';
+    ELSE PRINT 'TEST 5 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + CAST(@R5 AS varchar);
 
-ROLLBACK TRAN TestS1
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1a
-    declare @test_name sysname = N'TestS1a [SearchLakeList] : empty parameter'
-BEGIN TRY  SET NOCOUNT ON;
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Lid6a uniqueidentifier = NEWID(), @Lid6b uniqueidentifier = NEWID(), @Lid6c uniqueidentifier = NEWID(), @Lid6d uniqueidentifier = NEWID();
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid6a, 'Lac test', 1);
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid6b, 'test Lac', 1);
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid6c, 'test Lake', 1);
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid6d, 'Lake test', 1);
+    DECLARE @Tbl6 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl6 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'test lake');
+    DECLARE @R6 int = (SELECT COUNT(*) FROM @Tbl6);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R6 = 4 PRINT 'TEST 6 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: all 4 variants of test lake found';
+    ELSE PRINT 'TEST 6 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 4, got ' + CAST(@R6 AS varchar);
 
--- 1. prepare data for unit test
+    SET @tStart = SYSUTCDATETIME();
+    INSERT INTO lake (lake_id, lake_name, locType) VALUES ('5AE76765-D052-11D8-92E2-080020A0F4C9', 'Lac test', 1);
+    DECLARE @Tbl7 TABLE (lake_id uniqueidentifier NOT NULL PRIMARY KEY, lake_name sysname, locType int);
+    INSERT INTO @Tbl7 (lake_id, lake_name, locType) SELECT lake_id, lake_name, locType FROM dbo.SearchLakeList(N'5AE76765-D052-11D8-92E2-080020A0F4C9');
+    DECLARE @R7 int = (SELECT COUNT(*) FROM @Tbl7);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R7 = 1 PRINT 'TEST 7 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found by dashed guid';
+    ELSE PRINT 'TEST 7 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + CAST(@R7 AS varchar);
 
-insert into lake (lake_name, locType) values ('test lake', 1)
-declare @tbl table (lake_name sysname, locType int)
+    SET @tStart = SYSUTCDATETIME();
+    INSERT INTO lake (lake_id, lake_name, locType) VALUES ('6BF87876-E163-22E9-A3F3-191131B1D5DA', 'Lac test2', 1);
+    DECLARE @Tbl8 TABLE (lake_id uniqueidentifier NOT NULL PRIMARY KEY, lake_name sysname, locType int);
+    INSERT INTO @Tbl8 (lake_id, lake_name, locType) SELECT lake_id, lake_name, locType FROM dbo.SearchLakeList(N'6bf87876e16322e9a3f3191131b1d5da');
+    DECLARE @R8 int = (SELECT COUNT(*) FROM @Tbl8 WHERE lake_id = '6BF87876-E163-22E9-A3F3-191131B1D5DA');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R8 = 1 PRINT 'TEST 8 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found by bare hex guid';
+    ELSE PRINT 'TEST 8 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + CAST(@R8 AS varchar);
 
--- 2. execute unit test   
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('Single Lake', 1);
+    DECLARE @Tbl9 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl9 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'Great Single Lake');
+    DECLARE @R9a int = (SELECT COUNT(*) FROM @Tbl9), @R9b int = (SELECT COUNT(*) FROM @Tbl9 WHERE lake_name = 'Single Lake');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R9a = 1 AND @R9b = 1 PRINT 'TEST 9 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: single-name lake found via double-name search';
+    ELSE PRINT 'TEST 9 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R9a AS varchar) + ' match=' + CAST(@R9b AS varchar);
 
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( '' )
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    INSERT INTO lake (lake_name, locType) VALUES ('Great Double Lake', 1);
+    DECLARE @Tbl10 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl10 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'Double Lake');
+    DECLARE @R10a int = (SELECT COUNT(*) FROM @Tbl10), @R10b int = (SELECT COUNT(*) FROM @Tbl10 WHERE lake_name = 'Great Double Lake');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R10a = 1 AND @R10b = 1 PRINT 'TEST 10 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: double-name lake found via single-name search';
+    ELSE PRINT 'TEST 10 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R10a AS varchar) + ' match=' + CAST(@R10b AS varchar);
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Dbname11 sysname = 'Ha! Ha! Lake';
+    INSERT INTO lake (lake_name, locType) VALUES (@Dbname11, 1);
+    DECLARE @Tbl11 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl11 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'Ha Lake') ORDER BY irank ASC;
+    DECLARE @R11a int = (SELECT COUNT(*) FROM @Tbl11), @R11b int = (SELECT COUNT(*) FROM @Tbl11 WHERE lake_name = @Dbname11);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R11a = 0 AND @R11b = 0 PRINT 'TEST 11 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Ha! Ha! Lake correctly NOT matched by Ha Lake';
+    ELSE PRINT 'TEST 11 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R11a AS varchar) + ' match=' + CAST(@R11b AS varchar);
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Dbname12 sysname = 'River Lake';
+    INSERT INTO lake (lake_name, locType) VALUES (@Dbname12, 1);
+    DECLARE @Tbl12 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl12 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'River Lake') ORDER BY irank ASC;
+    DECLARE @R12a int = (SELECT COUNT(*) FROM @Tbl12), @R12b int = (SELECT COUNT(*) FROM @Tbl12 WHERE lake_name = @Dbname12);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R12a = 1 AND @R12b = 1 PRINT 'TEST 12 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found River Lake';
+    ELSE PRINT 'TEST 12 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R12a AS varchar) + ' match=' + CAST(@R12b AS varchar);
 
-declare @result int = (SELECT COUNT(*) FROM @tbl)
+    SET @tStart = SYSUTCDATETIME();
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Dbname13 sysname = 'Lac gold';
+    INSERT INTO lake (lake_name, locType) VALUES (@Dbname13, 1);
+    DECLARE @Tbl13 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl13 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'Lac gold') ORDER BY irank ASC;
+    DECLARE @R13a int = (SELECT COUNT(*) FROM @Tbl13), @R13b int = (SELECT COUNT(*) FROM @Tbl13 WHERE lake_name = @Dbname13);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R13a = 1 AND @R13b = 1 PRINT 'TEST 13 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found Lac gold';
+    ELSE PRINT 'TEST 13 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R13a AS varchar) + ' match=' + CAST(@R13b AS varchar);
 
-IF  @result <> 0
-   RAISERROR ('FAILED: %s result must be empty %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1a
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1a
-    declare @test_name sysname = N'TestS1a [SearchLakeList] : find:  test lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_name, locType) values ('test lake', 1)
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'test lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl)
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s result must be single line %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1a
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1b
-    declare @test_name sysname = N'TestS1b [SearchLakeList] : failed to find:  test lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_name, locType) values ('test river', 1)
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'test lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl)
-
-IF  @result <> 0
-   RAISERROR ('FAILED: %s result must be empty %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1b
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1c
-    declare @test_name sysname = N'TestS1c [SearchLakeList] : find: french spelling of test lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @lid1 uniqueidentifier = NEWID()
-insert into lake (Lake_id, lake_name, locType) values (@lid1, 'Lac test', 1)
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType) 
-    SELECT lake_name, locType FROM dbo.SearchLakeList( N'test lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl)
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s result must be single line %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1c
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1d
-    declare @test_name sysname = N'TestS1d [SearchLakeList] : find: all variants of test lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @lid1 uniqueidentifier = NEWID()
-declare @lid2 uniqueidentifier = NEWID()
-declare @lid3 uniqueidentifier = NEWID()
-declare @lid4 uniqueidentifier = NEWID()
-insert into lake (Lake_id, lake_name, locType) values (@lid1, 'Lac test',  1)
-insert into lake (Lake_id, lake_name, locType) values (@lid2, 'test Lac',  1)
-insert into lake (Lake_id, lake_name, locType) values (@lid3, 'test Lake', 1)
-insert into lake (Lake_id, lake_name, locType) values (@lid4, 'Lake test', 1)
-
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'test lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl)
-
-IF  @result <> 4
-   RAISERROR ('FAILED: %s result must be four records %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1d
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1e
-    declare @test_name sysname = N'TestS1e [SearchLakeList] : find by lake guid'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_id, lake_name, locType) values ('5AE76765-D052-11D8-92E2-080020A0F4C9', 'Lac test', 1)
-
-declare @tbl table (lake_id uniqueidentifier not null primary key, lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_id, lake_name, locType)  SELECT lake_id, lake_name, locType FROM dbo.SearchLakeList( N'5AE76765-D052-11D8-92E2-080020A0F4C9' )
+    ROLLBACK TRANSACTION;
 
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl)
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s result must be single line %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1e
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1f
-    declare @test_name sysname = N'TestS1f [SearchLakeList] : find by lake hex guid'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_id, lake_name, locType) values ('5AE76765-D052-11D8-92E2-080020A0F4C9', 'Lac test', 1)
-
-declare @tbl table (lake_id uniqueidentifier not null primary key, lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_id, lake_name, locType)  SELECT lake_id, lake_name, locType FROM dbo.SearchLakeList( N'5ae76765d05211d892e2080020a0f4c9' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result int = (SELECT COUNT(*) FROM @tbl where lake_id = '5AE76765-D052-11D8-92E2-080020A0F4C9' )
-
-IF  @result <> 1
-   RAISERROR ('FAILED: %s result must be single line %d ', 16, -1, @test_name, @result  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1f
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1g
-    declare @test_name sysname = N'TestS1g [SearchLakeList] : find: single name lake by double name'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_name, locType) values ('Single Lake',  1)
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'Great Single Lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE lake_name = 'Single Lake')
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be single records %d ', 16, -1, @test_name, @result1  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1g
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1h
-    declare @test_name sysname = N'TestS1h [SearchLakeList] : find: double name lake by single name'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_name, locType) values ('Great Double Lake',  1)
-declare @tbl table (lake_name sysname, locType int)
-
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'Double Lake' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE lake_name = 'Great Double Lake')
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be single records %d ', 16, -1, @test_name, @result1  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1h
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS1i
-    declare @test_name sysname = N'TestS1i [SearchLakeList] : find: Ha! Ha! Lake by Ha Lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @dbname sysname = 'Ha! Ha! Lake'
-insert into lake (lake_name, locType) values (@dbname,  1)
-declare @tbl table (lake_name sysname, locType int)
--- SELECT lake_name, locType FROM dbo.SearchLakeList( N'Ha Ha Lake' ) ORDER BY irank ASC
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'Ha Lake' ) ORDER BY irank ASC
- 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE lake_name = @dbname)
-
-IF  @result1 <> 0 OR @result2 <> 0
-   RAISERROR ('FAILED: %s result must be single records %d ', 16, -1, @test_name, @result1  ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS1i
-GO
-----------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS2
-    declare @test_name sysname = N'TestS2 [SearchLakeList] : River Lake'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @dbname sysname = 'River Lake'
-insert into lake (lake_name, locType) values (@dbname,  1)
-declare @tbl table (lake_name sysname, locType int)
--- SELECT lake_name, locType FROM dbo.SearchLakeList( N'River Lake' ) ORDER BY irank ASC
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'River Lake' ) ORDER BY irank ASC
- 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE lake_name = @dbname)
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be single records %d = %d ', 16, -1, @test_name, @result1 , @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS2
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestS2a
-    declare @test_name sysname = N'TestS2a [SearchLakeList] : Lac gold'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @dbname sysname = 'Lac gold'
-insert into lake (lake_name, locType) values (@dbname,  1)
-declare @tbl table (lake_name sysname, locType int)
--- SELECT lake_name, locType FROM dbo.SearchLakeList( N'Lac gold' ) ORDER BY irank ASC
--- 2. execute unit test   
-
-insert into @tbl (lake_name, locType)  SELECT lake_name, locType FROM dbo.SearchLakeList( N'Lac gold' ) ORDER BY irank ASC
- 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE lake_name = @dbname)
-
-IF  @result1 <> 1 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be single records %d = %d ', 16, -1, @test_name, @result1 , @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestS2a
-GO
-----------------------------------------------------------------------------------------------------------
-PRINT '--------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
--- delete from [dbo].[Tributaries];delete from lake
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;

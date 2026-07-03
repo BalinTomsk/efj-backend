@@ -1,103 +1,55 @@
 SET QUOTED_IDENTIFIER ON
 GO
-PRINT 'Unit tests for search functions' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
--- database may not be empty
-----------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestPWBV1
-    declare @test_name sysname = N'TestPWBV1 [ProduceWBVariant] : West Little White River'
-BEGIN TRY  SET NOCOUNT ON;
+/*
+  Unit tests for dbo.ProduceWBVariant.
+  Database may not be empty - relies on pre-existing water-body keyword data for variant counts.
+  Transaction is rolled back at end (no-op, kept for structural consistency).
 
--- 1. prepare data for unit test
+  TEST 1 - West Little White River -> 15 variants incl. "West Little White"
+  TEST 2 - Naftel's Creek -> 3 variants incl. "Naftel's"
+  TEST 3 - Casselman's Creek -> 3 variants incl. "Casselman's"
+*/
+SET NOCOUNT ON;
 
-declare @tbl TABLE ( line sysname, irank int, id int ) 
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
 
--- 2. execute unit test   
+BEGIN TRY
+    BEGIN TRANSACTION;
 
-insert into @tbl SELECT * FROM dbo.ProduceWBVariant( N'West Little White River' )
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl1 TABLE (line sysname, irank int, id int); INSERT INTO @Tbl1 SELECT * FROM dbo.ProduceWBVariant(N'West Little White River');
+    DECLARE @R1a int = (SELECT COUNT(*) FROM @Tbl1), @R1b int = (SELECT COUNT(*) FROM @Tbl1 WHERE line LIKE N'West Little White');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R1a = 15 AND @R1b = 1
+        PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: West Little White River -> 15 variants incl. West Little White';
+    ELSE
+        PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R1a AS varchar) + ' match=' + CAST(@R1b AS varchar);
 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl2 TABLE (line sysname, irank int, id int); INSERT INTO @Tbl2 SELECT * FROM dbo.ProduceWBVariant(N'Naftel''s Creek');
+    DECLARE @R2a int = (SELECT COUNT(*) FROM @Tbl2), @R2b int = (SELECT COUNT(*) FROM @Tbl2 WHERE line LIKE N'Naftel''s');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R2a = 3 AND @R2b = 1
+        PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Naftel''s Creek -> 3 variants incl. Naftel''s';
+    ELSE
+        PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R2a AS varchar) + ' match=' + CAST(@R2b AS varchar);
 
--- 3. result verification
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Tbl3 TABLE (line sysname, irank int, id int); INSERT INTO @Tbl3 SELECT * FROM dbo.ProduceWBVariant(N'Casselman''s Creek');
+    DECLARE @R3a int = (SELECT COUNT(*) FROM @Tbl3), @R3b int = (SELECT COUNT(*) FROM @Tbl3 WHERE line LIKE N'Casselman''s');
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R3a = 3 AND @R3b = 1
+        PRINT 'TEST 3 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Casselman''s Creek -> 3 variants incl. Casselman''s';
+    ELSE
+        PRINT 'TEST 3 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R3a AS varchar) + ' match=' + CAST(@R3b AS varchar);
 
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'West Little White')
-
-IF  @result1 <> 15 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be forty %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestPWBV1
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestPWBV1a
-    declare @test_name sysname = N'TestPWBV1a [ProduceWBVariant] : Naftel''s Creek'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @tbl TABLE ( line sysname, irank int, id int ) 
-
--- 2. execute unit test   
-
-insert into @tbl SELECT * FROM dbo.ProduceWBVariant( N'Naftel''s Creek' )
+    ROLLBACK TRANSACTION;
 
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'Naftel''s')
-
-IF  @result1 <> 3 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be ten %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestPWBV1a
-GO
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN TestPWBV1b
-    declare @test_name sysname = N'TestPWBV1b [ProduceWBVariant] : Casselman''s Creek'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-declare @tbl TABLE ( line sysname, irank int, id int ) 
-
--- 2. execute unit test   
-
-insert into @tbl SELECT * FROM dbo.ProduceWBVariant( N'Casselman''s Creek' )
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-
--- 3. result verification
-
-declare @result1 int = (SELECT COUNT(*) FROM @tbl)
-declare @result2 int = (SELECT COUNT(*) FROM @tbl WHERE line LIKE N'Casselman''s')
-
-IF  @result1 <> 3 OR @result2 <> 1
-   RAISERROR ('FAILED: %s result must be ten %d : %d', 16, -1, @test_name, @result1, @result2 ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN TestPWBV1b
-GO
-----------------------------------------------------------------------------------------------------------
-PRINT '--------------------------------------------------------------------------------------------------' 
-----------------------------------------------------------------------------------------------------------
--- delete from Tributaries;delete from lake
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;

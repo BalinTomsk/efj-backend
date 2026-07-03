@@ -1,67 +1,58 @@
 SET QUOTED_IDENTIFIER ON
-
-PRINT 'Unit tests for Close By' 
-PRINT '-----------------------------------------------------------------------------------------------------------------------------' 
-
 GO
-----------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN Test1
-    declare @test_name sysname = 'Test1 [fn_GetCloseLake] Single Point for lake no closeby'
-BEGIN TRY  SET NOCOUNT ON;
+/*
+  Unit tests for dbo.fn_GetCloseLake (Close By).
+  Uses real table dbo.lake / dbo.Tributaries. Transaction is rolled back at end -
+  database state restored.
 
--- 1. prepare data for unit test
+  TEST 1 - Single point, single lake -> no closeby lake found
+  TEST 2 - Single point, two lakes far apart -> no closeby lake found
+*/
+SET NOCOUNT ON;
 
-insert into lake (lake_name, locType, Lake_id) values ('Lake',  1, '00000000-0000-0000-0000-000000000000')
+DECLARE @tStart    datetime2;
+DECLARE @ElapsedMs int;
 
-UPDATE Tributaries SET lat = 1, lon = 1 where Main_Lake_id = '00000000-0000-0000-0000-000000000000' and side = 16
+BEGIN TRY
+    BEGIN TRANSACTION;
 
--- 2. execute unit test
+    -- ----------------------------------------------------------------
+    -- TEST 1: Single Point for lake no closeby
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake1 uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_name, locType, Lake_id) VALUES ('Lake', 1, @Lake1);
+    UPDATE Tributaries SET lat = 1, lon = 1 WHERE Main_Lake_id = @Lake1 AND side = 16;
+    DECLARE @Result1 int = (SELECT COUNT(*) FROM dbo.fn_GetCloseLake(@Lake1, 1, 256));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result1 = 0
+        PRINT 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: single lake with no closeby found none';
+    ELSE
+        PRINT 'TEST 1 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 0 closeby lakes, got ' + CAST(@Result1 AS varchar);
 
-declare @result int = ( select count(*) from dbo.fn_GetCloseLake( '00000000-0000-0000-0000-000000000000', 1, 256 ) );
+    -- ----------------------------------------------------------------
+    -- TEST 2: Single Point for single lake no closeby (second lake far away)
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Lake2a uniqueidentifier = NEWID();
+    DECLARE @Lake2b uniqueidentifier = NEWID();
+    INSERT INTO lake (lake_name, locType, Lake_id) VALUES ('Lake',  1, @Lake2a);
+    INSERT INTO lake (lake_name, locType, Lake_id) VALUES ('Lake2', 1, @Lake2b);
+    UPDATE Tributaries SET lat = 1, lon = 1 WHERE Main_Lake_id = @Lake2a AND side = 16;
+    UPDATE Tributaries SET lat = 2, lon = 2 WHERE Main_Lake_id = @Lake2b AND side = 16;
+    DECLARE @Result2 int = (SELECT COUNT(*) FROM dbo.fn_GetCloseLake(@Lake2a, 1, 256));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @Result2 = 0
+        PRINT 'TEST 2 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: two distant lakes -> no closeby found';
+    ELSE
+        PRINT 'TEST 2 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 0 closeby lakes, got ' + CAST(@Result2 AS varchar);
+
+    ROLLBACK TRANSACTION;
 
 END TRY
 BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-IF @result <> 0
-   RAISERROR ('FAILED: %s failed to find right message: %d ', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN Test1
-GO
-----------------------------------------------------------------------------------------------------------
--- single lake with source has no turbidities and closeby lake
-----------------------------------------------------------------------------------------------------------
-BEGIN TRAN Test2
-    declare @test_name sysname = 'Test2 [fn_GetCloseLake] Single Point for single lake no closeby'
-BEGIN TRY  SET NOCOUNT ON;
-
--- 1. prepare data for unit test
-
-insert into lake (lake_name, locType, Lake_id) values ('Lake',  1, '00000000-0000-0000-0000-000000000000')
-insert into lake (lake_name, locType, Lake_id) values ('Lake2', 1, '11111111-1111-1111-1111-111111111111')
-
-UPDATE Tributaries SET lat = 1, lon = 1 where Main_Lake_id = '00000000-0000-0000-0000-000000000000' and side = 16
-UPDATE Tributaries SET lat = 2, lon = 2 where Main_Lake_id = '11111111-1111-1111-1111-111111111111' and side = 16
-
--- 2. execute unit test          --       select * from dbo.fn_GetCloseLake( '11111111-1111-1111-1111-111111111111' ) 
-
-declare @result int = ( select count(*) from dbo.fn_GetCloseLake( '00000000-0000-0000-0000-000000000000', 1, 256 ) );
-
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
-END CATCH
-IF @result <> 0
-   RAISERROR ('FAILED: %s failed to find right message: %d ', 16, -1, @test_name, @result ) 
-ELSE
-    print 'PASSED ' + @test_name
-
-ROLLBACK TRAN Test2
-GO
-----------------------------------------------------------------------------------------------------------
- 
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    PRINT 'EXCEPTION during test: ' + ERROR_MESSAGE()
+        + '  (proc=' + ISNULL(ERROR_PROCEDURE(), 'n/a')
+        + ', line='  + CAST(ERROR_LINE() AS varchar) + ')';
+END CATCH;
