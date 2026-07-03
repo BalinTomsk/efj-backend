@@ -5,7 +5,7 @@ GO
   dbo.catch_pending_fish, dbo.sp_add_catch_memo, dbo.fn_catch_memo_list, dbo.fn_catch_memo_get,
   dbo.sp_add_catch_pending_fish, dbo.sp_set_catch_pending_fish_status, dbo.fn_lake_fish_list,
   dbo.fn_catch_weather_snapshot, dbo.sp_add_catch_memo_photo, dbo.sp_del_catch_memo_photo,
-  dbo.fn_catch_memo_photo_list.
+  dbo.fn_catch_memo_photo_list, dbo.sp_NewGuidV7.
 
   Uses real tables (catch_memo / catch_pending_fish have no FKs, so no parent setup is
   needed for them; lake_fish needs a real fish + fish_family row as fixtures for the
@@ -39,6 +39,10 @@ GO
             from the listing)
   TEST 20 - sp_del_catch_memo_photo by an admin physically deletes the row
   TEST 21 - sp_add_catch_memo_photo caps a memo at 4 non-hidden photos
+  TEST 22 - sp_NewGuidV7 returns distinct, correctly-versioned ids that sort in generation order
+            (catch_memo_photo_id / catch_pending_fish_id are generated this way, replacing the
+            INT IDENTITY those columns used to be -- see the "Important" note in
+            database/CLAUDE.md on why an IDENTITY counter is unsafe under peer-to-peer replication)
 */
 
 -- ============================================================================
@@ -438,7 +442,7 @@ DECLARE @Lake10   uniqueidentifier = NEWID();
 DECLARE @Author10 uniqueidentifier = NEWID();
 SET @Admin10 = NEWID();
 EXEC dbo.sp_add_catch_pending_fish @lake_id=@Lake10, @userid=@Author10, @fish_name=N'Muskellunge-ut10';
-DECLARE @PendId int;
+DECLARE @PendId uniqueidentifier;
 SELECT @PendId = catch_pending_fish_id FROM dbo.catch_pending_fish
 WHERE catch_pending_fish_lake_id = @Lake10 AND catch_pending_fish_name = N'Muskellunge-ut10';
 
@@ -827,7 +831,7 @@ DECLARE @Memo19   uniqueidentifier = NEWID();
 EXEC dbo.sp_add_catch_memo @id=@Memo19, @lake_id=@Lake19, @userid=@Author19,
     @species=N'Northern Pike', @catch_date='2026-06-29';
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo19, @userid=@Author19, @pic=0x89504E47, @label=N'pike.jpg';
-DECLARE @PhotoId19 int;
+DECLARE @PhotoId19 uniqueidentifier;
 SELECT @PhotoId19 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo19;
 
 -- 2. execute unit test
@@ -873,7 +877,7 @@ DECLARE @Memo20   uniqueidentifier = NEWID();
 EXEC dbo.sp_add_catch_memo @id=@Memo20, @lake_id=@Lake20, @userid=@Author20,
     @species=N'Northern Pike', @catch_date='2026-06-29';
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo20, @userid=@Author20, @pic=0x89504E47, @label=N'pike.jpg';
-DECLARE @PhotoId20 int;
+DECLARE @PhotoId20 uniqueidentifier;
 SELECT @PhotoId20 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo20;
 
 -- 2. execute unit test
@@ -941,4 +945,56 @@ ELSE
     print 'TEST 21 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: 5th photo was rejected, memo capped at 4'
 
 ROLLBACK TRAN CM_Test21
+GO
+
+-- ============================================================================
+-- TEST 22: sp_NewGuidV7 returns distinct, correctly-versioned ids that sort in generation order
+-- ============================================================================
+BEGIN TRAN CM_Test22
+    declare @test_name sysname = N'CM_Test22 [sp_NewGuidV7] : distinct, v7-versioned, time-ordered ids'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Id1 uniqueidentifier, @Id2 uniqueidentifier;
+DECLARE @Ver1 char(1), @Ver2 char(1), @Var1 char(1), @Var2 char(1);
+DECLARE @Ts1 char(8), @Ts2 char(8);
+DECLARE @Ok bit = 1;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+EXEC dbo.sp_NewGuidV7 @Id1 OUTPUT;
+WAITFOR DELAY '00:00:00.010';
+EXEC dbo.sp_NewGuidV7 @Id2 OUTPUT;
+
+-- 2. execute unit test
+
+SET @Ver1 = SUBSTRING(CAST(@Id1 AS char(36)), 15, 1);   -- version nibble (3rd group, 1st char)
+SET @Ver2 = SUBSTRING(CAST(@Id2 AS char(36)), 15, 1);
+SET @Var1 = SUBSTRING(CAST(@Id1 AS char(36)), 20, 1);   -- variant nibble (4th group, 1st char)
+SET @Var2 = SUBSTRING(CAST(@Id2 AS char(36)), 20, 1);
+SET @Ts1  = SUBSTRING(CAST(@Id1 AS char(36)), 1, 8);    -- big-endian ms-timestamp prefix
+SET @Ts2  = SUBSTRING(CAST(@Id2 AS char(36)), 1, 8);
+
+IF @Id1 = @Id2 SET @Ok = 0;                             -- must be distinct
+IF @Ver1 <> '7' OR @Ver2 <> '7' SET @Ok = 0;             -- RFC 9562 version 7
+IF @Var1 NOT IN ('8','9','a','b') SET @Ok = 0;           -- RFC 9562 variant '10xx'
+IF @Var2 NOT IN ('8','9','a','b') SET @Ok = 0;
+IF @Ts2 < @Ts1 SET @Ok = 0;                              -- generated later -> string-sorts >= earlier
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+    SET @Ok = 0;
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Ok = 0
+   RAISERROR ('TEST 22 FAIL [%dms]: sp_NewGuidV7 did not return distinct, v7-versioned, time-ordered ids', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 22 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: two ids were distinct, version/variant correct, and time-ordered'
+
+ROLLBACK TRAN CM_Test22
 GO

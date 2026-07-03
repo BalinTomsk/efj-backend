@@ -2630,7 +2630,11 @@ GO
 
 CREATE TABLE dbo.catch_memo_photo
 (
-    catch_memo_photo_id          INT IDENTITY(1,1) NOT NULL
+    -- UNIQUEIDENTIFIER, not IDENTITY: this DB replicates peer-to-peer across several nodes, and an
+    -- IDENTITY counter is per-node -- two nodes inserting independently can generate the same value,
+    -- which collides once merged. New rows get their id from dbo.sp_NewGuidV7 (see
+    -- sp_add_catch_memo_photo, script02_Proc.sql). See the "Important" note in database/CLAUDE.md.
+    catch_memo_photo_id          UNIQUEIDENTIFIER NOT NULL
         CONSTRAINT PK_catch_memo_photo PRIMARY KEY,
     catch_memo_photo_memoid      UNIQUEIDENTIFIER NOT NULL,
     catch_memo_photo_pic         VARBINARY(MAX)   NOT NULL,
@@ -2660,6 +2664,31 @@ BEGIN
 END
 GO
 
+-- Upgrade an existing catch_memo_photo.catch_memo_photo_id from INT IDENTITY to UNIQUEIDENTIFIER
+-- (idempotent; no-op on a fresh build, which creates the column with the final type directly,
+-- above). Pre-existing rows are backfilled with NEWID() -- not dbo.sp_NewGuidV7, which is a
+-- stored procedure that can't be used as a column DEFAULT expression anyway -- new rows get a v7
+-- id from sp_add_catch_memo_photo (script02_Proc.sql) going forward.
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.catch_memo_photo')
+             AND name = 'catch_memo_photo_id' AND is_identity = 1)
+BEGIN
+    ALTER TABLE dbo.catch_memo_photo DROP CONSTRAINT PK_catch_memo_photo;
+
+    -- The UPDATE/ALTER COLUMN below must run as dynamic SQL: this whole IF block is one batch, and
+    -- a batch is bound to the table's schema as it existed BEFORE the batch started running, so a
+    -- column added by the ALTER TABLE ADD just above isn't resolvable by name in a later STATIC
+    -- statement in the same batch ("Invalid column name") -- EXEC(...) defers parsing to run time.
+    ALTER TABLE dbo.catch_memo_photo ADD catch_memo_photo_id_new UNIQUEIDENTIFIER NULL;
+    EXEC('UPDATE dbo.catch_memo_photo SET catch_memo_photo_id_new = NEWID()');
+    EXEC('ALTER TABLE dbo.catch_memo_photo ALTER COLUMN catch_memo_photo_id_new UNIQUEIDENTIFIER NOT NULL');
+
+    ALTER TABLE dbo.catch_memo_photo DROP COLUMN catch_memo_photo_id;
+    EXEC sp_rename 'dbo.catch_memo_photo.catch_memo_photo_id_new', 'catch_memo_photo_id', 'COLUMN';
+    ALTER TABLE dbo.catch_memo_photo ADD CONSTRAINT PK_catch_memo_photo PRIMARY KEY (catch_memo_photo_id);
+END
+GO
+
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -- catch_pending_fish : angler-suggested species awaiting admin approval.
@@ -2668,7 +2697,10 @@ GO
 -- touches lake_fish.  Status: 0 pending, 1 approved, 2 dismissed.
 CREATE TABLE dbo.catch_pending_fish
 (
-    catch_pending_fish_id         INT IDENTITY(1,1) NOT NULL
+    -- UNIQUEIDENTIFIER, not IDENTITY: see the comment on catch_memo_photo_id above -- an IDENTITY
+    -- counter is per-node and unsafe under this DB's peer-to-peer replication. New rows get their
+    -- id from dbo.sp_NewGuidV7 (see sp_add_catch_pending_fish, script02_Proc.sql).
+    catch_pending_fish_id         UNIQUEIDENTIFIER NOT NULL
         CONSTRAINT PK_catch_pending_fish PRIMARY KEY,
     catch_pending_fish_lake_id    UNIQUEIDENTIFIER NOT NULL,  -- water body
     catch_pending_fish_userid     UNIQUEIDENTIFIER NOT NULL,  -- who suggested it
@@ -2683,6 +2715,30 @@ CREATE TABLE dbo.catch_pending_fish
 GO
 CREATE INDEX IX_catch_pending_fish_lake
     ON dbo.catch_pending_fish (catch_pending_fish_lake_id, catch_pending_fish_status);
+GO
+
+-- Upgrade an existing catch_pending_fish.catch_pending_fish_id from INT IDENTITY to
+-- UNIQUEIDENTIFIER (idempotent; no-op on a fresh build, which creates the column with the final
+-- type directly, above). Pre-existing rows are backfilled with NEWID() -- not dbo.sp_NewGuidV7,
+-- which is a stored procedure that can't be used as a column DEFAULT expression anyway -- new
+-- rows get a v7 id from sp_add_catch_pending_fish (script02_Proc.sql) going forward.
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.catch_pending_fish')
+             AND name = 'catch_pending_fish_id' AND is_identity = 1)
+BEGIN
+    ALTER TABLE dbo.catch_pending_fish DROP CONSTRAINT PK_catch_pending_fish;
+
+    -- See the matching comment on the catch_memo_photo upgrade block above: the UPDATE/ALTER
+    -- COLUMN must be dynamic SQL since this whole IF block is one batch, bound to the pre-batch
+    -- schema.
+    ALTER TABLE dbo.catch_pending_fish ADD catch_pending_fish_id_new UNIQUEIDENTIFIER NULL;
+    EXEC('UPDATE dbo.catch_pending_fish SET catch_pending_fish_id_new = NEWID()');
+    EXEC('ALTER TABLE dbo.catch_pending_fish ALTER COLUMN catch_pending_fish_id_new UNIQUEIDENTIFIER NOT NULL');
+
+    ALTER TABLE dbo.catch_pending_fish DROP COLUMN catch_pending_fish_id;
+    EXEC sp_rename 'dbo.catch_pending_fish.catch_pending_fish_id_new', 'catch_pending_fish_id', 'COLUMN';
+    ALTER TABLE dbo.catch_pending_fish ADD CONSTRAINT PK_catch_pending_fish PRIMARY KEY (catch_pending_fish_id);
+END
 GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------

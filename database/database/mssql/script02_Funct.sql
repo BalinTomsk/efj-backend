@@ -38,6 +38,9 @@ BEGIN
 END
 GO
 
+-------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'GetStationInfo' AND xtype = 'TF')
     DROP FUNCTION dbo.GetStationInfo
 GO
@@ -3874,7 +3877,7 @@ GO
 CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_handler
 (
     @memo_id  UNIQUEIDENTIFIER,
-    @photo_id INT
+    @photo_id UNIQUEIDENTIFIER
 )
 RETURNS VARBINARY(MAX)
 AS
@@ -3902,7 +3905,7 @@ AS
 RETURN
 (
     SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord,
-           catch_memo_photo_description, catch_memo_photo_author
+           catch_memo_photo_description, catch_memo_photo_author, catch_memo_photo_stamp
     FROM dbo.catch_memo_photo
     WHERE catch_memo_photo_memoid = @memo_id
       AND catch_memo_photo_hidden = 0

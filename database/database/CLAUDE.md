@@ -11,6 +11,10 @@ Everything below is about `mssql/` unless stated otherwise.
   `scriptNN` files by `mssql/generate_db_script_ffi2.cmd` and is the image consumed by
   the database unit tests. Any manual edit to `ffi2.sql` is overwritten on the next build.
  
+## Important
+- The database is distributed, meaning there are several nodes connected through peer-to-peer replication
+- In most cases, the primary key is a GUID v7.
+- The business logic must take the distributed database schema into account.
 
 ## How `ffi2.sql` is generated
 
