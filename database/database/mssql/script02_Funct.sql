@@ -3720,6 +3720,7 @@ RETURN
         m.catch_memo_userid,
         m.catch_memo_fish_id,
         COALESCE(NULLIF(m.catch_memo_species, N''), f.fish_name) AS catch_memo_species,
+        f.fish_latin AS catch_memo_fish_latin,
         m.catch_memo_title,
         m.catch_memo_text,
         CASE WHEN @viewer_id IS NULL THEN NULL ELSE m.catch_memo_lat END AS catch_memo_lat,
@@ -3734,6 +3735,11 @@ RETURN
         m.catch_memo_length_unit,
         m.catch_memo_released,
         m.catch_memo_private,
+        m.catch_memo_weather_temp,
+        m.catch_memo_weather_pressure,
+        m.catch_memo_weather_text,
+        m.catch_memo_weather_icon,
+        m.catch_memo_water_temp,
         m.catch_memo_created,
         m.catch_memo_updated,
         u.userName AS catch_memo_user_name,
@@ -3743,10 +3749,27 @@ RETURN
             WHEN @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id
                  AND DATEDIFF(DAY, m.catch_memo_created, SYSUTCDATETIME()) <= 60 THEN 1
             ELSE 0
-        END AS BIT) AS can_edit
+        END AS BIT) AS can_edit,
+        -- Personal best: this catch's weight (normalized to kg) equals the author's max for this
+        -- species (by fish_id) across all their catches. Ties are all flagged; free-text species
+        -- (no fish_id) and weightless catches never qualify.
+        CAST(CASE
+            WHEN m.catch_memo_fish_id IS NOT NULL AND m.catch_memo_weight IS NOT NULL
+                 AND pb.best_weight_kg IS NOT NULL
+                 AND ( CASE WHEN m.catch_memo_weight_unit = 'lb' THEN m.catch_memo_weight * 0.45359237 ELSE m.catch_memo_weight END )
+                     = pb.best_weight_kg
+            THEN 1 ELSE 0
+        END AS BIT) AS catch_memo_is_pb
     FROM dbo.catch_memo m
     LEFT JOIN dbo.fish  f ON f.fish_id = m.catch_memo_fish_id
     LEFT JOIN dbo.Users u ON u.id      = m.catch_memo_userid
+    OUTER APPLY (
+        SELECT MAX(CASE WHEN m2.catch_memo_weight_unit = 'lb' THEN m2.catch_memo_weight * 0.45359237 ELSE m2.catch_memo_weight END) AS best_weight_kg
+        FROM dbo.catch_memo m2
+        WHERE m2.catch_memo_userid  = m.catch_memo_userid
+          AND m2.catch_memo_fish_id = m.catch_memo_fish_id
+          AND m2.catch_memo_weight IS NOT NULL
+    ) pb
     WHERE m.catch_memo_lake_id = @lake_id
       AND ( m.catch_memo_private = 0
             OR @is_admin = 1
@@ -3790,6 +3813,11 @@ RETURN
         m.catch_memo_length_unit,
         m.catch_memo_released,
         m.catch_memo_private,
+        m.catch_memo_weather_temp,
+        m.catch_memo_weather_pressure,
+        m.catch_memo_weather_text,
+        m.catch_memo_weather_icon,
+        m.catch_memo_water_temp,
         m.catch_memo_created,
         m.catch_memo_updated,
         CAST(CASE
@@ -3800,6 +3828,43 @@ RETURN
         END AS BIT) AS can_edit
     FROM dbo.catch_memo m
     WHERE m.catch_memo_id = @memo_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_weather_snapshot' AND xtype = 'IF')
+    DROP function dbo.fn_catch_weather_snapshot
+GO
+-- fn_catch_weather_snapshot : weather to stamp onto a catch_memo at save time. Picks the water
+-- body's station (dbo.WaterStation.lakeId) and its dbo.weather_Forecast row for that calendar
+-- date (air temp/pressure/conditions -- retained ~15 days back / 10 days forward; naturally
+-- comes back NULL once @catch_date falls outside that window, since no forecast row exists).
+-- dbo.CurrentWaterState is different: it holds a single "right now" reading per station with NO
+-- date dimension at all (PK is just mli), so it is only joined when @catch_date is today or
+-- yesterday -- otherwise a backdated catch would silently get today's water temp misattributed
+-- to it. Returns zero rows only when the lake has no station at all -- caller treats a missing
+-- row as "no snapshot".
+CREATE OR ALTER FUNCTION dbo.fn_catch_weather_snapshot
+(
+    @lake_id    UNIQUEIDENTIFIER,
+    @catch_date DATE
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT TOP 1
+        wf.tmHigh       AS weather_temp,
+        wf.pressure     AS weather_pressure,
+        wf.shortText    AS weather_text,
+        wf.icon         AS weather_icon,
+        cws.temperature AS water_temp
+    FROM dbo.WaterStation ws
+    LEFT JOIN dbo.weather_Forecast  wf  ON wf.mli  = ws.mli AND wf.dt = @catch_date
+    LEFT JOIN dbo.CurrentWaterState cws ON cws.mli = ws.mli
+                                        AND @catch_date >= CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)
+    WHERE ws.lakeId = @lake_id
+    ORDER BY wf.tm
 );
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------

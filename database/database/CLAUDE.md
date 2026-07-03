@@ -130,39 +130,55 @@ must be updated — otherwise every run keeps reporting a diff.
 - Add new tests for new schema objects, then re-run `autorun.bat` and confirm `cleaned.txt`.
 
 ## Structure unit tests
--- Each unit test must have next structure:
+Each test is its own named transaction, isolated from every other test in the file (one
+test's fixtures/failure can't affect another's) and rolled back at the end of its own
+`GO` batch. See `mssql/UNIT_TESTS/unit_test@CatchMemo.sql` for a full worked example with
+16 tests in this shape.
 
+```sql
 BEGIN TRAN TestSpecificCase
     declare @test_name sysname = N'TestSpecificCase [fn_SpecificCaseModule] : Specific Case'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @rst sysname;   -- declared before TRY so it still exists (as NULL) if CATCH fires
 BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
 
 -- 1. prepare data for unit test
 
 insert into UsedTable (column1, column2) values (999, N'TestSpecificCase');
 
-declare @column1 uniqueidentifier = (select column1 from UsedTable where column2 = N'SpecificCaseValue') 
+declare @column1 uniqueidentifier = (select column1 from UsedTable where column2 = N'SpecificCaseValue')
 
--- 2. execute unit test   
+-- 2. execute unit test
 
 declare @doc xml = dbo.fn_SpecificCaseModule( @column1 );
+SET @rst = @doc.value('(/root/node/text())[1]','varchar(100)')
 
 END TRY
 BEGIN CATCH
     SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
          , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
 END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
 
 -- 3. result verification
 
-declare @rst sysname =  @doc.value('(/root/node/text())[1]','varchar(100)')
-
-IF  @rst IS NULL OR @rst <> N'TestSpecificCase'
-   RAISERROR ('FAILED: %s result must have name %s', 16, -1, @test_name, @rst ) 
+IF @rst IS NULL OR @rst <> N'TestSpecificCase'
+   RAISERROR ('TEST 1 FAIL [%dms]: result must have name TestSpecificCase', 16, -1, @ElapsedMs)
 ELSE
-    print 'PASSED ' + @test_name
+    print 'TEST 1 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: result has the expected name'
 
 ROLLBACK TRAN TestSpecificCase
 GO
+```
+
+- **Success message must say `PASS`, never `PASSED`.** `averify.py` strips any line
+  containing the literal word `PASSED` out of `cleaned.txt` (see below) — a test that prints
+  `PASSED ...` on success is invisible in the report even when it's running and passing.
+  Use the `TEST n PASS [Nms]: ...` / `TEST n FAIL [Nms]: ...` wording shown above so every
+  passed test actually shows up.
+- Number tests sequentially within the file and match that number in the transaction name
+  (`TestNN` or a short mnemonic), the `@test_name`, and the `PASS`/`FAIL` message.
 
 
 
