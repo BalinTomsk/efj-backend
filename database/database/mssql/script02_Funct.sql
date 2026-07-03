@@ -3883,7 +3883,8 @@ BEGIN
     SELECT TOP 1 @pic = catch_memo_photo_pic
     FROM dbo.catch_memo_photo
     WHERE catch_memo_photo_memoid = @memo_id
-      AND catch_memo_photo_id     = @photo_id;
+      AND catch_memo_photo_id     = @photo_id
+      AND catch_memo_photo_hidden = 0;
     RETURN @pic;
 END
 GO
@@ -3892,15 +3893,19 @@ GO
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_photo_list' AND xtype = 'IF')
     DROP function dbo.fn_catch_memo_photo_list
 GO
--- fn_catch_memo_photo_list : photo ids for one memo (gallery) ----------------
+-- fn_catch_memo_photo_list : photo ids for one memo (gallery). Hidden photos (soft-deleted by a
+-- non-admin via sp_del_catch_memo_photo) are excluded -- only a physical delete (admin) removes
+-- a row outright.
 CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_list (@memo_id UNIQUEIDENTIFIER)
 RETURNS TABLE
 AS
 RETURN
 (
-    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord
+    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord,
+           catch_memo_photo_description, catch_memo_photo_author
     FROM dbo.catch_memo_photo
     WHERE catch_memo_photo_memoid = @memo_id
+      AND catch_memo_photo_hidden = 0
 );
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
