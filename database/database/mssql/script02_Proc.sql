@@ -1,4 +1,50 @@
 -------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_NewGuidV7' AND type = 'P')
+    DROP PROCEDURE dbo.sp_NewGuidV7
+GO
+-- sp_NewGuidV7 : RFC 9562 UUID version 7 -- a 48-bit big-endian Unix-epoch-millisecond timestamp
+-- followed by random bits (version/variant nibbles set per spec). See the "Important" section in
+-- database/CLAUDE.md: this database replicates peer-to-peer across several nodes, so a new row's
+-- primary key must be safely generatable independently on any node. NEWSEQUENTIALID()'s
+-- "sequential" property is per-machine only -- it does NOT interleave in timestamp order once rows
+-- from different nodes are merged -- and NEWID() is fully random with no chronological locality at
+-- all. A v7 GUID generated on any node sorts roughly by wall-clock time once merged (node clocks
+-- are assumed reasonably synced), which is why it's the default choice for new primary keys in
+-- this schema. Usage: DECLARE @id UNIQUEIDENTIFIER; EXEC dbo.sp_NewGuidV7 @id OUTPUT;
+--
+-- This is a stored procedure, not a function: NEWID() and CRYPT_GEN_RANDOM() are both rejected
+-- inside ANY kind of user-defined function body -- scalar, inline, or multi-statement -- with
+-- "Invalid use of a side-effecting operator". That restriction does not apply to stored procedures.
+CREATE PROCEDURE dbo.sp_NewGuidV7
+    @new_id UNIQUEIDENTIFIER OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @unixMs BIGINT   = DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME());
+    DECLARE @tsHex  CHAR(12) = RIGHT(CONVERT(VARCHAR(16), CAST(@unixMs AS VARBINARY(8)), 2), 12);
+
+    DECLARE @r    BINARY(16) = CAST(NEWID() AS BINARY(16));
+    DECLARE @rHex CHAR(32)   = CONVERT(VARCHAR(32), @r, 2);
+
+    -- time_hi_and_version (4 hex): version nibble '7' + 12 random bits
+    DECLARE @verGroup CHAR(4) = '7' + SUBSTRING(@rHex, 3, 3);
+
+    -- clock_seq_hi_and_reserved + clock_seq_low (4 hex): variant '10xx' (2 fixed + 2 random bits
+    -- packed into one nibble via mod 4) + 12 more random bits
+    DECLARE @variantNibble CHAR(1) = SUBSTRING('89AB', (CAST(SUBSTRING(@r, 1, 1) AS INT) % 4) + 1, 1);
+    DECLARE @clockSeqGroup CHAR(4) = @variantNibble + SUBSTRING(@rHex, 6, 3);
+
+    -- node (12 hex): remaining 48 random bits
+    DECLARE @nodeGroup CHAR(12) = SUBSTRING(@rHex, 9, 12);
+
+    SET @new_id = CAST(
+        SUBSTRING(@tsHex, 1, 8) + '-' + SUBSTRING(@tsHex, 9, 4) + '-' +
+        @verGroup + '-' + @clockSeqGroup + '-' + @nodeGroup
+        AS UNIQUEIDENTIFIER);
+END
+GO
+-------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spSaveUser' AND type = 'P')
     DROP PROCEDURE dbo.spSaveUser
 GO
@@ -3415,10 +3461,15 @@ BEGIN
                 OR ( catch_memo_userid = @userid
                      AND DATEDIFF(DAY, catch_memo_created, SYSUTCDATETIME()) <= 60 ) ) )
     BEGIN
+        -- id generated here (not a table DEFAULT): catch_memo_photo_id is a UNIQUEIDENTIFIER, safe
+        -- to generate independently on any peer-to-peer replication node, unlike the INT IDENTITY
+        -- this column used to be.
+        DECLARE @new_id UNIQUEIDENTIFIER;
+        EXEC dbo.sp_NewGuidV7 @new_id OUTPUT;
         INSERT INTO dbo.catch_memo_photo
-            (catch_memo_photo_memoid, catch_memo_photo_pic, catch_memo_photo_label, catch_memo_photo_ord,
+            (catch_memo_photo_id, catch_memo_photo_memoid, catch_memo_photo_pic, catch_memo_photo_label, catch_memo_photo_ord,
              catch_memo_photo_description, catch_memo_photo_author)
-        VALUES (@memo_id, @pic, @label, @ord, @description, @author);
+        VALUES (@new_id, @memo_id, @pic, @label, @ord, @description, @author);
     END
 END
 GO
@@ -3457,7 +3508,7 @@ GO
 --     fn_catch_memo_photo_list / fn_catch_memo_photo_handler both exclude
 --     hidden photos, so it disappears from every view either way.
 CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo_photo
-    @photo_id INT,
+    @photo_id UNIQUEIDENTIFIER,
     @userid   UNIQUEIDENTIFIER,
     @is_admin BIT = 0
 AS
@@ -3509,9 +3560,14 @@ BEGIN
                  AND catch_pending_fish_status  = 0)
         RETURN;
 
+    -- id generated here (not a table DEFAULT): catch_pending_fish_id is a UNIQUEIDENTIFIER, safe
+    -- to generate independently on any peer-to-peer replication node, unlike the INT IDENTITY
+    -- this column used to be.
+    DECLARE @new_id UNIQUEIDENTIFIER;
+    EXEC dbo.sp_NewGuidV7 @new_id OUTPUT;
     INSERT INTO dbo.catch_pending_fish
-        (catch_pending_fish_lake_id, catch_pending_fish_userid, catch_pending_fish_name)
-    VALUES (@lake_id, @userid, @fish_name);
+        (catch_pending_fish_id, catch_pending_fish_lake_id, catch_pending_fish_userid, catch_pending_fish_name)
+    VALUES (@new_id, @lake_id, @userid, @fish_name);
 END
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3521,7 +3577,7 @@ IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_set_catch_pending_fish_
 GO
 -- sp_set_catch_pending_fish_status : admin approve(1) / dismiss(2) ----------
 CREATE OR ALTER PROCEDURE dbo.sp_set_catch_pending_fish_status
-    @id           INT,
+    @id           UNIQUEIDENTIFIER,
     @status       TINYINT,
     @admin_userid UNIQUEIDENTIFIER
 AS
