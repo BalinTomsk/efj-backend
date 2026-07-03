@@ -3320,6 +3320,11 @@ CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo
     @length_unit NVARCHAR(8)      = NULL,   -- 'cm' | 'in'
     @released    BIT              = NULL,   -- 1 = catch & release
     @private     BIT              = 0,      -- 1 = only author + admins see it
+    @weather_temp     FLOAT         = NULL,   -- snapshot from dbo.fn_catch_weather_snapshot at save time
+    @weather_pressure FLOAT         = NULL,
+    @weather_text     NVARCHAR(64)  = NULL,
+    @weather_icon     NVARCHAR(255) = NULL,
+    @water_temp       FLOAT         = NULL,   -- water temp snapshot from dbo.fn_catch_weather_snapshot
     @is_admin    BIT              = 0
 AS
 BEGIN
@@ -3344,6 +3349,11 @@ BEGIN
             catch_memo_length_unit = @length_unit,
             catch_memo_released    = @released,
             catch_memo_private     = ISNULL(@private, 0),
+            catch_memo_weather_temp     = @weather_temp,
+            catch_memo_weather_pressure = @weather_pressure,
+            catch_memo_weather_text     = @weather_text,
+            catch_memo_weather_icon     = @weather_icon,
+            catch_memo_water_temp       = @water_temp,
             catch_memo_updated     = SYSUTCDATETIME()
         WHERE catch_memo_id = @id
           AND ( @is_admin = 1
@@ -3357,13 +3367,17 @@ BEGIN
              catch_memo_species, catch_memo_title, catch_memo_text, catch_memo_lat, catch_memo_lon,
              catch_memo_method, catch_memo_tackle, catch_memo_lure, catch_memo_catch_date,
              catch_memo_weight, catch_memo_weight_unit, catch_memo_length, catch_memo_length_unit,
-             catch_memo_released, catch_memo_private)
+             catch_memo_released, catch_memo_private,
+             catch_memo_weather_temp, catch_memo_weather_pressure, catch_memo_weather_text, catch_memo_weather_icon,
+             catch_memo_water_temp)
         VALUES
             (@id, @lake_id, @userid, @fish_id,
              @species, @title, @text, @lat, @lon,
              @method, @tackle, @lure, @catch_date,
              @weight, @weight_unit, @length, @length_unit,
-             @released, ISNULL(@private, 0));
+             @released, ISNULL(@private, 0),
+             @weather_temp, @weather_pressure, @weather_text, @weather_icon,
+             @water_temp);
     END
 END
 GO

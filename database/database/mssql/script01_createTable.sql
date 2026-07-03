@@ -2585,6 +2585,11 @@ CREATE TABLE dbo.catch_memo
         catch_memo_released   BIT              NULL,        -- 1 = catch & release, NULL = not specified
         catch_memo_private    BIT              NOT NULL
             CONSTRAINT DF_catch_memo_private DEFAULT 0,     -- 1 = visible only to author + admins
+        catch_memo_weather_temp     FLOAT         NULL,     -- deg C air temp snapshot at catch time (dbo.weather_Forecast)
+        catch_memo_weather_pressure FLOAT         NULL,     -- hPa snapshot at catch time
+        catch_memo_weather_text     NVARCHAR(64)  NULL,     -- short conditions, e.g. "Partly Cloudy"
+        catch_memo_weather_icon     NVARCHAR(255) NULL,     -- provider icon code
+        catch_memo_water_temp       FLOAT         NULL,     -- deg C water temp snapshot at catch time (dbo.CurrentWaterState)
         catch_memo_created    DATETIME2        NOT NULL
             CONSTRAINT DF_catch_memo_created DEFAULT SYSUTCDATETIME(),  -- drives the 60-day lock
         catch_memo_updated    DATETIME2        NULL
@@ -2605,6 +2610,21 @@ BEGIN
         catch_memo_released    BIT         NULL,
         catch_memo_private     BIT         NOT NULL
             CONSTRAINT DF_catch_memo_private DEFAULT 0;
+END
+GO
+IF COL_LENGTH('dbo.catch_memo', 'catch_memo_weather_temp') IS NULL
+BEGIN
+    ALTER TABLE dbo.catch_memo ADD
+        catch_memo_weather_temp     FLOAT         NULL,
+        catch_memo_weather_pressure FLOAT         NULL,
+        catch_memo_weather_text     NVARCHAR(64)  NULL,
+        catch_memo_weather_icon     NVARCHAR(255) NULL;
+END
+GO
+IF COL_LENGTH('dbo.catch_memo', 'catch_memo_water_temp') IS NULL
+BEGIN
+    ALTER TABLE dbo.catch_memo ADD
+        catch_memo_water_temp FLOAT NULL;
 END
 GO
 
