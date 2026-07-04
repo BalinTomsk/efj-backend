@@ -3835,6 +3835,33 @@ RETURN
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_pending_clone_id' AND xtype = 'FN')
+    DROP FUNCTION dbo.fn_catch_memo_pending_clone_id
+GO
+-- fn_catch_memo_pending_clone_id : the id of this user's unfinished clone, if any. A clone (see
+-- sp_clone_catch_memo -- catch_memo_cloned_from IS NOT NULL) is "unfinished" until it has a
+-- species (catalog fish_id or free-text species) AND at least one non-hidden photo -- until then,
+-- the user may not start cloning another memo (wfCatchMemoEdit.aspx.cs enforces this both when
+-- rendering the "Clone" link and again here before creating a new clone).
+CREATE FUNCTION dbo.fn_catch_memo_pending_clone_id(@userid UNIQUEIDENTIFIER)
+RETURNS UNIQUEIDENTIFIER
+AS
+BEGIN
+    DECLARE @id UNIQUEIDENTIFIER;
+    SELECT TOP 1 @id = m.catch_memo_id
+    FROM dbo.catch_memo m
+    WHERE m.catch_memo_userid = @userid
+      AND m.catch_memo_cloned_from IS NOT NULL
+      AND (
+            (m.catch_memo_fish_id IS NULL AND (m.catch_memo_species IS NULL OR LTRIM(RTRIM(m.catch_memo_species)) = N''))
+         OR NOT EXISTS (SELECT 1 FROM dbo.catch_memo_photo p
+                         WHERE p.catch_memo_photo_memoid = m.catch_memo_id AND p.catch_memo_photo_hidden = 0)
+          );
+    RETURN @id;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_weather_snapshot' AND xtype = 'IF')
     DROP function dbo.fn_catch_weather_snapshot
 GO
