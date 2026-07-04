@@ -2592,7 +2592,9 @@ CREATE TABLE dbo.catch_memo
         catch_memo_water_temp       FLOAT         NULL,     -- deg C water temp snapshot at catch time (dbo.CurrentWaterState)
         catch_memo_created    DATETIME2        NOT NULL
             CONSTRAINT DF_catch_memo_created DEFAULT SYSUTCDATETIME(),  -- drives the 60-day lock
-        catch_memo_updated    DATETIME2        NULL
+        catch_memo_updated    DATETIME2        NULL,
+        catch_memo_cloned_from UNIQUEIDENTIFIER NULL   -- set by sp_clone_catch_memo; source memo's id
+                                                        -- (species/weight/length/photos NOT copied)
     );
 GO
 CREATE INDEX IX_catch_memo_lake ON dbo.catch_memo (catch_memo_lake_id, catch_memo_created DESC);
@@ -2625,6 +2627,12 @@ IF COL_LENGTH('dbo.catch_memo', 'catch_memo_water_temp') IS NULL
 BEGIN
     ALTER TABLE dbo.catch_memo ADD
         catch_memo_water_temp FLOAT NULL;
+END
+GO
+IF COL_LENGTH('dbo.catch_memo', 'catch_memo_cloned_from') IS NULL
+BEGIN
+    ALTER TABLE dbo.catch_memo ADD
+        catch_memo_cloned_from UNIQUEIDENTIFIER NULL;
 END
 GO
 

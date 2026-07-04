@@ -5,7 +5,8 @@ GO
   dbo.catch_pending_fish, dbo.sp_add_catch_memo, dbo.fn_catch_memo_list, dbo.fn_catch_memo_get,
   dbo.sp_add_catch_pending_fish, dbo.sp_set_catch_pending_fish_status, dbo.fn_lake_fish_list,
   dbo.fn_catch_weather_snapshot, dbo.sp_add_catch_memo_photo, dbo.sp_del_catch_memo_photo,
-  dbo.fn_catch_memo_photo_list, dbo.sp_NewGuidV7.
+  dbo.fn_catch_memo_photo_list, dbo.sp_NewGuidV7, dbo.sp_clone_catch_memo,
+  dbo.fn_catch_memo_pending_clone_id.
 
   Uses real tables (catch_memo / catch_pending_fish have no FKs, so no parent setup is
   needed for them; lake_fish needs a real fish + fish_family row as fixtures for the
@@ -38,11 +39,15 @@ GO
   TEST 19 - sp_del_catch_memo_photo by a non-admin only hides the photo (row kept, excluded
             from the listing)
   TEST 20 - sp_del_catch_memo_photo by an admin physically deletes the row
-  TEST 21 - sp_add_catch_memo_photo caps a memo at 4 non-hidden photos
+  TEST 21 - sp_add_catch_memo_photo caps a memo at 3 non-hidden photos
   TEST 22 - sp_NewGuidV7 returns distinct, correctly-versioned ids that sort in generation order
             (catch_memo_photo_id / catch_pending_fish_id are generated this way, replacing the
             INT IDENTITY those columns used to be -- see the "Important" note in
             database/CLAUDE.md on why an IDENTITY counter is unsafe under peer-to-peer replication)
+  TEST 23 - sp_clone_catch_memo copies most fields but never species/weight/length/photos
+  TEST 24 - sp_clone_catch_memo refuses a second clone while the first is unfinished
+  TEST 25 - cloning is allowed again once the pending clone gets a species + photo
+  TEST 26 - sp_clone_catch_memo refuses a private memo for a non-owner, allows owner/admin
 */
 
 -- ============================================================================
@@ -903,10 +908,10 @@ ROLLBACK TRAN CM_Test20
 GO
 
 -- ============================================================================
--- TEST 21: sp_add_catch_memo_photo caps a memo at 4 non-hidden photos
+-- TEST 21: sp_add_catch_memo_photo caps a memo at 3 non-hidden photos
 -- ============================================================================
 BEGIN TRAN CM_Test21
-    declare @test_name sysname = N'CM_Test21 [sp_add_catch_memo_photo] : caps a memo at 4 photos'
+    declare @test_name sysname = N'CM_Test21 [sp_add_catch_memo_photo] : caps a memo at 3 photos'
 DECLARE @tStart datetime2, @ElapsedMs int;
 DECLARE @PhotoCnt int;
 BEGIN TRY  SET NOCOUNT ON;
@@ -922,12 +927,11 @@ EXEC dbo.sp_add_catch_memo @id=@Memo21, @lake_id=@Lake21, @userid=@Author21,
 
 -- 2. execute unit test
 
--- 5 attempts, only 4 should ever land
+-- 4 attempts, only 3 should ever land
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=0;
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=1;
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=2;
 EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=3;
-EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo21, @userid=@Author21, @pic=0x89504E47, @ord=4;
 SELECT @PhotoCnt = COUNT(*) FROM dbo.fn_catch_memo_photo_list(@Memo21);
 
 END TRY
@@ -939,10 +943,10 @@ SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
 
 -- 3. result verification
 
-IF @PhotoCnt IS NULL OR @PhotoCnt <> 4
-   RAISERROR ('TEST 21 FAIL [%dms]: expected exactly 4 photos, got a different count', 16, -1, @ElapsedMs)
+IF @PhotoCnt IS NULL OR @PhotoCnt <> 3
+   RAISERROR ('TEST 21 FAIL [%dms]: expected exactly 3 photos, got a different count', 16, -1, @ElapsedMs)
 ELSE
-    print 'TEST 21 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: 5th photo was rejected, memo capped at 4'
+    print 'TEST 21 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: 4th photo was rejected, memo capped at 3'
 
 ROLLBACK TRAN CM_Test21
 GO
@@ -997,4 +1001,223 @@ ELSE
     print 'TEST 22 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: two ids were distinct, version/variant correct, and time-ordered'
 
 ROLLBACK TRAN CM_Test22
+GO
+
+-- ============================================================================
+-- TEST 23: sp_clone_catch_memo copies most fields but never species/weight/length/photos
+-- ============================================================================
+BEGIN TRAN CM_Test23
+    declare @test_name sysname = N'CM_Test23 [sp_clone_catch_memo] : clone excludes species/weight/length/photos'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Ok bit = 1;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake23   uniqueidentifier = NEWID();
+DECLARE @Author23 uniqueidentifier = NEWID();
+DECLARE @Cloner23 uniqueidentifier = NEWID();
+DECLARE @Source23 uniqueidentifier = NEWID();
+DECLARE @Clone23  uniqueidentifier = NEWID();
+
+EXEC dbo.sp_add_catch_memo @id=@Source23, @lake_id=@Lake23, @userid=@Author23,
+    @species=N'Bass, Smallmouth', @title=N'Great catch', @text=N'nice fight',
+    @lat=43.1, @lon=-81.2, @method=N'trolling', @tackle=N'rod & reel', @lure=N'spoon',
+    @catch_date='2026-06-29', @weight=2.5, @weight_unit=N'kg', @length=40, @length_unit=N'cm';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Source23, @userid=@Author23, @pic=0x89504E47;
+
+-- 2. execute unit test
+
+EXEC dbo.sp_clone_catch_memo @source_id=@Source23, @new_id=@Clone23, @userid=@Cloner23;
+
+DECLARE @Species nvarchar(120), @FishId uniqueidentifier, @Weight float, @Length float
+      , @Method nvarchar(200), @ClonedFrom uniqueidentifier, @Owner uniqueidentifier, @PhotoCnt int;
+
+SELECT @Species=catch_memo_species, @FishId=catch_memo_fish_id, @Weight=catch_memo_weight,
+       @Length=catch_memo_length, @Method=catch_memo_method, @ClonedFrom=catch_memo_cloned_from,
+       @Owner=catch_memo_userid
+FROM dbo.catch_memo WHERE catch_memo_id = @Clone23;
+
+SELECT @PhotoCnt = COUNT(*) FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Clone23;
+
+IF @Species IS NOT NULL OR @FishId IS NOT NULL OR @Weight IS NOT NULL OR @Length IS NOT NULL SET @Ok = 0;
+IF @Method <> N'trolling' SET @Ok = 0;
+IF @ClonedFrom <> @Source23 SET @Ok = 0;
+IF @Owner <> @Cloner23 SET @Ok = 0;
+IF @PhotoCnt <> 0 SET @Ok = 0;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+    SET @Ok = 0;
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Ok = 0
+   RAISERROR ('TEST 23 FAIL [%dms]: clone did not copy method/cloned_from/owner or wrongly carried species/weight/length/photos', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 23 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: clone copied method but excluded species/weight/length/photos'
+
+ROLLBACK TRAN CM_Test23
+GO
+
+-- ============================================================================
+-- TEST 24: sp_clone_catch_memo refuses a second clone while the first is unfinished
+-- ============================================================================
+BEGIN TRAN CM_Test24
+    declare @test_name sysname = N'CM_Test24 [sp_clone_catch_memo] : blocked while a clone is unfinished'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Ok bit = 1;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake24    uniqueidentifier = NEWID();
+DECLARE @Cloner24  uniqueidentifier = NEWID();
+DECLARE @SourceA24 uniqueidentifier = NEWID();
+DECLARE @SourceB24 uniqueidentifier = NEWID();
+DECLARE @CloneA24  uniqueidentifier = NEWID();
+DECLARE @CloneB24  uniqueidentifier = NEWID();
+
+EXEC dbo.sp_add_catch_memo @id=@SourceA24, @lake_id=@Lake24, @userid=@Cloner24, @species=N'Walleye';
+EXEC dbo.sp_add_catch_memo @id=@SourceB24, @lake_id=@Lake24, @userid=@Cloner24, @species=N'Pike';
+
+-- 2. execute unit test
+
+EXEC dbo.sp_clone_catch_memo @source_id=@SourceA24, @new_id=@CloneA24, @userid=@Cloner24;   -- unfinished clone #1
+EXEC dbo.sp_clone_catch_memo @source_id=@SourceB24, @new_id=@CloneB24, @userid=@Cloner24;   -- should be refused
+
+DECLARE @FirstExists bit, @SecondExists bit;
+SET @FirstExists  = CASE WHEN EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @CloneA24) THEN 1 ELSE 0 END;
+SET @SecondExists = CASE WHEN EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @CloneB24) THEN 1 ELSE 0 END;
+
+IF @FirstExists <> 1 OR @SecondExists <> 0 SET @Ok = 0;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+    SET @Ok = 0;
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Ok = 0
+   RAISERROR ('TEST 24 FAIL [%dms]: second clone should have been refused while the first is unfinished', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 24 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: first clone created, second refused while unfinished'
+
+ROLLBACK TRAN CM_Test24
+GO
+
+-- ============================================================================
+-- TEST 25: cloning becomes possible again once the pending clone gets a species + photo
+-- ============================================================================
+BEGIN TRAN CM_Test25
+    declare @test_name sysname = N'CM_Test25 [sp_clone_catch_memo] : allowed again once the clone is finished'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Ok bit = 1;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake25    uniqueidentifier = NEWID();
+DECLARE @Cloner25  uniqueidentifier = NEWID();
+DECLARE @SourceA25 uniqueidentifier = NEWID();
+DECLARE @SourceB25 uniqueidentifier = NEWID();
+DECLARE @CloneA25  uniqueidentifier = NEWID();
+DECLARE @CloneB25  uniqueidentifier = NEWID();
+
+EXEC dbo.sp_add_catch_memo @id=@SourceA25, @lake_id=@Lake25, @userid=@Cloner25, @species=N'Walleye';
+EXEC dbo.sp_add_catch_memo @id=@SourceB25, @lake_id=@Lake25, @userid=@Cloner25, @species=N'Pike';
+EXEC dbo.sp_clone_catch_memo @source_id=@SourceA25, @new_id=@CloneA25, @userid=@Cloner25;
+
+-- 2. execute unit test
+
+-- finish the first clone: give it a species and a photo
+EXEC dbo.sp_add_catch_memo @id=@CloneA25, @lake_id=@Lake25, @userid=@Cloner25, @species=N'Walleye';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@CloneA25, @userid=@Cloner25, @pic=0x89504E47;
+
+EXEC dbo.sp_clone_catch_memo @source_id=@SourceB25, @new_id=@CloneB25, @userid=@Cloner25;   -- should now succeed
+
+DECLARE @SecondExists bit;
+SET @SecondExists = CASE WHEN EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @CloneB25) THEN 1 ELSE 0 END;
+
+IF @SecondExists <> 1 SET @Ok = 0;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+    SET @Ok = 0;
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Ok = 0
+   RAISERROR ('TEST 25 FAIL [%dms]: second clone should have succeeded once the first was finished', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 25 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: cloning allowed again once the prior clone got a species + photo'
+
+ROLLBACK TRAN CM_Test25
+GO
+
+-- ============================================================================
+-- TEST 26: sp_clone_catch_memo refuses a private memo for a non-owner/non-admin
+-- ============================================================================
+BEGIN TRAN CM_Test26
+    declare @test_name sysname = N'CM_Test26 [sp_clone_catch_memo] : private memo blocked for non-owner, allowed for owner/admin'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Ok bit = 1;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake26    uniqueidentifier = NEWID();
+DECLARE @Owner26   uniqueidentifier = NEWID();
+DECLARE @Other26   uniqueidentifier = NEWID();
+DECLARE @Admin26   uniqueidentifier = NEWID();
+DECLARE @Source26  uniqueidentifier = NEWID();
+DECLARE @CloneA26  uniqueidentifier = NEWID();   -- attempted by non-owner (should fail)
+DECLARE @CloneB26  uniqueidentifier = NEWID();   -- attempted by admin (should succeed)
+
+EXEC dbo.sp_add_catch_memo @id=@Source26, @lake_id=@Lake26, @userid=@Owner26,
+    @species=N'Muskellunge', @private=1;
+
+-- 2. execute unit test
+
+EXEC dbo.sp_clone_catch_memo @source_id=@Source26, @new_id=@CloneA26, @userid=@Other26, @is_admin=0;
+EXEC dbo.sp_clone_catch_memo @source_id=@Source26, @new_id=@CloneB26, @userid=@Admin26, @is_admin=1;
+
+DECLARE @NonOwnerExists bit, @AdminExists bit;
+SET @NonOwnerExists = CASE WHEN EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @CloneA26) THEN 1 ELSE 0 END;
+SET @AdminExists    = CASE WHEN EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @CloneB26) THEN 1 ELSE 0 END;
+
+IF @NonOwnerExists <> 0 OR @AdminExists <> 1 SET @Ok = 0;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+    SET @Ok = 0;
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Ok = 0
+   RAISERROR ('TEST 26 FAIL [%dms]: private memo clone permission check failed', 16, -1, @ElapsedMs)
+ELSE
+    print 'TEST 26 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: private memo blocked for non-owner, allowed for admin'
+
+ROLLBACK TRAN CM_Test26
 GO
