@@ -713,8 +713,11 @@ CREATE TABLE dbo.lake_image
     lake_image_stamp	datetime2 not null
 )
 GO
-CREATE UNIQUE INDEX [UX_lake_image_ownerid] ON lake_image (lake_image_ownerid)
-GO
+-- NOTE: lake_image is many-per-owner (photo gallery) — do NOT re-add a unique index on
+-- lake_image_ownerid. Prod already carries duplicate ownerids and reads via TOP 1
+-- (HandlerImage.ShowImage / BuildImageGallery), and vw_lake joins only the newest
+-- photo per owner (see script01_createView.sql). A unique index here would make a
+-- fresh test/dev DB reject a second photo that prod already allows.
 ALTER TABLE dbo.lake_image ADD CONSTRAINT DEF_lake_image_lake_image_stamp DEFAULT (GETUTCDATE())   FOR lake_image_stamp
 GO
 ALTER TABLE lake_image ADD CONSTRAINT PK_lake_image PRIMARY KEY CLUSTERED (lake_image_id ASC) ON [PRIMARY]

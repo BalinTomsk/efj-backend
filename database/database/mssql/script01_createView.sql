@@ -151,7 +151,10 @@ AS
             JOIN dbo.Tributaries s ON s.main_lake_id = l.lake_id AND s.side = 16    -- only single mouth
             LEFT JOIN dbo.lake mouth  ON mouth.lake_id  = m.lake_id
             LEFT JOIN dbo.lake source ON source.lake_id = s.lake_id
-            LEFT JOIN dbo.lake_image i ON i.lake_image_ownerid = l.lake_id
+            LEFT JOIN dbo.lake_image i ON i.lake_image_id =
+                (SELECT TOP 1 x.lake_image_id FROM dbo.lake_image x
+                  WHERE x.lake_image_ownerid = l.lake_id
+                  ORDER BY x.lake_image_stamp DESC, x.lake_image_id DESC)   -- newest photo only: lake_image is many-per-owner (gallery); a plain ownerid join duplicates every lake with >1 photo
    )x
 GO
 ----------------------------------------------------------------------------------------------------------------------------
