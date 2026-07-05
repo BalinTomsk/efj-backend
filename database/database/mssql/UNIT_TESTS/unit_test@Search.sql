@@ -20,6 +20,7 @@ GO
   TEST 11 - "Ha! Ha! Lake" is NOT matched by "Ha Lake"
   TEST 12 - find: River Lake
   TEST 13 - find: Lac gold
+  TEST 14 - lake with 2 photos in lake_image is NOT duplicated (vw_lake join regression)
 */
 SET NOCOUNT ON;
 
@@ -28,7 +29,8 @@ DECLARE @ElapsedMs int;
 DECLARE @FixtureNames TABLE (n sysname);
 INSERT INTO @FixtureNames (n) VALUES
     (N'test lake'), (N'test river'), (N'Lac test'), (N'test Lac'), (N'test Lake'), (N'Lake test'),
-    (N'Single Lake'), (N'Great Double Lake'), (N'Ha! Ha! Lake'), (N'River Lake'), (N'Lac gold');
+    (N'Single Lake'), (N'Great Double Lake'), (N'Ha! Ha! Lake'), (N'River Lake'), (N'Lac gold'),
+    (N'Test Multi Photo Lake');
 
 BEGIN TRY
     BEGIN TRANSACTION;
@@ -179,6 +181,27 @@ BEGIN TRY
     SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
     IF @R13a = 1 AND @R13b = 1 PRINT 'TEST 13 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: found Lac gold';
     ELSE PRINT 'TEST 13 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: total=' + CAST(@R13a AS varchar) + ' match=' + CAST(@R13b AS varchar);
+
+    -- Regression: vw_lake (which SearchLakeList is built on) must join only the single newest
+    -- lake_image row per owner. lake_image is many-per-owner (photo gallery) — a lake with 2+
+    -- photos previously came back once per photo (e.g. Guelph Lake showed twice in the editor
+    -- search on 2026-07-04). Two photos for one lake here reproduces that exactly.
+    SET @tStart = SYSUTCDATETIME();
+    DELETE FROM lake_image WHERE lake_image_ownerid IN (SELECT lake_id FROM lake JOIN @FixtureNames f ON f.n = lake.lake_name);
+    DELETE t FROM Tributaries t JOIN lake l ON l.lake_id IN (t.lake_id, t.Main_Lake_id) JOIN @FixtureNames f ON f.n = l.lake_name;
+    DELETE l FROM lake l JOIN @FixtureNames f ON f.n = l.lake_name;
+    DECLARE @Lid14 uniqueidentifier = NEWID();
+    INSERT INTO lake (Lake_id, lake_name, locType) VALUES (@Lid14, N'Test Multi Photo Lake', 1);
+    INSERT INTO lake_image (lake_image_ownerid, lake_image_pic, lake_image_source, lake_image_author, lake_image_link, lake_image_hash, lake_image_stamp)
+        VALUES (@Lid14, 0x01, N'src1', N'auth1', N'', CAST(NEWID() AS varbinary(256)), '2026-01-01');
+    INSERT INTO lake_image (lake_image_ownerid, lake_image_pic, lake_image_source, lake_image_author, lake_image_link, lake_image_hash, lake_image_stamp)
+        VALUES (@Lid14, 0x02, N'src2', N'auth2', N'', CAST(NEWID() AS varbinary(256)), '2026-01-02');
+    DECLARE @Tbl14 TABLE (lake_name sysname, locType int);
+    INSERT INTO @Tbl14 (lake_name, locType) SELECT lake_name, locType FROM dbo.SearchLakeList(N'Test Multi Photo Lake');
+    DECLARE @R14 int = (SELECT COUNT(*) FROM @Tbl14);
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @R14 = 1 PRINT 'TEST 14 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: lake with 2 photos returned exactly once (not duplicated)';
+    ELSE PRINT 'TEST 14 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected 1, got ' + CAST(@R14 AS varchar);
 
     ROLLBACK TRANSACTION;
 
