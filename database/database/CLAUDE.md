@@ -138,6 +138,7 @@ Each test is its own named transaction, isolated from every other test in the fi
 test's fixtures/failure can't affect another's) and rolled back at the end of its own
 `GO` batch. See `mssql/UNIT_TESTS/unit_test@CatchMemo.sql` for a full worked example with
 16 tests in this shape.
+Write always unit tests before any bug fix to comfirm the bug, then write unit tests to verify the fix.
 
 ```sql
 BEGIN TRAN TestSpecificCase

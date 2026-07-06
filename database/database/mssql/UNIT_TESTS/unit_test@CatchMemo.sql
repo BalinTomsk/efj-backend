@@ -48,6 +48,10 @@ GO
   TEST 24 - sp_clone_catch_memo refuses a second clone while the first is unfinished
   TEST 25 - cloning is allowed again once the pending clone gets a species + photo
   TEST 26 - sp_clone_catch_memo refuses a private memo for a non-owner, allows owner/admin
+  TEST 27 - fn_catch_memo_list hides an incomplete public memo (no catch date AND no visible
+            photo) from a guest and another user, but still shows it to the author and an admin
+  TEST 28 - fn_catch_memo_list shows a public memo to everyone once it has a catch date OR a
+            non-hidden photo; a public memo whose only photo is hidden and has no date stays hidden
 */
 
 -- ============================================================================
@@ -1220,4 +1224,109 @@ ELSE
     print 'TEST 26 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: private memo blocked for non-owner, allowed for admin'
 
 ROLLBACK TRAN CM_Test26
+GO
+
+-- ============================================================================
+-- TEST 27: fn_catch_memo_list hides an incomplete public memo (no catch date
+--          AND no visible photo) from guests/other users, shows it to author/admin
+-- ============================================================================
+BEGIN TRAN CM_Test27
+    declare @test_name sysname = N'CM_Test27 [fn_catch_memo_list] : incomplete public memo (no date, no photo) is author/admin-only'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @GuestCnt int, @OtherCnt int, @AuthorCnt int, @AdminCnt int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+--    Public memo (private = 0) but a bare stub: no catch date and no photo.
+
+DECLARE @Lake27      uniqueidentifier = NEWID();
+DECLARE @Author27    uniqueidentifier = NEWID();
+DECLARE @OtherUser27 uniqueidentifier = NEWID();
+DECLARE @Admin27     uniqueidentifier = NEWID();
+DECLARE @Memo27      uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo27, @lake_id=@Lake27, @userid=@Author27,
+    @species=N'Northern Pike', @catch_date=NULL, @private=0;
+
+-- 2. execute unit test
+
+SELECT @GuestCnt  = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake27, NULL,         0) WHERE catch_memo_id = @Memo27;
+SELECT @OtherCnt  = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake27, @OtherUser27, 0) WHERE catch_memo_id = @Memo27;
+SELECT @AuthorCnt = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake27, @Author27,    0) WHERE catch_memo_id = @Memo27;
+SELECT @AdminCnt  = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake27, @Admin27,     1) WHERE catch_memo_id = @Memo27;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @GuestCnt <> 0 OR @OtherCnt <> 0 OR @AuthorCnt <> 1 OR @AdminCnt <> 1
+   RAISERROR ('TEST 27 FAIL [%dms]: incomplete public memo visibility wrong (guest=%d other=%d author=%d admin=%d)', 16, -1, @ElapsedMs, @GuestCnt, @OtherCnt, @AuthorCnt, @AdminCnt)
+ELSE
+    print 'TEST 27 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: incomplete public memo hidden from guest/other, visible to author/admin'
+
+ROLLBACK TRAN CM_Test27
+GO
+
+-- ============================================================================
+-- TEST 28: fn_catch_memo_list shows a public memo to everyone once it has a
+--          catch date OR a non-hidden photo; a hidden-only photo + no date stays hidden
+-- ============================================================================
+BEGIN TRAN CM_Test28
+    declare @test_name sysname = N'CM_Test28 [fn_catch_memo_list] : a catch date or a visible photo makes a public memo publicly visible'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @DatedCnt int, @PhotoCnt int, @HiddenOnlyCnt int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake28   uniqueidentifier = NEWID();
+DECLARE @Author28 uniqueidentifier = NEWID();
+
+-- (a) public memo with a catch date but no photo -> visible to a guest
+DECLARE @MemoDated28 uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@MemoDated28, @lake_id=@Lake28, @userid=@Author28,
+    @species=N'Northern Pike', @catch_date='2026-06-29', @private=0;
+
+-- (b) public memo with no date but a non-hidden photo -> visible to a guest
+DECLARE @MemoPhoto28 uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@MemoPhoto28, @lake_id=@Lake28, @userid=@Author28,
+    @species=N'Northern Pike', @catch_date=NULL, @private=0;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@MemoPhoto28, @userid=@Author28, @pic=0x89504E47, @label=N'pike.jpg';
+
+-- (c) public memo with no date whose only photo is hidden -> still hidden from a guest
+DECLARE @MemoHidden28 uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@MemoHidden28, @lake_id=@Lake28, @userid=@Author28,
+    @species=N'Northern Pike', @catch_date=NULL, @private=0;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@MemoHidden28, @userid=@Author28, @pic=0x89504E47, @label=N'hidden.jpg';
+DECLARE @HiddenPhoto28 uniqueidentifier;
+SELECT @HiddenPhoto28 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @MemoHidden28;
+EXEC dbo.sp_del_catch_memo_photo @photo_id=@HiddenPhoto28, @userid=@Author28, @is_admin=0;  -- hides it
+
+-- 2. execute unit test (all as a guest)
+
+SELECT @DatedCnt      = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake28, NULL, 0) WHERE catch_memo_id = @MemoDated28;
+SELECT @PhotoCnt      = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake28, NULL, 0) WHERE catch_memo_id = @MemoPhoto28;
+SELECT @HiddenOnlyCnt = COUNT(*) FROM dbo.fn_catch_memo_list(@Lake28, NULL, 0) WHERE catch_memo_id = @MemoHidden28;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @DatedCnt <> 1 OR @PhotoCnt <> 1 OR @HiddenOnlyCnt <> 0
+   RAISERROR ('TEST 28 FAIL [%dms]: public completeness gate wrong (dated=%d photo=%d hiddenOnly=%d)', 16, -1, @ElapsedMs, @DatedCnt, @PhotoCnt, @HiddenOnlyCnt)
+ELSE
+    print 'TEST 28 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: a catch date or visible photo makes a public memo visible; a hidden-only photo does not'
+
+ROLLBACK TRAN CM_Test28
 GO
