@@ -3774,9 +3774,17 @@ RETURN
           AND m2.catch_memo_weight IS NOT NULL
     ) pb
     WHERE m.catch_memo_lake_id = @lake_id
-      AND ( m.catch_memo_private = 0
-            OR @is_admin = 1
-            OR ( @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id ) )
+      AND ( @is_admin = 1
+            OR ( @viewer_id IS NOT NULL AND m.catch_memo_userid = @viewer_id )
+            -- Everyone else (guests + other logged-in users) sees a memo only when it is
+            -- public AND "complete". An incomplete draft -- no catch date AND no visible
+            -- (non-hidden) photo -- stays visible to its author and admins only, so a bare
+            -- stub that a registered user started but never filled in never shows publicly.
+            OR ( m.catch_memo_private = 0
+                 AND ( m.catch_memo_catch_date IS NOT NULL
+                       OR EXISTS ( SELECT 1 FROM dbo.catch_memo_photo p
+                                   WHERE p.catch_memo_photo_memoid = m.catch_memo_id
+                                     AND p.catch_memo_photo_hidden  = 0 ) ) ) )
 );
 GO
 
