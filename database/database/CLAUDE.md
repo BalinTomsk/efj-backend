@@ -4,6 +4,20 @@ Guidance for Claude Code when changing the database for **any** Fish Find servic
 This folder holds the SQL Server schema (`mssql/`) and the MySQL variant (`mysql/`).
 Everything below is about `mssql/` unless stated otherwise.
 
+## ⚠️ READ THIS FIRST — non-negotiable
+
+**Read this entire `CLAUDE.md` before touching anything in this repo.**
+
+**Test-first for every bug fix — no exceptions:**
+1. **Write a unit test that reproduces the bug FIRST** and run it — it must **FAIL** against the
+   current code. That failing test is your proof the bug is real and understood.
+2. **Only then apply the fix.**
+3. **Write/keep unit test(s) that VERIFY the fix** — they must **PASS** after the change.
+
+A bug fix that ships without a failing-then-passing test is incomplete. This applies to **every
+service and every change** here — see [Writing unit tests](#writing-unit-tests-mssqlunit_testsreadmemd)
+and [Structure unit tests](#structure-unit-tests) for how, and `mssql\UNIT_TESTS\autorun.bat` to run them.
+
 ## Golden rule: never edit the generated file
 
 - **Make all schema changes in the `scriptNN_xxxxxx.sql` source files** under `mssql/`.
@@ -138,7 +152,8 @@ Each test is its own named transaction, isolated from every other test in the fi
 test's fixtures/failure can't affect another's) and rolled back at the end of its own
 `GO` batch. See `mssql/UNIT_TESTS/unit_test@CatchMemo.sql` for a full worked example with
 16 tests in this shape.
-Write always unit tests before any bug fix to comfirm the bug, then write unit tests to verify the fix.
+**Always write unit tests before any bug fix to confirm the bug (the test must FAIL first), then
+write unit tests to verify the fix (they must PASS).** See the top-of-file "READ THIS FIRST" rule.
 If length of unit test file exeed 100K then split to 2 logical parts.
 If execution time if unit test file exeed 1 sec then split to 2 logical parts.
 
