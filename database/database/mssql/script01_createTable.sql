@@ -2702,6 +2702,33 @@ GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+-- catch_memo_photo_like : one row per (photo, user) "like" on a Catch Log photo.
+-- The composite PK gives the binary logic for free -- a user can like a photo at most once; a
+-- second like is a no-op / the toggle removes it (see sp_toggle_catch_memo_photo_like). Rows
+-- cascade away when the photo is physically deleted (admin), which in turn cascades from the memo.
+-- Not registered in merge_table -- like catch_memo / catch_memo_photo, the Catch Log is a
+-- single-node feature and is not part of the peer-to-peer merge set.
+IF OBJECT_ID('dbo.catch_memo_photo_like', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.catch_memo_photo_like
+    (
+        catch_memo_photo_like_photoid UNIQUEIDENTIFIER NOT NULL,   -- dbo.catch_memo_photo.catch_memo_photo_id
+        catch_memo_photo_like_userid  UNIQUEIDENTIFIER NOT NULL,   -- who liked it (Session["user"])
+        catch_memo_photo_like_stamp   DATETIME2        NOT NULL
+            CONSTRAINT DF_catch_memo_photo_like_stamp DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_catch_memo_photo_like
+            PRIMARY KEY (catch_memo_photo_like_photoid, catch_memo_photo_like_userid),
+        CONSTRAINT FK_catch_memo_photo_like_photo FOREIGN KEY (catch_memo_photo_like_photoid)
+            REFERENCES dbo.catch_memo_photo (catch_memo_photo_id) ON DELETE CASCADE
+    );
+    -- Count likes for a given user fast (the "have I liked X?" lookups on gallery render).
+    CREATE INDEX IX_catch_memo_photo_like_user
+        ON dbo.catch_memo_photo_like (catch_memo_photo_like_userid);
+END
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 -- catch_pending_fish : angler-suggested species awaiting admin approval.
 -- A typed (unlisted) species on the catch-memo form is queued here; approval
 -- (page code via dbo.spAddFish) adds it to lake_fish, until then it never

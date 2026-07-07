@@ -3948,6 +3948,59 @@ RETURN
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_photo_gallery' AND xtype = 'IF')
+    DROP function dbo.fn_catch_memo_photo_gallery
+GO
+-- fn_catch_memo_photo_gallery : the gallery for one memo, with per-photo "like" data. This is the
+-- like-aware successor to fn_catch_memo_photo_list (kept for backward compat during rollout):
+--   * like_count   -- total likes on the photo.
+--   * viewer_liked -- 1 when @viewer_id (the logged-in user) has liked it; always 0 for guests.
+--   * GUEST RULE: a guest (@viewer_id IS NULL) receives only the single "best" photo -- the
+--     most-liked one (ties broken by ord, then upload time). A logged-in user gets every
+--     non-hidden photo. (Only logged-in users may like; guests just see the best shot + its count.)
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_photo_gallery
+(
+    @memo_id   UNIQUEIDENTIFIER,
+    @viewer_id UNIQUEIDENTIFIER
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    WITH base AS (
+        SELECT
+            p.catch_memo_photo_id,
+            p.catch_memo_photo_label,
+            p.catch_memo_photo_ord,
+            p.catch_memo_photo_description,
+            p.catch_memo_photo_author,
+            p.catch_memo_photo_stamp,
+            ( SELECT COUNT(*) FROM dbo.catch_memo_photo_like l
+              WHERE l.catch_memo_photo_like_photoid = p.catch_memo_photo_id ) AS like_count,
+            CAST(CASE WHEN @viewer_id IS NOT NULL AND EXISTS (
+                        SELECT 1 FROM dbo.catch_memo_photo_like l2
+                        WHERE l2.catch_memo_photo_like_photoid = p.catch_memo_photo_id
+                          AND l2.catch_memo_photo_like_userid  = @viewer_id )
+                      THEN 1 ELSE 0 END AS BIT) AS viewer_liked,
+            ROW_NUMBER() OVER (
+                ORDER BY ( SELECT COUNT(*) FROM dbo.catch_memo_photo_like l3
+                           WHERE l3.catch_memo_photo_like_photoid = p.catch_memo_photo_id ) DESC,
+                         p.catch_memo_photo_ord ASC,
+                         p.catch_memo_photo_stamp ASC ) AS rn
+        FROM dbo.catch_memo_photo p
+        WHERE p.catch_memo_photo_memoid = @memo_id
+          AND p.catch_memo_photo_hidden = 0
+    )
+    SELECT catch_memo_photo_id, catch_memo_photo_label, catch_memo_photo_ord,
+           catch_memo_photo_description, catch_memo_photo_author, catch_memo_photo_stamp,
+           like_count, viewer_liked
+    FROM base
+    WHERE @viewer_id IS NOT NULL   -- logged-in: all non-hidden photos
+       OR rn = 1                   -- guest: only the single best photo
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_fish_list' AND xtype = 'IF')
     DROP function dbo.fn_lake_fish_list
 GO
