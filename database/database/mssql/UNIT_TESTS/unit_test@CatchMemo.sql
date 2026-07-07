@@ -59,6 +59,12 @@ GO
   TEST 31 - fn_catch_memo_photo_gallery gives a guest (@viewer_id NULL) only the single most-liked
             photo, but a logged-in user every non-hidden photo
   TEST 32 - sp_toggle_catch_memo_photo_like ignores a like on a hidden photo (no row, count stays 0)
+  TEST 33 - sp_add_catch_memo_comment stores a comment and fn_catch_memo_comment_list returns it
+  TEST 34 - sp_add_catch_memo_comment ignores empty/whitespace text and a non-existent memo
+  TEST 35 - sp_del_catch_memo_comment (soft): a non-author/non-admin cannot delete; the author can
+            (the row is KEPT with catch_memo_comment_deleted = 1)
+  TEST 36 - sp_del_catch_memo_comment (soft): an admin can delete another user's comment (row kept,
+            flagged deleted)
 */
 
 -- ============================================================================
@@ -1542,4 +1548,185 @@ ELSE
     print 'TEST 32 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: like on a hidden photo was ignored'
 
 ROLLBACK TRAN CM_Test32
+GO
+
+-- ============================================================================
+-- TEST 33: sp_add_catch_memo_comment stores a comment; fn_catch_memo_comment_list returns it
+-- ============================================================================
+BEGIN TRAN CM_Test33
+    declare @test_name sysname = N'CM_Test33 [sp_add_catch_memo_comment] : stores a comment, listed back'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Cnt int, @Txt nvarchar(2000);
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake33   uniqueidentifier = NEWID();
+DECLARE @Author33 uniqueidentifier = NEWID();
+DECLARE @Poster33 uniqueidentifier = NEWID();
+DECLARE @Memo33   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo33, @lake_id=@Lake33, @userid=@Author33,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+
+-- 2. execute unit test
+
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo33, @userid=@Poster33, @text=N'Nice catch!';
+SELECT @Cnt = COUNT(*) FROM dbo.fn_catch_memo_comment_list(@Memo33);
+SELECT @Txt = catch_memo_comment_text FROM dbo.fn_catch_memo_comment_list(@Memo33);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Cnt <> 1 OR @Txt <> N'Nice catch!'
+   RAISERROR ('TEST 33 FAIL [%dms]: comment not stored/listed (cnt=%d)', 16, -1, @ElapsedMs, @Cnt)
+ELSE
+    print 'TEST 33 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: comment stored and returned by fn_catch_memo_comment_list'
+
+ROLLBACK TRAN CM_Test33
+GO
+
+-- ============================================================================
+-- TEST 34: sp_add_catch_memo_comment ignores empty/whitespace text and unknown memo
+-- ============================================================================
+BEGIN TRAN CM_Test34
+    declare @test_name sysname = N'CM_Test34 [sp_add_catch_memo_comment] : empty text / unknown memo ignored'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @CntMemo int, @CntBogus int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake34   uniqueidentifier = NEWID();
+DECLARE @Author34 uniqueidentifier = NEWID();
+DECLARE @Poster34 uniqueidentifier = NEWID();
+DECLARE @Memo34   uniqueidentifier = NEWID();
+DECLARE @Bogus34  uniqueidentifier = NEWID();   -- a memo id that does not exist
+EXEC dbo.sp_add_catch_memo @id=@Memo34, @lake_id=@Lake34, @userid=@Author34,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+
+-- 2. execute unit test
+
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo34, @userid=@Poster34, @text=N'   ';   -- whitespace only
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo34, @userid=@Poster34, @text=NULL;      -- null
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Bogus34, @userid=@Poster34, @text=N'hi';    -- unknown memo
+SELECT @CntMemo  = COUNT(*) FROM dbo.fn_catch_memo_comment_list(@Memo34);
+SELECT @CntBogus = COUNT(*) FROM dbo.fn_catch_memo_comment_list(@Bogus34);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @CntMemo <> 0 OR @CntBogus <> 0
+   RAISERROR ('TEST 34 FAIL [%dms]: empty/unknown comment was stored (memo=%d bogus=%d)', 16, -1, @ElapsedMs, @CntMemo, @CntBogus)
+ELSE
+    print 'TEST 34 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: empty/whitespace text and unknown memo were ignored'
+
+ROLLBACK TRAN CM_Test34
+GO
+
+-- ============================================================================
+-- TEST 35: sp_del_catch_memo_comment -- non-author/non-admin blocked, author allowed
+-- ============================================================================
+BEGIN TRAN CM_Test35
+    declare @test_name sysname = N'CM_Test35 [sp_del_catch_memo_comment] : soft-delete -- only author (or admin) may delete'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @DelAfterOther int, @DelAfterAuthor int, @RowsAfter int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake35   uniqueidentifier = NEWID();
+DECLARE @MemoOwn35 uniqueidentifier = NEWID();
+DECLARE @Poster35 uniqueidentifier = NEWID();
+DECLARE @Other35  uniqueidentifier = NEWID();
+DECLARE @Memo35   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo35, @lake_id=@Lake35, @userid=@MemoOwn35,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo35, @userid=@Poster35, @text=N'my comment';
+DECLARE @Comment35 uniqueidentifier;
+SELECT @Comment35 = catch_memo_comment_id FROM dbo.fn_catch_memo_comment_list(@Memo35);
+
+-- 2. execute unit test (soft-delete keeps the row; assert the deleted flag, not row count)
+
+EXEC dbo.sp_del_catch_memo_comment @comment_id=@Comment35, @userid=@Other35, @is_admin=0;   -- not author, not admin -> no-op
+SELECT @DelAfterOther = CAST(catch_memo_comment_deleted AS int) FROM dbo.fn_catch_memo_comment_list(@Memo35);
+EXEC dbo.sp_del_catch_memo_comment @comment_id=@Comment35, @userid=@Poster35, @is_admin=0;  -- author -> soft-deletes
+SELECT @DelAfterAuthor = CAST(catch_memo_comment_deleted AS int) FROM dbo.fn_catch_memo_comment_list(@Memo35);
+SELECT @RowsAfter = COUNT(*) FROM dbo.fn_catch_memo_comment_list(@Memo35);   -- row is KEPT
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @DelAfterOther <> 0 OR @DelAfterAuthor <> 1 OR @RowsAfter <> 1
+   RAISERROR ('TEST 35 FAIL [%dms]: soft-delete perms wrong (delOther=%d delAuthor=%d rows=%d)', 16, -1, @ElapsedMs, @DelAfterOther, @DelAfterAuthor, @RowsAfter)
+ELSE
+    print 'TEST 35 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: non-author/non-admin blocked; author soft-deleted (row kept, flagged)'
+
+ROLLBACK TRAN CM_Test35
+GO
+
+-- ============================================================================
+-- TEST 36: sp_del_catch_memo_comment -- an admin can delete another user's comment
+-- ============================================================================
+BEGIN TRAN CM_Test36
+    declare @test_name sysname = N'CM_Test36 [sp_del_catch_memo_comment] : admin deletes another user''s comment'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @DelFlag int, @RowsAfter int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake36   uniqueidentifier = NEWID();
+DECLARE @Owner36  uniqueidentifier = NEWID();
+DECLARE @Poster36 uniqueidentifier = NEWID();
+DECLARE @Admin36  uniqueidentifier = NEWID();
+DECLARE @Memo36   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo36, @lake_id=@Lake36, @userid=@Owner36,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo36, @userid=@Poster36, @text=N'to be moderated';
+DECLARE @Comment36 uniqueidentifier;
+SELECT @Comment36 = catch_memo_comment_id FROM dbo.fn_catch_memo_comment_list(@Memo36);
+
+-- 2. execute unit test (soft-delete: row kept, flagged)
+
+EXEC dbo.sp_del_catch_memo_comment @comment_id=@Comment36, @userid=@Admin36, @is_admin=1;   -- admin moderates another's
+SELECT @DelFlag   = CAST(catch_memo_comment_deleted AS int) FROM dbo.fn_catch_memo_comment_list(@Memo36);
+SELECT @RowsAfter = COUNT(*) FROM dbo.fn_catch_memo_comment_list(@Memo36);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @DelFlag <> 1 OR @RowsAfter <> 1
+   RAISERROR ('TEST 36 FAIL [%dms]: admin soft-delete wrong (delFlag=%d rows=%d)', 16, -1, @ElapsedMs, @DelFlag, @RowsAfter)
+ELSE
+    print 'TEST 36 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: admin soft-deleted another user''s comment (row kept, flagged)'
+
+ROLLBACK TRAN CM_Test36
 GO

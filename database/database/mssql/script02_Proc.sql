@@ -3623,6 +3623,68 @@ GO
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_memo_comment' AND type = 'P')
+    DROP PROCEDURE dbo.sp_add_catch_memo_comment
+GO
+-- sp_add_catch_memo_comment : any logged-in user posts a comment to a memo's discussion. No
+-- author/lock check (discussion is open to all registered users); empty text and non-existent memos
+-- are ignored. Returns the created row (id, text, created, author name) so HandlerComment.ashx can
+-- echo it straight back to the page without a re-query.
+CREATE OR ALTER PROCEDURE dbo.sp_add_catch_memo_comment
+    @memo_id UNIQUEIDENTIFIER,
+    @userid  UNIQUEIDENTIFIER,
+    @text    NVARCHAR(2000)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @text IS NULL OR LEN(LTRIM(RTRIM(@text))) = 0 RETURN;
+    IF NOT EXISTS (SELECT 1 FROM dbo.catch_memo WHERE catch_memo_id = @memo_id) RETURN;
+
+    DECLARE @new_id UNIQUEIDENTIFIER;
+    EXEC dbo.sp_NewGuidV7 @new_id OUTPUT;
+
+    INSERT INTO dbo.catch_memo_comment
+        (catch_memo_comment_id, catch_memo_comment_memoid, catch_memo_comment_userid, catch_memo_comment_text)
+    VALUES (@new_id, @memo_id, @userid, LTRIM(RTRIM(@text)));
+
+    SELECT
+        c.catch_memo_comment_id,
+        c.catch_memo_comment_text,
+        c.catch_memo_comment_created,
+        u.userName AS catch_memo_comment_user_name
+    FROM dbo.catch_memo_comment c
+    LEFT JOIN dbo.Users u ON u.id = c.catch_memo_comment_userid
+    WHERE c.catch_memo_comment_id = @new_id;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_del_catch_memo_comment' AND type = 'P')
+    DROP PROCEDURE dbo.sp_del_catch_memo_comment
+GO
+-- sp_del_catch_memo_comment : SOFT-delete a single comment (the row and its text are kept). The
+-- comment's own author may delete it; admins may delete any (moderation). Everyone else is a no-op.
+-- The kept text lets an admin still see what was said (rendered struck-through); non-admins just
+-- see the word "deleted". Already-deleted comments are a clean no-op.
+CREATE OR ALTER PROCEDURE dbo.sp_del_catch_memo_comment
+    @comment_id UNIQUEIDENTIFIER,
+    @userid     UNIQUEIDENTIFIER,
+    @is_admin   BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE dbo.catch_memo_comment
+    SET catch_memo_comment_deleted = 1
+    WHERE catch_memo_comment_id = @comment_id
+      AND catch_memo_comment_deleted = 0
+      AND ( @is_admin = 1 OR catch_memo_comment_userid = @userid );
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_pending_fish' AND type = 'P')
     DROP PROCEDURE dbo.sp_add_catch_pending_fish
 GO
