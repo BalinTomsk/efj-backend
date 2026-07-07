@@ -4001,6 +4001,32 @@ RETURN
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_comment_list' AND xtype = 'IF')
+    DROP function dbo.fn_catch_memo_comment_list
+GO
+-- fn_catch_memo_comment_list : the discussion thread for one memo (oldest-first is applied by the
+-- caller's ORDER BY). Returns each comment with its author's display name. Visible to everyone,
+-- including guests -- posting is gated, reading is not.
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_comment_list (@memo_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        c.catch_memo_comment_id,
+        c.catch_memo_comment_memoid,
+        c.catch_memo_comment_userid,
+        c.catch_memo_comment_text,
+        c.catch_memo_comment_created,
+        c.catch_memo_comment_deleted,
+        u.userName AS catch_memo_comment_user_name
+    FROM dbo.catch_memo_comment c
+    LEFT JOIN dbo.Users u ON u.id = c.catch_memo_comment_userid
+    WHERE c.catch_memo_comment_memoid = @memo_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_fish_list' AND xtype = 'IF')
     DROP function dbo.fn_lake_fish_list
 GO

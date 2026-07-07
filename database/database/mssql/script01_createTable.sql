@@ -2729,6 +2729,43 @@ GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+-- catch_memo_comment : the discussion thread under a Catch Log memo. Any logged-in user may post
+-- (see sp_add_catch_memo_comment); guests read only. A comment is deleted by its own author or an
+-- admin (sp_del_catch_memo_comment). Rows cascade away with the memo. Not in merge_table -- like the
+-- rest of the Catch Log, this is a single-node feature.
+IF OBJECT_ID('dbo.catch_memo_comment', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.catch_memo_comment
+    (
+        -- UNIQUEIDENTIFIER (v7 via sp_NewGuidV7 in the add proc), not IDENTITY -- same peer-to-peer
+        -- replication reasoning as catch_memo_photo_id (see database/CLAUDE.md).
+        catch_memo_comment_id      UNIQUEIDENTIFIER NOT NULL
+            CONSTRAINT PK_catch_memo_comment PRIMARY KEY,
+        catch_memo_comment_memoid  UNIQUEIDENTIFIER NOT NULL,   -- dbo.catch_memo.catch_memo_id
+        catch_memo_comment_userid  UNIQUEIDENTIFIER NOT NULL,   -- author (Session["user"])
+        catch_memo_comment_text    NVARCHAR(2000)   NOT NULL,   -- the message
+        catch_memo_comment_created DATETIME2        NOT NULL
+            CONSTRAINT DF_catch_memo_comment_created DEFAULT SYSUTCDATETIME(),
+        -- Soft delete: a "deleted" comment keeps its row. Non-admins see the word "deleted" in
+        -- place of the text; admins see the original text struck through (render-side, in
+        -- AppendComment). sp_del_catch_memo_comment flips this rather than physically deleting.
+        catch_memo_comment_deleted BIT              NOT NULL
+            CONSTRAINT DF_catch_memo_comment_deleted DEFAULT 0,
+        CONSTRAINT FK_catch_memo_comment_memo FOREIGN KEY (catch_memo_comment_memoid)
+            REFERENCES dbo.catch_memo (catch_memo_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_catch_memo_comment_memo
+        ON dbo.catch_memo_comment (catch_memo_comment_memoid, catch_memo_comment_created);
+END
+GO
+-- Upgrade an existing catch_memo_comment in place (idempotent): add the soft-delete flag.
+IF COL_LENGTH('dbo.catch_memo_comment', 'catch_memo_comment_deleted') IS NULL
+    ALTER TABLE dbo.catch_memo_comment ADD catch_memo_comment_deleted BIT NOT NULL
+        CONSTRAINT DF_catch_memo_comment_deleted DEFAULT 0;
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 -- catch_pending_fish : angler-suggested species awaiting admin approval.
 -- A typed (unlisted) species on the catch-memo form is queued here; approval
 -- (page code via dbo.spAddFish) adds it to lake_fish, until then it never
