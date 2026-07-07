@@ -2766,6 +2766,62 @@ GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+-- Private user-to-user messaging (inbox + block + anti-spam send ban). Three tables, all keyed by
+-- dbo.Users.id (no FK -- same convention as catch_memo, which LEFT JOINs Users). Not in merge_table
+-- (single-node feature).
+--
+--   user_message       : one row per message (from -> to), with a per-message read flag.
+--   user_message_block : a RECIPIENT (userid) blocks a SENDER (blockedid) from messaging them.
+--   user_send_ban      : an account-level send ban -- set automatically once a user has sent > 50
+--                        messages (anti-spam); cleared by an admin (sp_admin_unban_user).
+IF OBJECT_ID('dbo.user_message', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.user_message
+    (
+        -- v7 guid via sp_NewGuidV7 in sp_send_user_message (same peer-to-peer reasoning as elsewhere).
+        user_message_id      UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_user_message PRIMARY KEY,
+        user_message_from    UNIQUEIDENTIFIER NOT NULL,   -- sender (Users.id)
+        user_message_to      UNIQUEIDENTIFIER NOT NULL,   -- recipient (Users.id)
+        user_message_text    NVARCHAR(2000)   NOT NULL,
+        user_message_created DATETIME2        NOT NULL
+            CONSTRAINT DF_user_message_created DEFAULT SYSUTCDATETIME(),
+        user_message_read    BIT              NOT NULL
+            CONSTRAINT DF_user_message_read DEFAULT 0
+    );
+    CREATE INDEX IX_user_message_to
+        ON dbo.user_message (user_message_to, user_message_read, user_message_created DESC);
+    CREATE INDEX IX_user_message_from ON dbo.user_message (user_message_from);
+END
+GO
+
+IF OBJECT_ID('dbo.user_message_block', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.user_message_block
+    (
+        user_message_block_userid    UNIQUEIDENTIFIER NOT NULL,   -- the recipient doing the blocking
+        user_message_block_blockedid UNIQUEIDENTIFIER NOT NULL,   -- the sender being blocked
+        user_message_block_created   DATETIME2 NOT NULL
+            CONSTRAINT DF_user_message_block_created DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_user_message_block
+            PRIMARY KEY (user_message_block_userid, user_message_block_blockedid)
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.user_send_ban', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.user_send_ban
+    (
+        user_send_ban_userid  UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_user_send_ban PRIMARY KEY,
+        user_send_ban_created DATETIME2 NOT NULL
+            CONSTRAINT DF_user_send_ban_created DEFAULT SYSUTCDATETIME(),
+        user_send_ban_reason  NVARCHAR(200) NULL
+    );
+END
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 -- catch_pending_fish : angler-suggested species awaiting admin approval.
 -- A typed (unlisted) species on the catch-memo form is queued here; approval
 -- (page code via dbo.spAddFish) adds it to lake_fish, until then it never

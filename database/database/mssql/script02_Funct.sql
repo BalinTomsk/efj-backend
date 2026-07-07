@@ -4027,6 +4027,58 @@ RETURN
 GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_user_message_inbox' AND xtype = 'IF')
+    DROP function dbo.fn_user_message_inbox
+GO
+-- fn_user_message_inbox : the messages RECEIVED by @userid, with the sender's display name and
+-- whether @userid has already blocked that sender (so the UI can show Block vs Unblock). The caller
+-- orders newest-first.
+CREATE OR ALTER FUNCTION dbo.fn_user_message_inbox (@userid UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        m.user_message_id,
+        m.user_message_from,
+        m.user_message_to,
+        m.user_message_text,
+        m.user_message_created,
+        m.user_message_read,
+        u.userName AS user_message_from_name,
+        CAST(CASE WHEN b.user_message_block_blockedid IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS sender_blocked
+    FROM dbo.user_message m
+    LEFT JOIN dbo.Users u ON u.id = m.user_message_from
+    LEFT JOIN dbo.user_message_block b
+           ON b.user_message_block_userid = @userid
+          AND b.user_message_block_blockedid = m.user_message_from
+    WHERE m.user_message_to = @userid
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- fn_user_message_unread_count : how many unread messages @userid has (for a badge / heading).
+CREATE OR ALTER FUNCTION dbo.fn_user_message_unread_count (@userid UNIQUEIDENTIFIER)
+RETURNS INT
+AS
+BEGIN
+    RETURN (SELECT COUNT(*) FROM dbo.user_message
+            WHERE user_message_to = @userid AND user_message_read = 0);
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- fn_user_is_send_banned : 1 when @userid holds an account-level send ban (the >50 anti-spam ban).
+CREATE OR ALTER FUNCTION dbo.fn_user_is_send_banned (@userid UNIQUEIDENTIFIER)
+RETURNS BIT
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM dbo.user_send_ban WHERE user_send_ban_userid = @userid)
+                THEN 1 ELSE 0 END;
+END
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_fish_list' AND xtype = 'IF')
     DROP function dbo.fn_lake_fish_list
 GO

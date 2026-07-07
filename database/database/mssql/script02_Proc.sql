@@ -3684,6 +3684,162 @@ END
 GO
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+--  Private user-to-user messaging
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_send_user_message' AND type = 'P')
+    DROP PROCEDURE dbo.sp_send_user_message
+GO
+-- sp_send_user_message : deliver a private message from @from to a recipient (given by @to_id, or
+-- resolved from @to_name). Returns a single row (status, banned):
+--   status = 'sent'         -- delivered
+--          | 'banned'       -- @from holds an account send ban (the >50 anti-spam ban): nothing sent
+--          | 'blocked'      -- the recipient has blocked @from
+--          | 'no_recipient' -- @to_name/@to_id doesn't resolve to a live user
+--          | 'self'         -- can't message yourself
+--          | 'empty'        -- blank text
+--   banned = 1 when THIS send pushed @from over 50 messages and auto-banned the account.
+CREATE OR ALTER PROCEDURE dbo.sp_send_user_message
+    @from    UNIQUEIDENTIFIER,
+    @text    NVARCHAR(2000),
+    @to_id   UNIQUEIDENTIFIER = NULL,
+    @to_name NVARCHAR(64)     = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @to UNIQUEIDENTIFIER = NULL;
+
+    IF EXISTS (SELECT 1 FROM dbo.user_send_ban WHERE user_send_ban_userid = @from)
+    BEGIN
+        SELECT 'banned' AS status, CAST(1 AS BIT) AS banned; RETURN;
+    END
+    IF @text IS NULL OR LEN(LTRIM(RTRIM(@text))) = 0
+    BEGIN
+        SELECT 'empty' AS status, CAST(0 AS BIT) AS banned; RETURN;
+    END
+
+    -- resolve the recipient (id wins; otherwise by unique userName), live users only
+    IF @to_id IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.Users WHERE id = @to_id AND deleted = 0)
+        SET @to = @to_id;
+    ELSE IF @to_name IS NOT NULL
+        SELECT TOP 1 @to = id FROM dbo.Users WHERE userName = @to_name AND deleted = 0;
+
+    IF @to IS NULL
+    BEGIN
+        SELECT 'no_recipient' AS status, CAST(0 AS BIT) AS banned; RETURN;
+    END
+    IF @to = @from
+    BEGIN
+        SELECT 'self' AS status, CAST(0 AS BIT) AS banned; RETURN;
+    END
+    IF EXISTS (SELECT 1 FROM dbo.user_message_block
+               WHERE user_message_block_userid = @to AND user_message_block_blockedid = @from)
+    BEGIN
+        SELECT 'blocked' AS status, CAST(0 AS BIT) AS banned; RETURN;
+    END
+
+    DECLARE @id UNIQUEIDENTIFIER;
+    EXEC dbo.sp_NewGuidV7 @id OUTPUT;
+    INSERT INTO dbo.user_message (user_message_id, user_message_from, user_message_to, user_message_text)
+    VALUES (@id, @from, @to, LTRIM(RTRIM(@text)));
+
+    -- Anti-spam: once a user has sent MORE THAN 50 messages, ban the account from sending further.
+    -- (The message that tips it over 50 is still delivered; the next attempt returns 'banned'.)
+    DECLARE @banned BIT = 0;
+    IF (SELECT COUNT(*) FROM dbo.user_message WHERE user_message_from = @from) > 50
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM dbo.user_send_ban WHERE user_send_ban_userid = @from)
+            INSERT INTO dbo.user_send_ban (user_send_ban_userid, user_send_ban_reason)
+            VALUES (@from, N'auto: over 50 messages sent');
+        SET @banned = 1;
+    END
+
+    SELECT 'sent' AS status, @banned AS banned;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_block_user_sender' AND type = 'P')
+    DROP PROCEDURE dbo.sp_block_user_sender
+GO
+-- sp_block_user_sender : the recipient @userid blocks @blockedid from sending them messages
+-- (idempotent; can't block yourself).
+CREATE OR ALTER PROCEDURE dbo.sp_block_user_sender
+    @userid    UNIQUEIDENTIFIER,
+    @blockedid UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @userid = @blockedid RETURN;
+    IF NOT EXISTS (SELECT 1 FROM dbo.user_message_block
+                   WHERE user_message_block_userid = @userid AND user_message_block_blockedid = @blockedid)
+        INSERT INTO dbo.user_message_block (user_message_block_userid, user_message_block_blockedid)
+        VALUES (@userid, @blockedid);
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_unblock_user_sender' AND type = 'P')
+    DROP PROCEDURE dbo.sp_unblock_user_sender
+GO
+-- sp_unblock_user_sender : the recipient @userid lifts their block on @blockedid.
+CREATE OR ALTER PROCEDURE dbo.sp_unblock_user_sender
+    @userid    UNIQUEIDENTIFIER,
+    @blockedid UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DELETE FROM dbo.user_message_block
+    WHERE user_message_block_userid = @userid AND user_message_block_blockedid = @blockedid;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_mark_user_messages_read' AND type = 'P')
+    DROP PROCEDURE dbo.sp_mark_user_messages_read
+GO
+-- sp_mark_user_messages_read : mark all of @userid's received messages as read (called when they
+-- open their inbox).
+CREATE OR ALTER PROCEDURE dbo.sp_mark_user_messages_read
+    @userid UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE dbo.user_message SET user_message_read = 1
+    WHERE user_message_to = @userid AND user_message_read = 0;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_admin_unban_user' AND type = 'P')
+    DROP PROCEDURE dbo.sp_admin_unban_user
+GO
+-- sp_admin_unban_user : lift an account send ban (admin-only -- HandlerMessage.ashx checks
+-- DbLayer.IsAdminUser before calling). Target given by @userid or resolved from @name. Returns a
+-- single row (status = 'unbanned' | 'no_user').
+CREATE OR ALTER PROCEDURE dbo.sp_admin_unban_user
+    @userid UNIQUEIDENTIFIER = NULL,
+    @name   NVARCHAR(64)     = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @u UNIQUEIDENTIFIER = @userid;
+    IF @u IS NULL AND @name IS NOT NULL
+        SELECT TOP 1 @u = id FROM dbo.Users WHERE userName = @name AND deleted = 0;
+
+    IF @u IS NULL
+    BEGIN
+        SELECT 'no_user' AS status; RETURN;
+    END
+    DELETE FROM dbo.user_send_ban WHERE user_send_ban_userid = @u;
+    SELECT 'unbanned' AS status;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_pending_fish' AND type = 'P')
     DROP PROCEDURE dbo.sp_add_catch_pending_fish
