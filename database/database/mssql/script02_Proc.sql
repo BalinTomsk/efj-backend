@@ -3577,6 +3577,52 @@ GO
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_toggle_catch_memo_photo_like' AND type = 'P')
+    DROP PROCEDURE dbo.sp_toggle_catch_memo_photo_like
+GO
+-- sp_toggle_catch_memo_photo_like : a logged-in user likes / unlikes a Catch Log photo (binary
+-- toggle). Any authenticated user may like any visible photo (no author/lock check -- likes are
+-- public appreciation, not editing). A like on a hidden or non-existent photo is ignored. Returns a
+-- single row (liked, like_count) reflecting the NEW state, which the HandlerLike.ashx endpoint
+-- echoes back to the page as JSON.
+CREATE OR ALTER PROCEDURE dbo.sp_toggle_catch_memo_photo_like
+    @photo_id UNIQUEIDENTIFIER,
+    @userid   UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @liked BIT = 0;
+
+    IF EXISTS (SELECT 1 FROM dbo.catch_memo_photo
+               WHERE catch_memo_photo_id = @photo_id AND catch_memo_photo_hidden = 0)
+    BEGIN
+        IF EXISTS (SELECT 1 FROM dbo.catch_memo_photo_like
+                   WHERE catch_memo_photo_like_photoid = @photo_id
+                     AND catch_memo_photo_like_userid  = @userid)
+        BEGIN
+            DELETE FROM dbo.catch_memo_photo_like
+            WHERE catch_memo_photo_like_photoid = @photo_id
+              AND catch_memo_photo_like_userid  = @userid;
+            SET @liked = 0;
+        END
+        ELSE
+        BEGIN
+            INSERT INTO dbo.catch_memo_photo_like (catch_memo_photo_like_photoid, catch_memo_photo_like_userid)
+            VALUES (@photo_id, @userid);
+            SET @liked = 1;
+        END
+    END
+
+    SELECT
+        @liked AS liked,
+        ( SELECT COUNT(*) FROM dbo.catch_memo_photo_like
+          WHERE catch_memo_photo_like_photoid = @photo_id ) AS like_count;
+END
+GO
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_add_catch_pending_fish' AND type = 'P')
     DROP PROCEDURE dbo.sp_add_catch_pending_fish
 GO

@@ -52,6 +52,13 @@ GO
             photo) from a guest and another user, but still shows it to the author and an admin
   TEST 28 - fn_catch_memo_list shows a public memo to everyone once it has a catch date OR a
             non-hidden photo; a public memo whose only photo is hidden and has no date stays hidden
+  TEST 29 - sp_toggle_catch_memo_photo_like likes a photo, then a second call unlikes it (binary);
+            the returned like_count follows
+  TEST 30 - fn_catch_memo_photo_gallery reports viewer_liked=1 for the user who liked and 0 for
+            another user, with a shared like_count
+  TEST 31 - fn_catch_memo_photo_gallery gives a guest (@viewer_id NULL) only the single most-liked
+            photo, but a logged-in user every non-hidden photo
+  TEST 32 - sp_toggle_catch_memo_photo_like ignores a like on a hidden photo (no row, count stays 0)
 */
 
 -- ============================================================================
@@ -1329,4 +1336,210 @@ ELSE
     print 'TEST 28 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: a catch date or visible photo makes a public memo visible; a hidden-only photo does not'
 
 ROLLBACK TRAN CM_Test28
+GO
+
+-- ============================================================================
+-- TEST 29: sp_toggle_catch_memo_photo_like likes then unlikes (binary toggle)
+-- ============================================================================
+BEGIN TRAN CM_Test29
+    declare @test_name sysname = N'CM_Test29 [sp_toggle_catch_memo_photo_like] : like then unlike, count follows'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Liked1 int, @Cnt1 int, @Liked2 int, @Cnt2 int;   -- int (not bit): RAISERROR %d args must not be bit
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake29   uniqueidentifier = NEWID();
+DECLARE @Author29 uniqueidentifier = NEWID();
+DECLARE @Liker29  uniqueidentifier = NEWID();
+DECLARE @Memo29   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo29, @lake_id=@Lake29, @userid=@Author29,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo29, @userid=@Author29, @pic=0x89504E47, @label=N'p.jpg';
+DECLARE @Photo29 uniqueidentifier;
+SELECT @Photo29 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo29;
+
+-- 2. execute unit test (capture each toggle's returned row via INSERT..EXEC)
+
+CREATE TABLE #r29 (liked bit, like_count int);
+INSERT INTO #r29 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@Photo29, @userid=@Liker29;  -- like
+SELECT @Liked1 = liked, @Cnt1 = like_count FROM #r29;
+DELETE FROM #r29;
+INSERT INTO #r29 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@Photo29, @userid=@Liker29;  -- unlike
+SELECT @Liked2 = liked, @Cnt2 = like_count FROM #r29;
+DROP TABLE #r29;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Liked1 <> 1 OR @Cnt1 <> 1 OR @Liked2 <> 0 OR @Cnt2 <> 0
+   RAISERROR ('TEST 29 FAIL [%dms]: toggle wrong (liked1=%d cnt1=%d liked2=%d cnt2=%d)', 16, -1, @ElapsedMs, @Liked1, @Cnt1, @Liked2, @Cnt2)
+ELSE
+    print 'TEST 29 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: like set count to 1, unlike cleared it to 0'
+
+ROLLBACK TRAN CM_Test29
+GO
+
+-- ============================================================================
+-- TEST 30: fn_catch_memo_photo_gallery viewer_liked reflects the specific viewer
+-- ============================================================================
+BEGIN TRAN CM_Test30
+    declare @test_name sysname = N'CM_Test30 [fn_catch_memo_photo_gallery] : viewer_liked is per-viewer, like_count shared'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @LikerVL int, @LikerCnt int, @OtherVL int, @OtherCnt int;   -- int (not bit): RAISERROR %d args must not be bit
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake30   uniqueidentifier = NEWID();
+DECLARE @Author30 uniqueidentifier = NEWID();
+DECLARE @Liker30  uniqueidentifier = NEWID();
+DECLARE @Other30  uniqueidentifier = NEWID();
+DECLARE @Memo30   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo30, @lake_id=@Lake30, @userid=@Author30,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo30, @userid=@Author30, @pic=0x89504E47, @label=N'p.jpg';
+DECLARE @Photo30 uniqueidentifier;
+SELECT @Photo30 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo30;
+
+CREATE TABLE #r30 (liked bit, like_count int);
+INSERT INTO #r30 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@Photo30, @userid=@Liker30;  -- Liker likes it
+DROP TABLE #r30;
+
+-- 2. execute unit test
+
+SELECT @LikerVL = viewer_liked, @LikerCnt = like_count
+FROM dbo.fn_catch_memo_photo_gallery(@Memo30, @Liker30) WHERE catch_memo_photo_id = @Photo30;
+SELECT @OtherVL = viewer_liked, @OtherCnt = like_count
+FROM dbo.fn_catch_memo_photo_gallery(@Memo30, @Other30) WHERE catch_memo_photo_id = @Photo30;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @LikerVL <> 1 OR @LikerCnt <> 1 OR @OtherVL <> 0 OR @OtherCnt <> 1
+   RAISERROR ('TEST 30 FAIL [%dms]: viewer_liked/like_count wrong (likerVL=%d likerCnt=%d otherVL=%d otherCnt=%d)', 16, -1, @ElapsedMs, @LikerVL, @LikerCnt, @OtherVL, @OtherCnt)
+ELSE
+    print 'TEST 30 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: viewer_liked is per-viewer; like_count is shared'
+
+ROLLBACK TRAN CM_Test30
+GO
+
+-- ============================================================================
+-- TEST 31: fn_catch_memo_photo_gallery -- guest gets only the best photo,
+--          a logged-in user gets every non-hidden photo
+-- ============================================================================
+BEGIN TRAN CM_Test31
+    declare @test_name sysname = N'CM_Test31 [fn_catch_memo_photo_gallery] : guest sees best photo only, member sees all'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @GuestCnt int, @GuestBest uniqueidentifier, @MemberCnt int, @BestIsB int;
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test: two photos; PhotoB gets 2 likes, PhotoA gets 1 -> B is "best".
+
+DECLARE @Lake31   uniqueidentifier = NEWID();
+DECLARE @Author31 uniqueidentifier = NEWID();
+DECLARE @U1_31    uniqueidentifier = NEWID();
+DECLARE @U2_31    uniqueidentifier = NEWID();
+DECLARE @Memo31   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo31, @lake_id=@Lake31, @userid=@Author31,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo31, @userid=@Author31, @pic=0x89504E47, @label=N'A.jpg', @ord=0;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo31, @userid=@Author31, @pic=0x89504E48, @label=N'B.jpg', @ord=1;
+DECLARE @PhotoA31 uniqueidentifier, @PhotoB31 uniqueidentifier;
+SELECT @PhotoA31 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid=@Memo31 AND catch_memo_photo_label=N'A.jpg';
+SELECT @PhotoB31 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid=@Memo31 AND catch_memo_photo_label=N'B.jpg';
+
+CREATE TABLE #r31 (liked bit, like_count int);
+INSERT INTO #r31 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@PhotoB31, @userid=@U1_31;
+DELETE FROM #r31;
+INSERT INTO #r31 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@PhotoB31, @userid=@U2_31;
+DELETE FROM #r31;
+INSERT INTO #r31 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@PhotoA31, @userid=@U1_31;
+DROP TABLE #r31;
+
+-- 2. execute unit test
+
+SELECT @GuestCnt = COUNT(*) FROM dbo.fn_catch_memo_photo_gallery(@Memo31, NULL);
+SELECT @GuestBest = catch_memo_photo_id FROM dbo.fn_catch_memo_photo_gallery(@Memo31, NULL);
+SELECT @MemberCnt = COUNT(*) FROM dbo.fn_catch_memo_photo_gallery(@Memo31, @U1_31);
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+SET @BestIsB = CASE WHEN @GuestBest = @PhotoB31 THEN 1 ELSE 0 END;   -- precomputed: RAISERROR args must be simple, not expressions
+IF @GuestCnt <> 1 OR @GuestBest <> @PhotoB31 OR @MemberCnt <> 2
+   RAISERROR ('TEST 31 FAIL [%dms]: guest/member gallery wrong (guestCnt=%d memberCnt=%d bestIsB=%d)', 16, -1, @ElapsedMs, @GuestCnt, @MemberCnt, @BestIsB)
+ELSE
+    print 'TEST 31 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: guest got only the most-liked photo; member got both'
+
+ROLLBACK TRAN CM_Test31
+GO
+
+-- ============================================================================
+-- TEST 32: sp_toggle_catch_memo_photo_like ignores a like on a hidden photo
+-- ============================================================================
+BEGIN TRAN CM_Test32
+    declare @test_name sysname = N'CM_Test32 [sp_toggle_catch_memo_photo_like] : like on a hidden photo is ignored'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Liked int, @Cnt int, @Rows int;   -- int (not bit): RAISERROR %d args must not be bit
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test: add a photo, then hide it (non-admin soft delete).
+
+DECLARE @Lake32   uniqueidentifier = NEWID();
+DECLARE @Author32 uniqueidentifier = NEWID();
+DECLARE @Liker32  uniqueidentifier = NEWID();
+DECLARE @Memo32   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo32, @lake_id=@Lake32, @userid=@Author32,
+    @species=N'Northern Pike', @catch_date='2026-06-29';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo32, @userid=@Author32, @pic=0x89504E47, @label=N'p.jpg';
+DECLARE @Photo32 uniqueidentifier;
+SELECT @Photo32 = catch_memo_photo_id FROM dbo.catch_memo_photo WHERE catch_memo_photo_memoid = @Memo32;
+EXEC dbo.sp_del_catch_memo_photo @photo_id=@Photo32, @userid=@Author32, @is_admin=0;  -- hides it
+
+-- 2. execute unit test
+
+CREATE TABLE #r32 (liked bit, like_count int);
+INSERT INTO #r32 EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@Photo32, @userid=@Liker32;
+SELECT @Liked = liked, @Cnt = like_count FROM #r32;
+DROP TABLE #r32;
+SELECT @Rows = COUNT(*) FROM dbo.catch_memo_photo_like WHERE catch_memo_photo_like_photoid = @Photo32;
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Liked <> 0 OR @Cnt <> 0 OR @Rows <> 0
+   RAISERROR ('TEST 32 FAIL [%dms]: a like on a hidden photo was not ignored (liked=%d cnt=%d rows=%d)', 16, -1, @ElapsedMs, @Liked, @Cnt, @Rows)
+ELSE
+    print 'TEST 32 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: like on a hidden photo was ignored'
+
+ROLLBACK TRAN CM_Test32
 GO
