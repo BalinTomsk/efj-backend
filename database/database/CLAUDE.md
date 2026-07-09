@@ -29,6 +29,10 @@ and [Structure unit tests](#structure-unit-tests) for how, and `mssql\UNIT_TESTS
 - The database is distributed, meaning there are several nodes connected through peer-to-peer replication
 - In most cases, the primary key is a GUID v7.
 - The business logic must take the distributed database schema into account.
+- When create/modify existing function always mention what service/module/class/method calling it.
+- No any direct call to database table. app can use ot view or function or procedure for insert/select/execute operations
+- If you see code that use direct access to database table - use the rule from above.
+
 
 ## How `ffi2.sql` is generated
 
