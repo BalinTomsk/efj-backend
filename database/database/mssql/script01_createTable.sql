@@ -261,6 +261,7 @@ CREATE TABLE fish
     editor          uniqueidentifier,
     sid             int not null identity(1,1),
     fish_home_range float,                    -- [km]
+    fish_distribution_area nvarchar(500),     -- free-text geographic distribution range, e.g. "North Atlantic; Gulf of Mexico"
     created         datetime2 not null,
     stamp           datetime2 not null
 );

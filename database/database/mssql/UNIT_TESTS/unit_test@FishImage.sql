@@ -143,6 +143,49 @@ BEGIN TRY
     ELSE
         PRINT 'TEST 6 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: fn_fish_image_info metadata mismatch';
 
+    -- ----------------------------------------------------------------
+    -- TEST 7: fn_edit_fish_general returns the CURRENT picture (fish_zoo.fish_zoo_image =
+    --         last uploaded), NOT the image with the latest user-entered fish_image_stamp.
+    --         Repro: upload Image_A dated 2026-05-01, then Image_B dated 2026-01-01 (Image_B is
+    --         uploaded LAST, so it becomes the current fish_zoo_image). The General tab / viewer
+    --         must show Image_B (matching Habitat/Zoology), not Image_A.
+    -- ----------------------------------------------------------------
+    DECLARE @ImgA int, @ImgB int, @GeneralImgId int;
+    EXEC dbo.sp_add_fish_image
+        @fish_id = @TestFishId, @image = 0xAA71, @tablename = N'fish_zoo', @colname = N'fish_zoo_image',
+        @gender = 1, @source = N'ut', @author = N'ut', @link = N'x', @label = N'A',
+        @location = N'x', @lat = 0, @lon = 0, @tag = N'x', @stamp = N'2026-05-01';   -- LATER date
+    SELECT @ImgA = fish_image_id FROM dbo.fish_image WHERE fish_image_hash = HASHBYTES('SHA1', CAST(0xAA71 AS varbinary(max)));
+
+    EXEC dbo.sp_add_fish_image
+        @fish_id = @TestFishId, @image = 0xBB72, @tablename = N'fish_zoo', @colname = N'fish_zoo_image',
+        @gender = 1, @source = N'ut', @author = N'ut', @link = N'x', @label = N'B',
+        @location = N'x', @lat = 0, @lon = 0, @tag = N'x', @stamp = N'2026-01-01';   -- EARLIER date, uploaded LAST
+    SELECT @ImgB = fish_image_id FROM dbo.fish_image WHERE fish_image_hash = HASHBYTES('SHA1', CAST(0xBB72 AS varbinary(max)));
+
+    SET @tStart = SYSUTCDATETIME();
+    SELECT @GeneralImgId = fish_image_id FROM dbo.fn_edit_fish_general(CAST(@TestFishId AS varchar(36)));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @GeneralImgId = @ImgB
+        PRINT 'TEST 7 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: fn_edit_fish_general returned current fish_zoo_image (last uploaded, id=' + CAST(@ImgB AS varchar) + ')';
+    ELSE
+        PRINT 'TEST 7 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: expected last-uploaded id=' + ISNULL(CAST(@ImgB AS varchar), 'NULL')
+            + ' (=fish_zoo_image), got=' + ISNULL(CAST(@GeneralImgId AS varchar), 'NULL') + ' (stale stamp-ordered image)';
+
+    -- ----------------------------------------------------------------
+    -- TEST 8: fallback — no fish_zoo_image set → newest fish_image by insert order (identity),
+    --         still independent of the user-entered stamp.
+    -- ----------------------------------------------------------------
+    UPDATE dbo.fish_zoo SET fish_zoo_image = NULL WHERE fish_id = @TestFishId;
+    SET @tStart = SYSUTCDATETIME();
+    SELECT @GeneralImgId = fish_image_id FROM dbo.fn_edit_fish_general(CAST(@TestFishId AS varchar(36)));
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @GeneralImgId = @ImgB   -- @ImgB has the highest identity (inserted last), despite the earlier stamp
+        PRINT 'TEST 8 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: fn_edit_fish_general fallback used newest fish_image by insert order (id=' + CAST(@ImgB AS varchar) + ')';
+    ELSE
+        PRINT 'TEST 8 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: fallback expected newest-by-identity id=' + ISNULL(CAST(@ImgB AS varchar), 'NULL')
+            + ', got=' + ISNULL(CAST(@GeneralImgId AS varchar), 'NULL');
+
     ROLLBACK TRANSACTION;
 
 END TRY
