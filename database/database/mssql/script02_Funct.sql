@@ -2218,14 +2218,14 @@ RETURNS @TBL TABLE ( fish_id uniqueidentifier, fish_name varchar(32), fish_latin
          , NitrateH float, NitrateL float, PhosphateH float, PhosphateL float
          , HardnessL float, HardnessH float
          , periodStart int, periodEnd int, editor varchar(128), locked bit
-         , fish_Type int, fish_ability int, react_color int, home_range float, stamp datetime )
+         , fish_Type int, fish_ability int, react_color int, home_range float, distribution_area nvarchar(500), stamp datetime )
 WITH SCHEMABINDING
 AS
 begin
   INSERT INTO @TBL ( fish_id, fish_name, fish_latin, synonims, food_Type
-                   , water_type, fish_Type, fish_ability, react_color, home_range, stamp )
+                   , water_type, fish_Type, fish_ability, react_color, home_range, distribution_area, stamp )
         SELECT fish_id, fish_name, fish_latin, alt_Name, food_Type, water_type, fish_Type
-        , fish_ability, react_color, fish_home_range, stamp FROM dbo.fish;
+        , fish_ability, react_color, fish_home_range, fish_distribution_area, stamp FROM dbo.fish;
 
   update t SET t.depthMin = n.ri_min, t.depthMax = n.ri_max 
       from dbo.real_interval n RIGHT JOIN dbo.fish_Rule c ON c.id = n.ri_parent_id RIGHT JOIN @tbl t on t.fish_id=c.fish_id  
@@ -2277,17 +2277,24 @@ IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_edit_fish_general' AND xtyp
     DROP function dbo.fn_edit_fish_general
 GO
 
--- Called from  FishTracker.Editor.FishGeneral.LoadGeneralFish
+-- Called from  FishTracker.Editor.FishGeneral.LoadGeneralFish  and  FishTracker.Resources.wfFishViewer.LoadGeneral
 -- SELECT * FROM [dbo].fn_edit_fish_general('a85ebf22-4ab9-4a91-a14a-cef6c8e64d97')
--- SELECT TOP 1 fish_image_id FROM dbo.fish_image WHERE fish_id = '6b45fea3-5cbe-4982-89af-c241eb5c6a36'
+-- Image id must match what the editor tabs (Habitat/Zoology) show: the current picture is
+-- dbo.fish_zoo.fish_zoo_image, which sp_add_fish_image repoints on every upload. fish_image_stamp
+-- is a USER-ENTERED date (not upload order), so it must NOT drive "which is the latest image";
+-- fall back to the newest fish_image by identity (insert order) only when no fish_zoo_image is set.
 CREATE FUNCTION [dbo].fn_edit_fish_general( @fish_id varchar(36) )
 RETURNS TABLE
 WITH SCHEMABINDING
 AS
   RETURN
-    SELECT TOP 1 fish_latin, fish_name, alt_name AS fish_alt_name, descrip AS fish_description, uses AS fish_uses 
-        , ISNULL(locked, CONVERT(bit, 0)) AS locked, stamp, (select userName from dbo.users where id=editor) AS editor 
-        , (SELECT TOP 1 fish_image_id FROM dbo.fish_image WHERE fish_id = @fish_id ORDER BY fish_image_stamp DESC) AS fish_image_id
+    SELECT TOP 1 fish_latin, fish_name, alt_name AS fish_alt_name, descrip AS fish_description, uses AS fish_uses
+        , ISNULL(locked, CONVERT(bit, 0)) AS locked, stamp, (select userName from dbo.users where id=editor) AS editor
+        , fish_distribution_area
+        , COALESCE(
+              (SELECT TOP 1 fish_zoo_image FROM dbo.fish_zoo  WHERE fish_id = @fish_id AND fish_zoo_image IS NOT NULL),
+              (SELECT TOP 1 fish_image_id  FROM dbo.fish_image WHERE fish_id = @fish_id ORDER BY fish_image_id DESC)
+          ) AS fish_image_id
       FROM dbo.fish f WHERE f.fish_id = @fish_id
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
