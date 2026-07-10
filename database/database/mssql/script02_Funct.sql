@@ -3799,11 +3799,20 @@ GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -- fn_catch_memo_json : complete JSON export of a single catch memo, for the admin-only
 -- "Download JSON" link on the Fishing page. Includes every memo column, the resolved fish
--- name/latin, the author's display name, ALL photos (metadata + the image bytes as base64 --
--- FOR JSON base64-encodes varbinary automatically) and ALL comments. Returns a single JSON
--- object, or NULL when the memo id does not exist. No visibility filtering here: the caller
+-- name/latin, the author's display name, the selected photos (metadata + the image bytes as
+-- base64 -- FOR JSON base64-encodes varbinary automatically) and ALL comments. Returns a single
+-- JSON object, or NULL when the memo id does not exist. No visibility filtering here: the caller
 -- (the web page / endpoint) is responsible for restricting this to admins.
-CREATE OR ALTER FUNCTION dbo.fn_catch_memo_json (@memo_id UNIQUEIDENTIFIER)
+--
+-- @top_photos controls how many photos are embedded (they dominate the payload size):
+--     NULL (default) -> ALL photos, including hidden ones (full export).
+--     0              -> NO photos (metadata/comments only).
+--     1              -> the single best photo: most-liked, ties broken by first-added
+--                       (ord, then upload time); if none are liked this is just the first-added.
+--     n (> 1)        -> the top n photos by that same "best" ranking, if that many exist.
+-- For any positive @top_photos only NON-hidden photos are eligible (matching the public gallery);
+-- NULL still returns everything so an admin can audit hidden/removed photos.
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_json (@memo_id UNIQUEIDENTIFIER, @top_photos INT = NULL)
 RETURNS NVARCHAR(MAX)
 AS
 BEGIN
@@ -3853,6 +3862,23 @@ BEGIN
                     p.catch_memo_photo_pic
                 FROM dbo.catch_memo_photo p
                 WHERE p.catch_memo_photo_memoid = m.catch_memo_id
+                  AND (
+                        @top_photos IS NULL                 -- all photos (incl. hidden)
+                        OR (
+                            @top_photos > 0                 -- top-n by "best" ranking, visible only
+                            AND p.catch_memo_photo_hidden = 0
+                            AND p.catch_memo_photo_id IN (
+                                SELECT TOP (COALESCE(@top_photos, 0)) p2.catch_memo_photo_id
+                                FROM dbo.catch_memo_photo p2
+                                WHERE p2.catch_memo_photo_memoid = m.catch_memo_id
+                                  AND p2.catch_memo_photo_hidden = 0
+                                ORDER BY ( SELECT COUNT(*) FROM dbo.catch_memo_photo_like l
+                                           WHERE l.catch_memo_photo_like_photoid = p2.catch_memo_photo_id ) DESC,
+                                         p2.catch_memo_photo_ord  ASC,
+                                         p2.catch_memo_photo_stamp ASC
+                            )
+                        )
+                      )                                     -- @top_photos = 0 (or negative) -> no rows
                 ORDER BY p.catch_memo_photo_ord, p.catch_memo_photo_stamp
                 FOR JSON PATH, INCLUDE_NULL_VALUES
             ) AS photos,

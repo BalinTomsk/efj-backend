@@ -1756,7 +1756,7 @@ EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo37, @userid=@Poster37, @text=N'
 
 -- 2. execute unit test
 
-SET @json      = dbo.fn_catch_memo_json(@Memo37);
+SET @json      = dbo.fn_catch_memo_json(@Memo37, NULL);   -- NULL => all photos
 SET @IsJson    = ISJSON(@json);
 SET @IdOut     = JSON_VALUE(@json, '$.catch_memo_id');
 SET @TitleOut  = JSON_VALUE(@json, '$.catch_memo_title');
@@ -1784,4 +1784,53 @@ ELSE
     print 'TEST 37 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: fn_catch_memo_json exported memo + base64 photo + comment'
 
 ROLLBACK TRAN CM_Test37
+GO
+
+-- ============================================================================
+-- TEST 38: fn_catch_memo_json @top_photos -- 0=none, 1=most-liked(else first), n=top n, NULL=all
+-- ============================================================================
+BEGIN TRAN CM_Test38
+    declare @test_name sysname = N'CM_Test38 [fn_catch_memo_json] : @top_photos photo selection'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @Cnt0 int, @Cnt1 int, @Cnt2 int, @CntAll int, @Top1Label nvarchar(260);
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test: a memo with 3 photos; the 2nd (p2) gets one like
+
+DECLARE @Lake38  uniqueidentifier = NEWID();
+DECLARE @Owner38 uniqueidentifier = NEWID();
+DECLARE @Liker38 uniqueidentifier = NEWID();
+DECLARE @Memo38  uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo38, @lake_id=@Lake38, @userid=@Owner38,
+    @species=N'Bass', @title=N'Three shots', @catch_date='2026-06-10';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo38, @userid=@Owner38, @pic=0x01, @label=N'p1', @ord=0;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo38, @userid=@Owner38, @pic=0x02, @label=N'p2', @ord=1;
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo38, @userid=@Owner38, @pic=0x03, @label=N'p3', @ord=2;
+DECLARE @P2 uniqueidentifier = (SELECT catch_memo_photo_id FROM dbo.fn_catch_memo_photo_list(@Memo38) WHERE catch_memo_photo_ord = 1);
+EXEC dbo.sp_toggle_catch_memo_photo_like @photo_id=@P2, @userid=@Liker38;   -- p2 becomes most-liked
+
+-- 2. execute unit test
+
+SELECT @Cnt0   = COUNT(*) FROM OPENJSON(dbo.fn_catch_memo_json(@Memo38, 0),    '$.photos');
+SELECT @Cnt1   = COUNT(*) FROM OPENJSON(dbo.fn_catch_memo_json(@Memo38, 1),    '$.photos');
+SET    @Top1Label = JSON_VALUE(dbo.fn_catch_memo_json(@Memo38, 1), '$.photos[0].catch_memo_photo_label');
+SELECT @Cnt2   = COUNT(*) FROM OPENJSON(dbo.fn_catch_memo_json(@Memo38, 2),    '$.photos');
+SELECT @CntAll = COUNT(*) FROM OPENJSON(dbo.fn_catch_memo_json(@Memo38, NULL), '$.photos');
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @Cnt0 <> 0 OR @Cnt1 <> 1 OR @Top1Label <> N'p2' OR @Cnt2 <> 2 OR @CntAll <> 3
+   RAISERROR ('TEST 38 FAIL [%dms]: photo selection wrong (0=%d 1=%d top1=%s 2=%d all=%d)', 16, -1, @ElapsedMs, @Cnt0, @Cnt1, @Top1Label, @Cnt2, @CntAll)
+ELSE
+    print 'TEST 38 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: @top_photos 0/1/n/NULL selected the right photos (1 = most-liked)'
+
+ROLLBACK TRAN CM_Test38
 GO
