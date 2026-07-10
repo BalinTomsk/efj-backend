@@ -1730,3 +1730,58 @@ ELSE
 
 ROLLBACK TRAN CM_Test36
 GO
+
+-- ============================================================================
+-- TEST 37: fn_catch_memo_json returns a complete JSON export (memo + base64 photo + comment)
+-- ============================================================================
+BEGIN TRAN CM_Test37
+    declare @test_name sysname = N'CM_Test37 [fn_catch_memo_json] : full JSON export of one memo'
+DECLARE @tStart datetime2, @ElapsedMs int;
+DECLARE @json nvarchar(max), @IsJson int, @IdOut varchar(60), @TitleOut nvarchar(200),
+        @PicOut varchar(64), @PhotoCnt int, @CommentOut nvarchar(500);
+BEGIN TRY  SET NOCOUNT ON;
+SET @tStart = SYSUTCDATETIME();
+
+-- 1. prepare data for unit test
+
+DECLARE @Lake37   uniqueidentifier = NEWID();
+DECLARE @Owner37  uniqueidentifier = NEWID();
+DECLARE @Poster37 uniqueidentifier = NEWID();
+DECLARE @Memo37   uniqueidentifier = NEWID();
+EXEC dbo.sp_add_catch_memo @id=@Memo37, @lake_id=@Lake37, @userid=@Owner37,
+    @species=N'Walleye', @title=N'My Big Catch', @catch_date='2026-06-15';
+EXEC dbo.sp_add_catch_memo_photo @memo_id=@Memo37, @userid=@Owner37, @pic=0x89504E47,
+    @label=N'walleye.jpg', @ord=0, @description=N'evening bite', @author=N'me';
+EXEC dbo.sp_add_catch_memo_comment @memo_id=@Memo37, @userid=@Poster37, @text=N'nice fish!';
+
+-- 2. execute unit test
+
+SET @json      = dbo.fn_catch_memo_json(@Memo37);
+SET @IsJson    = ISJSON(@json);
+SET @IdOut     = JSON_VALUE(@json, '$.catch_memo_id');
+SET @TitleOut  = JSON_VALUE(@json, '$.catch_memo_title');
+SET @PicOut    = JSON_VALUE(@json, '$.photos[0].catch_memo_photo_pic');   -- base64 of 0x89504E47
+SELECT @PhotoCnt = COUNT(*) FROM OPENJSON(@json, '$.photos');
+SET @CommentOut = JSON_VALUE(@json, '$.comments[0].catch_memo_comment_text');
+
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
+         , @test_name     AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage
+END CATCH
+SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+
+-- 3. result verification
+
+IF @IsJson <> 1
+   OR LOWER(@IdOut) <> LOWER(CAST(@Memo37 AS varchar(36)))
+   OR @TitleOut <> N'My Big Catch'
+   OR @PicOut <> 'iVBORw=='
+   OR @PhotoCnt <> 1
+   OR @CommentOut <> N'nice fish!'
+   RAISERROR ('TEST 37 FAIL [%dms]: json export wrong (isjson=%d photoCnt=%d pic=%s)', 16, -1, @ElapsedMs, @IsJson, @PhotoCnt, @PicOut)
+ELSE
+    print 'TEST 37 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: fn_catch_memo_json exported memo + base64 photo + comment'
+
+ROLLBACK TRAN CM_Test37
+GO

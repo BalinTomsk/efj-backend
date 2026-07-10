@@ -3797,6 +3797,90 @@ GO
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
+-- fn_catch_memo_json : complete JSON export of a single catch memo, for the admin-only
+-- "Download JSON" link on the Fishing page. Includes every memo column, the resolved fish
+-- name/latin, the author's display name, ALL photos (metadata + the image bytes as base64 --
+-- FOR JSON base64-encodes varbinary automatically) and ALL comments. Returns a single JSON
+-- object, or NULL when the memo id does not exist. No visibility filtering here: the caller
+-- (the web page / endpoint) is responsible for restricting this to admins.
+CREATE OR ALTER FUNCTION dbo.fn_catch_memo_json (@memo_id UNIQUEIDENTIFIER)
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+    RETURN
+    (
+        SELECT
+            m.catch_memo_id,
+            m.catch_memo_lake_id,
+            m.catch_memo_userid,
+            u.userName   AS catch_memo_user_name,
+            m.catch_memo_fish_id,
+            f.fish_name  AS catch_memo_fish_name,
+            f.fish_latin AS catch_memo_fish_latin,
+            m.catch_memo_species,
+            m.catch_memo_title,
+            m.catch_memo_text,
+            m.catch_memo_lat,
+            m.catch_memo_lon,
+            m.catch_memo_method,
+            m.catch_memo_tackle,
+            m.catch_memo_lure,
+            m.catch_memo_catch_date,
+            m.catch_memo_weight,
+            m.catch_memo_weight_unit,
+            m.catch_memo_length,
+            m.catch_memo_length_unit,
+            m.catch_memo_released,
+            m.catch_memo_private,
+            m.catch_memo_weather_temp,
+            m.catch_memo_weather_pressure,
+            m.catch_memo_weather_text,
+            m.catch_memo_weather_icon,
+            m.catch_memo_water_temp,
+            m.catch_memo_created,
+            m.catch_memo_updated,
+            m.catch_memo_cloned_from,
+            (
+                SELECT
+                    p.catch_memo_photo_id,
+                    p.catch_memo_photo_label,
+                    p.catch_memo_photo_description,
+                    p.catch_memo_photo_author,
+                    p.catch_memo_photo_ord,
+                    p.catch_memo_photo_stamp,
+                    p.catch_memo_photo_hidden,
+                    DATALENGTH(p.catch_memo_photo_pic) AS catch_memo_photo_bytes,
+                    p.catch_memo_photo_pic
+                FROM dbo.catch_memo_photo p
+                WHERE p.catch_memo_photo_memoid = m.catch_memo_id
+                ORDER BY p.catch_memo_photo_ord, p.catch_memo_photo_stamp
+                FOR JSON PATH, INCLUDE_NULL_VALUES
+            ) AS photos,
+            (
+                SELECT
+                    c.catch_memo_comment_id,
+                    c.catch_memo_comment_userid,
+                    cu.userName AS catch_memo_comment_user_name,
+                    c.catch_memo_comment_text,
+                    c.catch_memo_comment_created,
+                    c.catch_memo_comment_deleted
+                FROM dbo.catch_memo_comment c
+                LEFT JOIN dbo.Users cu ON cu.id = c.catch_memo_comment_userid
+                WHERE c.catch_memo_comment_memoid = m.catch_memo_id
+                ORDER BY c.catch_memo_comment_created
+                FOR JSON PATH, INCLUDE_NULL_VALUES
+            ) AS comments
+        FROM dbo.catch_memo m
+        LEFT JOIN dbo.fish  f ON f.fish_id = m.catch_memo_fish_id
+        LEFT JOIN dbo.Users u ON u.id      = m.catch_memo_userid
+        WHERE m.catch_memo_id = @memo_id
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER, INCLUDE_NULL_VALUES
+    );
+END
+GO
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_catch_memo_get' AND xtype = 'IF')
     DROP function dbo.fn_catch_memo_get
 GO
