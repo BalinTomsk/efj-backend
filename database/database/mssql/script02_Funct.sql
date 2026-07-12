@@ -2135,6 +2135,25 @@ AS
          WHERE lake_map_ownerid = @owner);
 GO
 ------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_fish_document' AND xtype = 'IF')
+    DROP function dbo.fn_fish_document
+GO
+-- The single PDF document attached to a fish species (one row per fish, or empty when none).
+-- Used by ~/Editor/FishEditor.aspx and ~/Resources/wfFishViewer.aspx to show a download link,
+-- and by ~/Editor/HandlerImage.ashx (?fishdoc=) to stream the bytes. Callers that only need the
+-- label/existence select those columns; the handler selects fish_document_pic (inline TVF, so the
+-- blob is not materialized unless requested).
+-- SELECT fish_document_id, fish_document_label, fish_document_stamp FROM dbo.fn_fish_document( '58FC0EFC-3728-4A7E-9622-43C9747078E8' )
+CREATE FUNCTION dbo.fn_fish_document( @fish_id uniqueidentifier )
+RETURNS  TABLE
+  WITH SCHEMABINDING
+AS
+  RETURN
+        (SELECT fish_document_id, fish_document_label, fish_document_stamp, fish_document_pic
+         FROM dbo.fish_document
+         WHERE fish_id = @fish_id);
+GO
+------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_fish_spawn' AND xtype = 'IF')
     DROP function dbo.fn_fish_spawn
 GO
