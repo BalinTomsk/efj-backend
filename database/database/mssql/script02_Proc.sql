@@ -1606,6 +1606,70 @@ BEGIN CATCH
 END CATCH;
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_add_lake_image' AND xtype = 'P')
+    DROP PROCEDURE dbo.sp_add_lake_image
+GO
+
+/******
+ * Used by ~/Editor/LakeEditor.aspx (btnBriefUpload_Click) to attach a PHOTO to a water body.
+ * A water body can own MANY photos (gallery); the relationship is on the row (lake_image_ownerid).
+ * Dedup is GLOBAL by picture hash: UK_lake_image is UNIQUE on lake_image_hash ALONE, so the same
+ * image is stored once across the whole table. Re-uploading a picture already stored (for this OR
+ * any other owner) is therefore a silent no-op instead of a duplicate-key error that would abort
+ * the upload batch and get logged.
+ *
+ *    @lake_id  uniqueidentifier - owning water body (lake/river) guid
+ *    @image    varbinary(max)   - the (already resized) picture bytes
+ *    @source   nvarchar         - source caption
+ *    @author   nvarchar         - photo credit / author
+ *    @link     nvarchar         - external link shown with the caption
+ *    @hash     varbinary(256)   - hash of @image, computed by the caller (MD5 today)
+ *    @stamp    datetime2        - upload timestamp
+ *
+ * Returns ONE row: lake_image_id (existing or new), inserted (1 = a new row was added, 0 = dup).
+ *
+ *  Usage:
+ *      EXEC sp_add_lake_image 'fc0d917b-d053-11d8-92e2-080020a0f4c9', 0xFFD8, N'src', N'author', N'http://x', 0x1234, '2026-01-01'
+ */
+CREATE PROCEDURE [dbo].[sp_add_lake_image]
+    @lake_id uniqueidentifier, @image varbinary(max),
+    @source nvarchar(255), @author nvarchar(255), @link nvarchar(256),
+    @hash varbinary(256), @stamp datetime2
+AS
+SET NOCOUNT ON
+BEGIN TRY
+    DECLARE @imgId int = NULL;
+    DECLARE @inserted bit = 0;
+
+    IF @lake_id IS NOT NULL AND @image IS NOT NULL AND @hash IS NOT NULL
+    BEGIN
+        -- UK_lake_image is UNIQUE on lake_image_hash (global), so a picture is stored once.
+        SELECT @imgId = lake_image_id FROM dbo.lake_image WHERE lake_image_hash = @hash;
+
+        IF @imgId IS NULL
+        BEGIN
+            -- lake_image_source/author/link are NOT NULL: coalesce blanks so a missing caption
+            -- never turns a valid upload into a constraint failure.
+            INSERT INTO dbo.lake_image
+                ( lake_image_ownerid, lake_image_pic, lake_image_source, lake_image_author,
+                  lake_image_link, lake_image_hash, lake_image_stamp )
+            VALUES
+                ( @lake_id, @image, ISNULL(@source, N''), ISNULL(@author, N''),
+                  ISNULL(@link, N''), @hash, @stamp );
+            SET @imgId = SCOPE_IDENTITY();
+            SET @inserted = 1;
+        END
+    END
+
+    SELECT @imgId AS lake_image_id, @inserted AS inserted;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity,
+           ERROR_STATE() AS ErrorState, ERROR_PROCEDURE() AS ErrorProcedure,
+           ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
+GO
+--------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_PlotSource' AND xtype = 'P')
     DROP PROCEDURE dbo.sp_PlotSource
 GO
