@@ -1606,6 +1606,65 @@ BEGIN CATCH
 END CATCH;
 GO
 --------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_add_fish_document' AND xtype = 'P')
+    DROP PROCEDURE dbo.sp_add_fish_document
+GO
+
+/******
+ * Used by ~/Editor/FishEditor.aspx to attach (or replace) the single downloadable PDF document
+ * of a fish species. ONE document per fish: any existing row for @fish_id is deleted first, then
+ * the new bytes are inserted, so re-uploading simply replaces the old file.
+ *
+ *    @fish_id   uniqueidentifier  - the owning fish species guid
+ *    @image     varbinary(max)    - the file bytes
+ *    @label     nvarchar          - original file name (drives the download filename)
+ *
+ *  Usage:
+ *      EXEC sp_add_fish_document '58FC0EFC-3728-4A7E-9622-43C9747078E8', 0x255044462D, N'guide.pdf'
+ */
+CREATE PROCEDURE [dbo].[sp_add_fish_document]
+    @fish_id uniqueidentifier, @image varbinary(max), @label nvarchar(256)
+AS
+SET NOCOUNT ON
+BEGIN TRY
+    IF @fish_id IS NOT NULL AND @image IS NOT NULL
+    BEGIN
+        DELETE FROM dbo.fish_document WHERE fish_id = @fish_id;
+
+        INSERT INTO dbo.fish_document ( fish_id, fish_document_pic, fish_document_label, fish_document_stamp )
+        VALUES ( @fish_id, @image, @label, GETUTCDATE() );
+    END
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity,
+           ERROR_STATE() AS ErrorState, ERROR_PROCEDURE() AS ErrorProcedure,
+           ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
+GO
+--------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_del_fish_document' AND xtype = 'P')
+    DROP PROCEDURE dbo.sp_del_fish_document
+GO
+
+/******
+ * Used by ~/Editor/FishEditor.aspx to remove the PDF document attached to a fish species.
+ *    @fish_id   uniqueidentifier  - the owning fish species guid
+ */
+CREATE PROCEDURE [dbo].[sp_del_fish_document]
+    @fish_id uniqueidentifier
+AS
+SET NOCOUNT ON
+BEGIN TRY
+    IF @fish_id IS NOT NULL
+        DELETE FROM dbo.fish_document WHERE fish_id = @fish_id;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_SEVERITY() AS ErrorSeverity,
+           ERROR_STATE() AS ErrorState, ERROR_PROCEDURE() AS ErrorProcedure,
+           ERROR_LINE() AS ErrorLine, ERROR_MESSAGE() AS ErrorMessage;
+END CATCH;
+GO
+--------------------------------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'sp_add_lake_image' AND xtype = 'P')
     DROP PROCEDURE dbo.sp_add_lake_image
 GO

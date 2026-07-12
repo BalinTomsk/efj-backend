@@ -361,6 +361,28 @@ END
 GO
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
+-- A downloadable PDF document attached to a fish species (the FishEditor "Document" cell).
+-- ONE document per fish: the owner column fish_id is UNIQUE, and sp_add_fish_document replaces
+-- any existing row. Stored as binary; served for download by ~/Editor/HandlerImage.ashx?fishdoc=.
+CREATE TABLE dbo.fish_document
+(
+    fish_document_id     int NOT NULL identity(1,1),
+    fish_id              uniqueidentifier NOT NULL,
+    fish_document_pic    varbinary(max) NOT NULL,
+    fish_document_label  nvarchar(256) NULL,        -- original file name; drives the download filename
+    fish_document_stamp  datetime2 NOT NULL
+)
+GO
+ALTER TABLE dbo.fish_document ADD CONSTRAINT DEF_fish_document_stamp DEFAULT (GETUTCDATE()) FOR fish_document_stamp
+GO
+ALTER TABLE dbo.fish_document ADD CONSTRAINT PK_fish_document PRIMARY KEY CLUSTERED (fish_document_id ASC) ON [PRIMARY]
+GO
+ALTER TABLE dbo.fish_document ADD CONSTRAINT UK_fish_document_fish_id UNIQUE (fish_id)
+GO
+ALTER TABLE dbo.fish_document  WITH CHECK ADD CONSTRAINT FK_fish_document_fish_id FOREIGN KEY(fish_id) REFERENCES dbo.fish(fish_id)
+GO
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 CREATE TABLE fish_zoo
 (
     [fish_id] [uniqueidentifier] NOT NULL,
