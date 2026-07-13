@@ -14,6 +14,13 @@ import java.sql.Statement;
 /**
  * Persists raw weather payloads into the legacy {@code dbo.ows_meteo} table and
  * runs the post-processing procedures used by the original service.
+ *
+ * <p>The direct {@code UPDATE dbo.ows_meteo} below is an intentional, grandfathered exception
+ * to the house rule that application code goes through a view/function/procedure rather than
+ * a raw table: this mirrors the legacy {@code WeatherDataWorkerOpen} .NET service exactly, and
+ * the rule only applies to methods added or changed going forward. If a save procedure for
+ * this table (e.g. {@code spSaveStationWeather}) is ever introduced, switch this method to
+ * call it instead of writing a new raw-table statement elsewhere.
  */
 @Repository
 public class WeatherDataRepository {
