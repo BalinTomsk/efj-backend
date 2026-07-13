@@ -2,6 +2,8 @@ package com.fishfind.weather.repo;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.stereotype.Repository;
@@ -15,6 +17,8 @@ import java.sql.Statement;
  */
 @Repository
 public class WeatherDataRepository {
+    private static final Logger log = LoggerFactory.getLogger(WeatherDataRepository.class);
+
     private final JdbcTemplate jdbc;
 
     public WeatherDataRepository(JdbcTemplate jdbc) {
@@ -32,12 +36,15 @@ public class WeatherDataRepository {
             return;
         }
 
-        jdbc.update(
+        int rows = jdbc.update(
                 "UPDATE dbo.ows_meteo SET type = ?, ows = ?, stamp = GETDATE() WHERE mli = ?",
                 2,
                 jsonData,
                 mli
         );
+        if (rows == 0) {
+            log.warn("No ows_meteo row matched; payload dropped. mli={} bytes={}", mli, jsonData.length());
+        }
     }
 
     @Transactional
