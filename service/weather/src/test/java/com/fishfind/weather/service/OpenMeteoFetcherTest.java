@@ -61,6 +61,21 @@ class OpenMeteoFetcherTest {
                 exchange.close();
                 return;
             }
+            if (path.startsWith("/html")) {
+                byte[] html = "<!doctype html><html><body>captive portal</body></html>"
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, html.length);
+                exchange.getResponseBody().write(html);
+                exchange.close();
+                return;
+            }
+            if (path.startsWith("/big")) {
+                byte[] big = ("{\"pad\":\"" + "x".repeat(500) + "\"}").getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, big.length);
+                exchange.getResponseBody().write(big);
+                exchange.close();
+                return;
+            }
 
             // Body deliberately contains a backslash-quote sequence to prove the
             // payload is returned verbatim (no \" -> " rewriting).
@@ -78,6 +93,7 @@ class OpenMeteoFetcherTest {
         ReflectionTestUtils.setField(fetcher, "rateLimitMaxRetries", 2);
         ReflectionTestUtils.setField(fetcher, "rateLimitDefaultWaitMs", 10L);
         ReflectionTestUtils.setField(fetcher, "rateLimitMaxWaitMs", 1000L);
+        ReflectionTestUtils.setField(fetcher, "maxResponseBytes", 5 * 1024 * 1024);
     }
 
     @AfterEach
@@ -147,6 +163,44 @@ class OpenMeteoFetcherTest {
         assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
                 .isInstanceOf(RateLimitedException.class);
         assertThat(requestCount.get()).isEqualTo(3); // initial + 2 retries
+    }
+
+    @Test
+    void rejectsNonJsonBodyOn200() {
+        pointAt("/html");
+
+        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("JSON");
+    }
+
+    @Test
+    void rejectsBodyLargerThanConfiguredCap() {
+        pointAt("/big");
+        ReflectionTestUtils.setField(fetcher, "maxResponseBytes", 64);
+
+        assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("64");
+    }
+
+    @Test
+    void interruptDuringRetryAfterWaitIsNotRetriableIo() {
+        pointAt("/ratelimit-always");
+
+        Thread.currentThread().interrupt();
+        try {
+            // Must surface as RateLimitedException (excluded from Resilience4j retry),
+            // not a plain IOException that would trigger up to 3 more backoff attempts
+            // while the application is shutting down.
+            assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
+                    .isInstanceOf(RateLimitedException.class);
+            assertThat(Thread.currentThread().isInterrupted())
+                    .as("interrupt flag must stay set for the worker loop")
+                    .isTrue();
+        } finally {
+            Thread.interrupted(); // clear the flag so later tests are unaffected
+        }
     }
 
     @Test

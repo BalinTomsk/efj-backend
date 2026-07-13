@@ -1,7 +1,12 @@
 # CLAUDE.md
 # weather-station-pusher — Claude Context
 
----
+## Project
+- Provide actual weather data and forecast for Fish Find Portal
+
+
+## Tech Stack
+- Java
 
 ## Keeping docs in sync — IMPORTANT
 
@@ -24,7 +29,15 @@ It must always reflect the current state of the code.
 
 ##IMPORTANT
 Explicitly follows database schema at:
-- @srv/../database/database/mssql/ffi2.sql  
+- @srv/../efj-backend/database/database/mssql/ffi2.sql  
+
+- **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
+bug fix that touches the DB), **read `c:\envoinx\fishfind\efj-backend\database\database\CLAUDE.md`
+first** — it is the authoritative DB workflow (never edit the generated `ffi2.sql`; edit the
+`scriptNN_*.sql` sources; test-first: a FAILING unit test to confirm the bug, then a PASSING one
+to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the separate
+`efj-backend` repo and does NOT auto-load in this project, so it must be opened explicitly.
+
 
 ---
 
@@ -35,7 +48,7 @@ Explicitly follows database schema at:
 | Service name | `debian-weather` |
 | Language | Java 21 |
 | Build | Maven |
-| Framework | Spring Boot 3.2.12 |
+| Framework | Spring Boot 3.5.16 |
 | Main class | `com.fishfind.weather.WeatherStationPusherApplication` |
 
 ---
@@ -216,6 +229,7 @@ weather:
     read-timeout-ms: 30000
     open-meteo-base-url: https://api.open-meteo.com/v1/forecast
     rate-limit: { max-retries: 2, default-wait-ms: 5000, max-wait-ms: 60000 }   # 429 Retry-After
+    max-response-bytes: 5242880                                                 # payload size cap (5 MB)
     post-processing: { max-failure-rate: 0.5 }                                  # cycle gate
 
 management:
@@ -290,9 +304,9 @@ Model: `StationRef(String mli, double latitude, double longitude, String state)`
 - Read timeout: `weather.worker.read-timeout-ms` (default 30 000 ms).
 - `User-Agent`: Chrome-like `Mozilla/5.0 (...) AppleWebKit/537.NN (...) Chrome/124.0 Safari/537.NN`. The two `537.NN` WebKit/Safari build numbers are randomised in `[11, 97]`, seeded by the calendar day so they're stable per day and change daily (`OpenMeteoFetcher.currentUserAgent`).
 - Resilience: `fetch` is annotated `@Retry` + `@CircuitBreaker` + `@RateLimiter` (instance `openMeteo`). AOP-active only on the Spring bean at runtime (inert in direct unit tests).
-- HTTP 200 → read response body as UTF-8 **verbatim** (no post-processing of the body).
+- HTTP 200 → read response body as UTF-8 **verbatim** (no post-processing of the body), but reject before persisting: body over `weather.worker.max-response-bytes` or whose first non-whitespace char is not `{` → `IOException` (retried). A cheap shape guard, **not** JSON parsing — keeps HTML error pages out of `ows_meteo`.
 - HTTP 404 → throw `FileNotFoundException` (not retried; → `SKIPPED` upstream).
-- HTTP 429 → honour `Retry-After` **inline** (delta-seconds or HTTP-date, clamped to `[0, max-wait-ms]`), retry up to `rate-limit.max-retries`; if still 429 → `RateLimitedException` (recorded by the breaker).
+- HTTP 429 → honour `Retry-After` **inline** (delta-seconds or HTTP-date, clamped to `[0, max-wait-ms]`), retry up to `rate-limit.max-retries`; if still 429 → `RateLimitedException` (recorded by the breaker). Interrupt during the wait → re-set flag and throw `RateLimitedException` (excluded from retry, so shutdown isn't delayed by backoff attempts).
 - Other non-200 / timeout → throw `IOException` (retried with exponential backoff).
 
 **URL shape:**
@@ -318,6 +332,7 @@ void saveStationData(String mli, String jsonData)
 - Reject blank `mli` → throw `IllegalArgumentException`.
 - Blank / null `jsonData` → no-op.
 - Runs in a transaction; protected by Resilience4j `@Retry(sqlRetry)` + `@CircuitBreaker(sqlBreaker)`.
+- `UPDATE` matching 0 rows → log **WARNING** with `mli` and payload size (payload is dropped; must not vanish silently).
 
 ```sql
 UPDATE dbo.ows_meteo
@@ -375,6 +390,9 @@ totalUpdateProbability()        // → EXEC dbo.spTotalUpdateProbability
 | Blank / null JSON payload | skip save |
 | HTTP 404 from Open-Meteo | `FileNotFoundException`; log skip; outcome `SKIPPED` |
 | HTTP 429 from Open-Meteo | honour `Retry-After` inline; if exhausted → `RateLimitedException` → `FAILED` |
+| Interrupted during `Retry-After` wait | `RateLimitedException` (no further retry); interrupt flag re-set |
+| 200 body oversized or not a JSON object | `IOException`; retried (backoff); if exhausted → `FAILED` |
+| `UPDATE` matches 0 `ows_meteo` rows | log **WARNING** (payload dropped); still counts as `PROCESSED` |
 | HTTP non-200 other than 404 / timeout | `IOException`; retried (backoff); if exhausted → `FAILED` |
 | Open Open-Meteo circuit | `CallNotPermittedException` fast-fail → `FAILED` |
 | Per-station processing exception | log warning with station and state; outcome `FAILED`; continue |
@@ -433,8 +451,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 EXPOSE 8081
+# Liveness only: a DB outage must not mark the container unhealthy — the worker
+# sleeps and recovers on its own. Overall /actuator/health includes the DB check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -sf http://localhost:8081/actuator/health || exit 1
+  CMD curl -sf http://localhost:8081/actuator/health/liveness || exit 1
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 ```
 
@@ -447,8 +467,8 @@ Spring Boot Actuator serves on **port 8081** — the application's only HTTP lis
 
 | Path | Purpose |
 |---|---|
-| `GET /actuator/health` | Overall status (`{"status":"UP"}`) |
-| `GET /actuator/health/liveness` | Kubernetes liveness probe |
+| `GET /actuator/health` | Overall status incl. DB indicator (`{"status":"UP"}`) |
+| `GET /actuator/health/liveness` | Liveness probe (Docker `HEALTHCHECK` + k8s `livenessProbe`) |
 | `GET /actuator/health/readiness` | Kubernetes readiness probe |
 
 `start-period=60s` accounts for database connection time at startup.

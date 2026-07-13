@@ -29,8 +29,10 @@ ENV JAVA_OPTS=""
 
 EXPOSE 8081
 
+# Liveness only: a DB outage must not mark the container unhealthy — the worker
+# sleeps and recovers on its own. Overall /actuator/health includes the DB check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -sf http://localhost:8081/actuator/health || exit 1
+  CMD curl -sf http://localhost:8081/actuator/health/liveness || exit 1
 
 # exec replaces the shell so Java becomes PID 1 and receives SIGTERM directly.
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]

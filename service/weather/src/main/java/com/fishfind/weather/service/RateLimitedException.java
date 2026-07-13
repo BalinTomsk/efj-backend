@@ -12,4 +12,8 @@ public class RateLimitedException extends IOException {
     public RateLimitedException(String message) {
         super(message);
     }
+
+    public RateLimitedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

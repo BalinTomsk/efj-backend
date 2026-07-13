@@ -58,6 +58,9 @@ public class OpenMeteoFetcher {
     @Value("${weather.worker.rate-limit.max-wait-ms:60000}")
     private long rateLimitMaxWaitMs;
 
+    @Value("${weather.worker.max-response-bytes:5242880}")
+    private int maxResponseBytes;
+
     @Retry(name = "openMeteo")
     @CircuitBreaker(name = "openMeteo")
     @RateLimiter(name = "openMeteo")
@@ -90,7 +93,13 @@ public class OpenMeteoFetcher {
 
                 try (InputStream inputStream = connection.getInputStream()) {
                     // Store the response body verbatim — the payload must be persisted raw, as-is.
-                    String json = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                    byte[] body = inputStream.readNBytes(maxResponseBytes + 1);
+                    if (body.length > maxResponseBytes) {
+                        throw new IOException("Open-Meteo response exceeded " + maxResponseBytes
+                                + " bytes for URL " + url);
+                    }
+                    String json = new String(body, StandardCharsets.UTF_8);
+                    requireJsonObjectShape(json, url);
                     log.info("Open-Meteo fetch succeeded. latitude={} longitude={}", latitude, longitude);
                     return json;
                 }
@@ -137,7 +146,21 @@ public class OpenMeteoFetcher {
             Thread.sleep(ms);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IOException("Interrupted while waiting out Open-Meteo Retry-After", ex);
+            // RateLimitedException is excluded from Resilience4j retry, so an interrupt
+            // (typically a shutdown) is not followed by further backoff attempts.
+            throw new RateLimitedException("Interrupted while waiting out Open-Meteo Retry-After", ex);
+        }
+    }
+
+    /**
+     * Cheap shape guard, not JSON parsing: the body is persisted raw, but a 200 response
+     * that is not a JSON object (e.g. an HTML error or captive-portal page) must not
+     * reach the database, where downstream procedures would choke on it.
+     */
+    private static void requireJsonObjectShape(String body, String url) throws IOException {
+        String trimmed = body.stripLeading();
+        if (trimmed.isEmpty() || trimmed.charAt(0) != '{') {
+            throw new IOException("Open-Meteo returned a non-JSON body for URL " + url);
         }
     }
 

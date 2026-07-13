@@ -10,10 +10,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -39,6 +44,28 @@ class WeatherDataRepositoryTest {
                 2,
                 "{\"x\":1}",
                 "MLI-1");
+    }
+
+    @Test
+    void saveStationDataWarnsWhenNoRowMatches() {
+        when(jdbc.update(anyString(), any(), any(), any())).thenReturn(0);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(WeatherDataRepository.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            repository.saveStationData("MLI-404", "{\"x\":1}");
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list)
+                .as("a 0-row update silently drops the payload and must be logged")
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage()).contains("MLI-404");
+                });
     }
 
     @Test
