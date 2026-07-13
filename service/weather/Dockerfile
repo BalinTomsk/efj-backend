@@ -9,6 +9,11 @@ RUN mvn -B -DskipTests package
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
+# curl is required by HEALTHCHECK — the base image ships neither curl nor wget.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Non-root runtime user — containers must not run as root.
 RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --no-create-home appuser
@@ -25,7 +30,7 @@ ENV JAVA_OPTS=""
 EXPOSE 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+  CMD curl -sf http://localhost:8081/actuator/health || exit 1
 
 # exec replaces the shell so Java becomes PID 1 and receives SIGTERM directly.
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]

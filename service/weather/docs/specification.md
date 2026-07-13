@@ -185,7 +185,7 @@ Keep a root `.env.example` with placeholder values only. Do not commit a real `.
 Example:
 
 ```dotenv
-DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=fishfind;encrypt=true;trustServerCertificate=true
+DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=fishfind;encrypt=true;trustServerCertificate=false
 DB_USERNAME=your_username
 DB_PASSWORD=your_password
 # DOTENV_PATH=/app/.env

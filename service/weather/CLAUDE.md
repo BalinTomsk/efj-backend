@@ -178,6 +178,7 @@ spring:
     timeout-per-shutdown-phase: 30s
 
 server:
+  port: 8081        # single listener: serves only the actuator endpoints (no controllers exist)
   shutdown: graceful
 
 resilience4j:
@@ -218,8 +219,6 @@ weather:
     post-processing: { max-failure-rate: 0.5 }                                  # cycle gate
 
 management:
-  server:
-    port: 8081
   endpoints:
     web:
       exposure:
@@ -427,11 +426,15 @@ Security:
 - Non-root user: `appgroup` (gid 1001) + `appuser` (uid 1001, no home directory).
 - `mkdir -p /app/logs` and `chown appuser:appgroup /app/weather-station-pusher.jar /app/logs` before `USER appuser`.
 - `exec java` in the entrypoint replaces the shell so Java is PID 1 and receives `SIGTERM` directly.
+- `curl` is installed in the runtime stage — the `eclipse-temurin:21-jre` base ships neither `curl` nor `wget`, so a `wget`-based HEALTHCHECK would always fail.
 
 ```sh
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+  CMD curl -sf http://localhost:8081/actuator/health || exit 1
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 ```
 
@@ -440,7 +443,7 @@ Do **not** bake a real `.env` into the image.
 
 ### Health endpoint
 
-Spring Boot Actuator serves a minimal HTTP server on **port 8081** (separate from the app — no Tomcat port 8080 is used for application traffic).
+Spring Boot Actuator serves on **port 8081** — the application's only HTTP listener (`server.port: 8081`, no separate management port, nothing listens on 8080). The app has no controllers, so the listener serves only the actuator endpoints; every other path returns 404.
 
 | Path | Purpose |
 |---|---|

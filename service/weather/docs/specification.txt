@@ -129,6 +129,7 @@ spring:
     timeout-per-shutdown-phase: 30s     # bound graceful-shutdown wait
 
 server:
+  port: 8081                          # single listener: only actuator endpoints (no controllers)
   shutdown: graceful
 
 resilience4j:
@@ -185,8 +186,6 @@ weather:
       max-failure-rate: 0.5              # skip post-processing above this failure rate
 
 management:
-  server:
-    port: 8081
   endpoints:
     web:
       exposure:
@@ -205,8 +204,10 @@ logging:
 
 HEALTH ENDPOINT
 ---------------
-Spring Boot Actuator serves on port 8081 (separate management server).
-No application traffic runs on port 8080.
+Spring Boot Actuator serves on port 8081 — the application's ONLY HTTP listener
+(server.port: 8081, no separate management port, nothing listens on 8080).
+The app has no controllers, so this listener serves only the actuator endpoints;
+every other path returns 404.
 
   GET /actuator/health           → {"status":"UP"}
   GET /actuator/health/liveness  → Kubernetes liveness probe
@@ -408,10 +409,15 @@ Security:
   - /app/logs created (mkdir -p) and chowned to appuser:appgroup so Logback file appender can write
   - jar is chowned to appuser:appgroup; USER appuser set before EXPOSE
   - ENTRYPOINT uses "exec java ..." so Java replaces the shell and receives SIGTERM as PID 1
+  - curl installed in the runtime stage for HEALTHCHECK (eclipse-temurin:21-jre ships
+    neither curl nor wget; a wget-based HEALTHCHECK would always report unhealthy)
 
+  RUN apt-get update && \
+      apt-get install -y --no-install-recommends curl && \
+      rm -rf /var/lib/apt/lists/*
   EXPOSE 8081
   HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD wget -qO- http://localhost:8081/actuator/health || exit 1
+    CMD curl -sf http://localhost:8081/actuator/health || exit 1
   ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/weather-station-pusher.jar"]
 
 .dockerignore must exclude: .git, .idea, target, docs, .env
@@ -499,6 +505,7 @@ RECREATION CHECKLIST
 16. .env.example with trustServerCertificate=false
 17. .owasp-suppressions.xml stub
 18. .dockerignore
-19. Dockerfile: non-root appuser (uid 1001), exec java entrypoint, EXPOSE 8081 + HEALTHCHECK
+19. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
+    exec java entrypoint, EXPOSE 8081 + HEALTHCHECK (curl -sf)
 20. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
 21. Verify: mvn test
