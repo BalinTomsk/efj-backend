@@ -75,11 +75,16 @@ public class StationWorker implements ApplicationRunner {
         }
     }
 
-    public int runOnce(String requestedMli) throws InterruptedException {
-        return runCycle(requestedMli).successfulStations();
+    /** Outcome of a single {@code --console} pass, used to pick the process exit code. */
+    public record RunResult(int processedStations, int failedStations) {
     }
 
-    private CycleSummary runCycle(String requestedMli) throws InterruptedException {
+    public RunResult runOnce(String requestedMli) throws InterruptedException {
+        CountryPassSummary summary = runCycle(requestedMli);
+        return new RunResult(summary.successfulStations(), summary.failedStations());
+    }
+
+    private CountryPassSummary runCycle(String requestedMli) throws InterruptedException {
         List<StationRef> stations = stationRepository.findSupportedUsStations();
         log.info("Loaded supported stations. country={} count={} requestedStation={}",
                 COUNTRY,
@@ -129,19 +134,17 @@ public class StationWorker implements ApplicationRunner {
                     progressSummary);
         }
 
-        CountryPassSummary usSummary = new CountryPassSummary(
+        CountryPassSummary summary = new CountryPassSummary(
                 COUNTRY, processed, skipped, failed, lastProcessedStation, lastFailedStation);
-        logCountryPassSummary(usSummary);
+        logCountryPassSummary(summary);
 
         if (stoppedEarly) {
             log.info("Worker stopped before cycle completion; skipping post-processing. "
                     + "processed={} skipped={} failed={}", processed, skipped, failed);
-            return CycleSummary.from(usSummary);
+            return summary;
         }
 
-        CycleSummary summary = CycleSummary.from(usSummary);
-        logFullCycleSummary(summary);
-        maybeRunPostProcessing(usSummary);
+        maybeRunPostProcessing(summary);
         return summary;
     }
 
@@ -165,30 +168,6 @@ public class StationWorker implements ApplicationRunner {
                 logStation(summary.lastFailedStation()));
     }
 
-    private void logFullCycleSummary(CycleSummary summary) {
-        log.info("Full cycle summary. successfulStations={} failedStations={} "
-                        + "caLastProcessedStation={} caLastFailedStation={} "
-                        + "usLastProcessedStation={} usLastFailedStation={}",
-                summary.successfulStations(),
-                summary.failedStations(),
-                logStation(summary.caLastProcessedStation()),
-                logStation(summary.caLastFailedStation()),
-                logStation(summary.usLastProcessedStation()),
-                logStation(summary.usLastFailedStation()));
-    }
-
-    private void logFullCycleProgress(CycleSummary summary) {
-        log.info("Full cycle hourly progress. successfulStations={} failedStations={} "
-                        + "caLastProcessedStation={} caLastFailedStation={} "
-                        + "usLastProcessedStation={} usLastFailedStation={}",
-                summary.successfulStations(),
-                summary.failedStations(),
-                logStation(summary.caLastProcessedStation()),
-                logStation(summary.caLastFailedStation()),
-                logStation(summary.usLastProcessedStation()),
-                logStation(summary.usLastFailedStation()));
-    }
-
     private long sleepUntilNextStationWithHourlySummaries(long remainingDelayMs,
                                                           long nextSummaryLogAt,
                                                           CountryPassSummary summary)
@@ -204,7 +183,6 @@ public class StationWorker implements ApplicationRunner {
 
             if (currentTimeMillis() >= nextSummaryLogAt) {
                 logCountryPassProgress(summary);
-                logFullCycleProgress(CycleSummary.from(summary));
                 do {
                     nextSummaryLogAt += SUMMARY_LOG_INTERVAL_MS;
                 } while (currentTimeMillis() >= nextSummaryLogAt);
@@ -247,22 +225,17 @@ public class StationWorker implements ApplicationRunner {
     private void loop() {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
-                CycleSummary summary = runCycle(null);
+                CountryPassSummary summary = runCycle(null);
                 long sleepMs = millisUntilNextMidnight();
                 ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
-                log.info("Worker cycle completed. country={} processedStations={} "
-                                + "successfulStations={} failedStations={} "
-                                + "usLastProcessedStation={} usLastFailedStation={} "
-                                + "caLastProcessedStation={} caLastFailedStation={} "
+                log.info("Worker cycle completed. country={} successfulStations={} failedStations={} "
+                                + "lastProcessedStation={} lastFailedStation={} "
                                 + "nextRunAt={} sleepMs={}",
                         COUNTRY,
                         summary.successfulStations(),
-                        summary.successfulStations(),
                         summary.failedStations(),
-                        logStation(summary.usLastProcessedStation()),
-                        logStation(summary.usLastFailedStation()),
-                        logStation(summary.caLastProcessedStation()),
-                        logStation(summary.caLastFailedStation()),
+                        logStation(summary.lastProcessedStation()),
+                        logStation(summary.lastFailedStation()),
                         nextRunAt,
                         sleepMs);
 
@@ -315,24 +288,5 @@ public class StationWorker implements ApplicationRunner {
             int failedStations,
             String lastProcessedStation,
             String lastFailedStation) {
-    }
-
-    private record CycleSummary(
-            int successfulStations,
-            int failedStations,
-            String usLastProcessedStation,
-            String usLastFailedStation,
-            String caLastProcessedStation,
-            String caLastFailedStation) {
-
-        static CycleSummary from(CountryPassSummary usSummary) {
-            return new CycleSummary(
-                    usSummary.successfulStations(),
-                    usSummary.failedStations(),
-                    usSummary.lastProcessedStation(),
-                    usSummary.lastFailedStation(),
-                    null,
-                    null);
-        }
     }
 }

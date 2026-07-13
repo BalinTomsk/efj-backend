@@ -161,7 +161,10 @@ class OpenMeteoFetcherTest {
         pointAt("/ratelimit-always");
 
         assertThatThrownBy(() -> fetcher.fetch(1.0, 2.0))
-                .isInstanceOf(RateLimitedException.class);
+                .isInstanceOf(RateLimitedException.class)
+                // rateLimitMaxRetries is 2 (see startServer): exactly 2 waits are honoured
+                // before giving up, so the message must say "2", not the off-by-one "3".
+                .hasMessageContaining("after 2 waits");
         assertThat(requestCount.get()).isEqualTo(3); // initial + 2 retries
     }
 

@@ -32,9 +32,15 @@ public class ConsoleDebugRunner implements ApplicationRunner {
                 : args.getOptionValues("station").get(0);
 
         log.info("Running console debug mode. country=US station={}", station == null ? "<all>" : station);
-        int processed = stationWorker.runOnce(station);
-        log.info("Console debug mode finished. country=US processedStations={}", processed);
-        exit(0);
+        StationWorker.RunResult result = stationWorker.runOnce(station);
+        log.info("Console debug mode finished. country=US processedStations={} failedStations={}",
+                result.processedStations(), result.failedStations());
+
+        // Non-zero only when every attempted station failed, so a cron/script wrapper can
+        // detect a fully broken pass; a partial success (some processed, some failed) still
+        // did useful work and should not be treated as a failed run.
+        boolean everyStationFailed = result.processedStations() == 0 && result.failedStations() > 0;
+        exit(everyStationFailed ? 1 : 0);
     }
 
     /** Terminates the process after the one-shot pass. Overridable so tests need not exit the JVM. */

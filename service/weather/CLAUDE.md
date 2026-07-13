@@ -281,6 +281,7 @@ logging:
 - Activated by `--console` command-line arg (`@Order(0)`, exits process when done).
 - Optional: `--station=<MLI>` to filter to one station.
 - Runs exactly one processing pass; no background thread started.
+- `StationWorker.runOnce` returns a `RunResult(processedStations, failedStations)`. Exit code: `1` when **every** attempted station failed (`processedStations == 0 && failedStations > 0`), so a cron/script wrapper can detect a fully broken pass; otherwise `0` — a partial success (some processed, some failed) still did useful work.
 
 ---
 
@@ -333,6 +334,7 @@ void saveStationData(String mli, String jsonData)
 - Blank / null `jsonData` → no-op.
 - Runs in a transaction; protected by Resilience4j `@Retry(sqlRetry)` + `@CircuitBreaker(sqlBreaker)`.
 - `UPDATE` matching 0 rows → log **WARNING** with `mli` and payload size (payload is dropped; must not vanish silently).
+- The raw `UPDATE` (rather than a view/procedure) is an intentional, grandfathered exception to the house DB-access rule — it mirrors the legacy `WeatherDataWorkerOpen` .NET service exactly. If a save procedure for this table is ever introduced, switch to it instead of adding a new raw-table statement elsewhere.
 
 ```sql
 UPDATE dbo.ows_meteo

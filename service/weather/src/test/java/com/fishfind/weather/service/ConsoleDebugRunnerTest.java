@@ -32,7 +32,7 @@ class ConsoleDebugRunnerTest {
 
     @Test
     void consoleWithoutStationRunsAllAndExits() throws Exception {
-        when(stationWorker.runOnce(null)).thenReturn(5);
+        when(stationWorker.runOnce(null)).thenReturn(new StationWorker.RunResult(5, 0));
 
         runner.run(new DefaultApplicationArguments("--console"));
 
@@ -42,11 +42,29 @@ class ConsoleDebugRunnerTest {
 
     @Test
     void consoleWithStationFiltersToThatStation() throws Exception {
-        when(stationWorker.runOnce("MLI-5")).thenReturn(1);
+        when(stationWorker.runOnce("MLI-5")).thenReturn(new StationWorker.RunResult(1, 0));
 
         runner.run(new DefaultApplicationArguments("--console", "--station=MLI-5"));
 
         verify(stationWorker).runOnce("MLI-5");
+        assertThat(exitCode).isZero();
+    }
+
+    @Test
+    void exitsNonZeroWhenEveryStationFailed() throws Exception {
+        when(stationWorker.runOnce(null)).thenReturn(new StationWorker.RunResult(0, 3));
+
+        runner.run(new DefaultApplicationArguments("--console"));
+
+        assertThat(exitCode).isEqualTo(1);
+    }
+
+    @Test
+    void exitsZeroWhenSomeStationsProcessedDespiteFailures() throws Exception {
+        when(stationWorker.runOnce(null)).thenReturn(new StationWorker.RunResult(2, 1));
+
+        runner.run(new DefaultApplicationArguments("--console"));
+
         assertThat(exitCode).isZero();
     }
 

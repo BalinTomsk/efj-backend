@@ -7,7 +7,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
@@ -77,11 +77,12 @@ public class OpenMeteoFetcher {
                     throw new FileNotFoundException("Open-Meteo feed not published for URL " + url);
                 }
                 if (status == HTTP_TOO_MANY_REQUESTS) {
-                    if (rateLimitWaits++ >= rateLimitMaxRetries) {
+                    if (rateLimitWaits >= rateLimitMaxRetries) {
                         throw new RateLimitedException(
                                 "Open-Meteo rate limited (429) after " + rateLimitWaits + " waits for URL " + url);
                     }
                     long waitMs = retryAfterMillis(connection);
+                    rateLimitWaits++;
                     log.warn("Open-Meteo rate limited (429). Honouring Retry-After. waitMs={} attempt={}",
                             waitMs, rateLimitWaits);
                     honourRetryAfter(waitMs);
@@ -110,7 +111,7 @@ public class OpenMeteoFetcher {
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
         connection.setRequestMethod("GET");
         connection.setConnectTimeout(connectTimeoutMs);
         connection.setReadTimeout(readTimeoutMs);

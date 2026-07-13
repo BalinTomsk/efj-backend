@@ -267,6 +267,12 @@ Runs exactly one processing pass; no background thread started.
 Process termination goes through a protected exit(int) method (default System.exit) so tests
 can exercise the console path without terminating the JVM.
 
+StationWorker.runOnce returns a RunResult(processedStations, failedStations) record.
+Exit code:
+  1 → every attempted station failed (processedStations == 0 && failedStations > 0),
+      so a cron/script wrapper can detect a fully broken pass
+  0 → otherwise (a partial success still did useful work)
+
 
 STATION QUERY (WeatherStationRepository)
 -----------------------------------------
@@ -279,7 +285,9 @@ Model: StationRef(String mli, double latitude, double longitude, String state)
 
 HTTP FETCH (OpenMeteoFetcher)
 ------------------------------
-Transport: HttpURLConnection, method GET.
+Transport: HttpURLConnection, method GET. The connection is opened via
+  URI.create(url).toURL().openConnection() (java.net.URL(String) is deprecated since
+  Java 20 and must not be used directly).
 Base URL: weather.worker.open-meteo-base-url (default https://api.open-meteo.com/v1/forecast).
   Overridable so tests can target a local server; production default is unchanged.
 Connect timeout: weather.worker.connect-timeout-ms (default 15 000 ms).
@@ -299,7 +307,10 @@ Resilience (fetch is annotated @Retry + @CircuitBreaker + @RateLimiter, instance
   HTTP 404 → throw FileNotFoundException (not retried; maps to SKIPPED upstream)
   HTTP 429 → honour Retry-After inline (delta-seconds or HTTP-date), clamped to
              [0, weather.worker.rate-limit.max-wait-ms]; retry up to rate-limit.max-retries.
-             If still 429 → throw RateLimitedException (recorded by the breaker).
+             If still 429 → throw RateLimitedException (recorded by the breaker). The
+             exception message reports the number of waits actually honoured (not one
+             more than that — the wait counter is incremented only after the check and
+             right before the wait, so "after N waits" means exactly N).
              Interrupt during the Retry-After wait → re-set interrupt flag and throw
              RateLimitedException (excluded from Resilience4j retry, so shutdown is not
              delayed by further backoff attempts).
@@ -328,6 +339,13 @@ Save raw JSON:
     UPDATE dbo.ows_meteo
     SET type = 2, ows = ?, stamp = GETDATE()
     WHERE mli = ?
+
+  NOTE: this raw-table UPDATE is an intentional, grandfathered exception to the house
+  rule that application code goes through a view/function/procedure rather than a raw
+  table. It mirrors the legacy WeatherDataWorkerOpen .NET service exactly, and the rule
+  only applies to methods added or changed going forward. If a save procedure for this
+  table (e.g. spSaveStationWeather) is ever introduced, switch to it instead of writing
+  a new raw-table statement elsewhere.
 
 Post-processing procedures:
   pushSpeciesFromLakeToStation()  → EXEC dbo.spPushSpeciesFromLakeToStation

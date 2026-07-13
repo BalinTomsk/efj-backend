@@ -65,9 +65,10 @@ class StationWorkerTest {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(processor.process(any())).thenReturn(ProcessingOutcome.PROCESSED);
 
-        int processed = worker.runOnce(null);
+        StationWorker.RunResult result = worker.runOnce(null);
 
-        assertThat(processed).isEqualTo(3);
+        assertThat(result.processedStations()).isEqualTo(3);
+        assertThat(result.failedStations()).isZero();
         InOrder inOrder = Mockito.inOrder(processor, postProcessing);
         inOrder.verify(processor).process(THREE_STATIONS.get(0));
         inOrder.verify(processor).process(THREE_STATIONS.get(1));
@@ -82,9 +83,9 @@ class StationWorkerTest {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(processor.process(any())).thenReturn(ProcessingOutcome.PROCESSED);
 
-        int processed = worker.runOnce("MLI-2");
+        StationWorker.RunResult result = worker.runOnce("MLI-2");
 
-        assertThat(processed).isEqualTo(1);
+        assertThat(result.processedStations()).isEqualTo(1);
         verify(processor).process(THREE_STATIONS.get(1));
         verify(processor, never()).process(THREE_STATIONS.get(0));
         verify(processor, never()).process(THREE_STATIONS.get(2));
@@ -96,9 +97,9 @@ class StationWorkerTest {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(processor.process(any())).thenReturn(ProcessingOutcome.SKIPPED);
 
-        int processed = worker.runOnce(null);
+        StationWorker.RunResult result = worker.runOnce(null);
 
-        assertThat(processed).isZero();
+        assertThat(result.processedStations()).isZero();
         verify(postProcessing).runAfterStationProcessing();
     }
 
@@ -107,9 +108,10 @@ class StationWorkerTest {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(processor.process(any())).thenReturn(ProcessingOutcome.FAILED);
 
-        int processed = worker.runOnce(null);
+        StationWorker.RunResult result = worker.runOnce(null);
 
-        assertThat(processed).isZero();
+        assertThat(result.processedStations()).isZero();
+        assertThat(result.failedStations()).isEqualTo(3);
         verify(postProcessing, never()).runAfterStationProcessing();
     }
 
@@ -132,15 +134,10 @@ class StationWorkerTest {
                             .contains("successfulStations=2")
                             .contains("failedStations=1")
                             .contains("lastProcessedStation=MLI-3")
-                            .contains("lastFailedStation=MLI-2"))
-                    .anySatisfy(message -> assertThat(message)
-                            .contains("Full cycle summary.")
-                            .contains("successfulStations=2")
-                            .contains("failedStations=1")
-                            .contains("caLastProcessedStation=<none>")
-                            .contains("caLastFailedStation=<none>")
-                            .contains("usLastProcessedStation=MLI-3")
-                            .contains("usLastFailedStation=MLI-2"));
+                            .contains("lastFailedStation=MLI-2"));
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains("Full cycle"));
         } finally {
             logger.detachAppender(appender);
         }
@@ -167,23 +164,14 @@ class StationWorkerTest {
                             .contains("lastProcessedStation=MLI-1")
                             .contains("lastFailedStation=<none>"))
                     .anySatisfy(message -> assertThat(message)
-                            .contains("Full cycle hourly progress.")
-                            .contains("successfulStations=1")
-                            .contains("failedStations=0")
-                            .contains("usLastProcessedStation=MLI-1")
-                            .contains("usLastFailedStation=<none>"))
-                    .anySatisfy(message -> assertThat(message)
                             .contains("Country pass completed. country=US")
                             .contains("successfulStations=2")
                             .contains("failedStations=1")
                             .contains("lastProcessedStation=MLI-3")
-                            .contains("lastFailedStation=MLI-2"))
-                    .anySatisfy(message -> assertThat(message)
-                            .contains("Full cycle summary.")
-                            .contains("successfulStations=2")
-                            .contains("failedStations=1")
-                            .contains("usLastProcessedStation=MLI-3")
-                            .contains("usLastFailedStation=MLI-2"));
+                            .contains("lastFailedStation=MLI-2"));
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains("Full cycle"));
         } finally {
             logger.detachAppender(appender);
         }
@@ -194,9 +182,9 @@ class StationWorkerTest {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         ReflectionTestUtils.setField(worker, "running", false);
 
-        int processed = worker.runOnce(null);
+        StationWorker.RunResult result = worker.runOnce(null);
 
-        assertThat(processed).isZero();
+        assertThat(result.processedStations()).isZero();
         verify(processor, never()).process(any());
         verify(postProcessing, never()).runAfterStationProcessing();
     }
