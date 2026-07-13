@@ -30,6 +30,7 @@ public class StationWorker implements ApplicationRunner {
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
     private final StationPostProcessingService postProcessingService;
+    private final CycleReportRecorder cycleReportRecorder;
 
     @Value("${weather.worker.post-processing.max-failure-rate:0.5}")
     private double maxFailureRate;
@@ -39,10 +40,12 @@ public class StationWorker implements ApplicationRunner {
 
     public StationWorker(WeatherStationRepository stationRepository,
                          StationProcessorOpen stationProcessorOpen,
-                         StationPostProcessingService postProcessingService) {
+                         StationPostProcessingService postProcessingService,
+                         CycleReportRecorder cycleReportRecorder) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
         this.postProcessingService = postProcessingService;
+        this.cycleReportRecorder = cycleReportRecorder;
     }
 
     @Override
@@ -226,6 +229,12 @@ public class StationWorker implements ApplicationRunner {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
                 CountryPassSummary summary = runCycle(null);
+                cycleReportRecorder.record(new CycleReportEntry(
+                        LocalDate.now(),
+                        summary.successfulStations(),
+                        summary.failedStations(),
+                        summary.lastProcessedStation(),
+                        summary.lastFailedStation()));
                 long sleepMs = millisUntilNextMidnight();
                 ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
                 log.info("Worker cycle completed. country={} successfulStations={} failedStations={} "
