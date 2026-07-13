@@ -1,0 +1,90 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  # Single listener: the app has no controllers, so the main server carries only
+  # the actuator endpoints. No second (management) port, nothing on 8080.
+  port: 8081
+  shutdown: graceful
+
+resilience4j:
+  retry:
+    instances:
+      sqlRetry:
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - org.springframework.dao.DataAccessException
+          - java.sql.SQLException
+      openMeteo:
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+
+  circuitbreaker:
+    instances:
+      sqlBreaker:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+      openMeteo:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+
+  ratelimiter:
+    instances:
+      openMeteo:
+        limit-for-period: 5
+        limit-refresh-period: 1s
+        timeout-duration: 10s
+
+weather:
+  worker:
+    connect-timeout-ms: 15000
+    read-timeout-ms: 30000
+    open-meteo-base-url: https://api.open-meteo.com/v1/forecast
+    rate-limit:
+      max-retries: 2
+      default-wait-ms: 5000
+      max-wait-ms: 60000
+    post-processing:
+      max-failure-rate: 0.5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    com.fishfind.weather: INFO
