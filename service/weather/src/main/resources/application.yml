@@ -6,6 +6,20 @@ spring:
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  mail:
+    # All blank/empty by default: SMTP is optional. If unset, the app still starts and runs
+    # the weather worker normally; only the weekly report email is silently skipped
+    # (see WeeklyReportMailService).
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 server:
   # Single listener: the app has no controllers, so the main server carries only
@@ -72,6 +86,15 @@ weather:
       max-wait-ms: 60000
     post-processing:
       max-failure-rate: 0.5
+  report:
+    to: ${REPORT_EMAIL_TO:}          # recipient; blank = weekly email disabled
+    from: ${REPORT_EMAIL_FROM:}      # optional; falls back to spring.mail.username
+    cron: "0 0 8 * * FRI"            # every Friday 08:00, server-local time
+  lifecycle:
+    # Crash/unclean-restart tracking (ServiceLifecycleTracker). Persists only if /app/logs
+    # is a mounted volume -- otherwise it still works, just resets on every container restart.
+    state-dir: ${WEATHER_STATE_DIR:/app/logs/.lifecycle}
+    log-file: logs/weather.log      # must match logback-spring.xml's <file> path
 
 management:
   endpoints:

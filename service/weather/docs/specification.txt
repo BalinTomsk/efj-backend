@@ -41,6 +41,7 @@ Runtime:
   spring-boot-starter-actuator
   spring-boot-starter-jdbc
   spring-boot-starter-aop
+  spring-boot-starter-mail            (SMTP client for the weekly report email; optional feature)
   com.microsoft.sqlserver:mssql-jdbc  (managed by Spring Boot BOM)
   io.github.resilience4j:resilience4j-spring-boot3:2.4.0
   io.github.cdimascio:dotenv-java:3.2.0
@@ -70,13 +71,18 @@ com.fishfind.weather
 │   └── WeatherStationRepository.java
 └── service
     ├── ConsoleDebugRunner.java            --console one-shot mode
+    ├── CycleReportEntry.java              record: one day's completed-cycle summary
+    ├── CycleReportRecorder.java           in-memory rolling buffer (last 7 days), not persisted
+    ├── IncidentEntry.java                 record: one detected crash/unclean-restart incident
     ├── OpenMeteoFetcher.java              HTTP client (resilience4j + 429 Retry-After)
     ├── ProcessingOutcome.java             enum PROCESSED / SKIPPED / FAILED
     ├── RateLimitedException.java          IOException raised on exhausted 429 retries
+    ├── ServiceLifecycleTracker.java       crash detection via marker file + log-tail description
     ├── StationPostProcessingService.java  stored procedure runner
     ├── StationProcessorBase.java          template method; returns ProcessingOutcome
     ├── StationProcessorOpen.java          fetch + persist flow
-    └── StationWorker.java                 background worker + graceful shutdown + post-proc gate
+    ├── StationWorker.java                 background worker + graceful shutdown + post-proc gate
+    └── WeeklyReportMailService.java       @Scheduled Friday email: cycles + crash incidents
 
 
 REQUIRED FILES
@@ -87,13 +93,18 @@ src/main/java/com/fishfind/weather/domain/StationRef.java
 src/main/java/com/fishfind/weather/repo/WeatherDataRepository.java
 src/main/java/com/fishfind/weather/repo/WeatherStationRepository.java
 src/main/java/com/fishfind/weather/service/ConsoleDebugRunner.java
+src/main/java/com/fishfind/weather/service/CycleReportEntry.java
+src/main/java/com/fishfind/weather/service/CycleReportRecorder.java
+src/main/java/com/fishfind/weather/service/IncidentEntry.java
 src/main/java/com/fishfind/weather/service/OpenMeteoFetcher.java
 src/main/java/com/fishfind/weather/service/ProcessingOutcome.java
 src/main/java/com/fishfind/weather/service/RateLimitedException.java
+src/main/java/com/fishfind/weather/service/ServiceLifecycleTracker.java
 src/main/java/com/fishfind/weather/service/StationPostProcessingService.java
 src/main/java/com/fishfind/weather/service/StationProcessorBase.java
 src/main/java/com/fishfind/weather/service/StationProcessorOpen.java
 src/main/java/com/fishfind/weather/service/StationWorker.java
+src/main/java/com/fishfind/weather/service/WeeklyReportMailService.java
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
 .env.example
@@ -115,6 +126,9 @@ Before Spring initialises:
    so secrets (especially DB_PASSWORD) are never written to the JVM-global System.setProperty()
    table where they would be visible to heap dumps and diagnostic tools.
    Real process env / JVM system properties always win (they take precedence over default properties).
+4. The same dotenv fallback also covers SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD,
+   REPORT_EMAIL_TO, REPORT_EMAIL_FROM -- all optional. Their absence is not a startup failure;
+   see WEEKLY REPORT EMAIL below.
 
 
 CONFIGURATION (application.yml)
@@ -127,6 +141,17 @@ spring:
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   lifecycle:
     timeout-per-shutdown-phase: 30s     # bound graceful-shutdown wait
+  mail:                                # all blank by default: SMTP is optional
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 server:
   port: 8081                          # single listener: only actuator endpoints (no controllers)
@@ -185,6 +210,13 @@ weather:
     max-response-bytes: 5242880          # cap on fetched payload size (5 MB)
     post-processing:
       max-failure-rate: 0.5              # skip post-processing above this failure rate
+  report:
+    to: ${REPORT_EMAIL_TO:}             # recipient; blank = weekly email silently disabled
+    from: ${REPORT_EMAIL_FROM:}         # optional; falls back to spring.mail.username
+    cron: "0 0 8 * * FRI"               # every Friday 08:00, server-local time
+  lifecycle:
+    state-dir: ${WEATHER_STATE_DIR:/app/logs/.lifecycle}  # crash tracking; persists if /app/logs mounted
+    log-file: logs/weather.log          # must match logback-spring.xml's <file> path
 
 management:
   endpoints:
@@ -256,7 +288,10 @@ Per-cycle loop
        else → run post-processing procedures
      Rationale: a high failure rate (e.g. open circuit / mass SQL failure) must not recompute
      probabilities from partial data; legitimate no-feed skips never block post-processing.
-  5. Sleep until next local midnight (skip if already past boundary).
+  5. Record a CycleReportEntry (date, processed, failed, last processed/failed station) into
+     CycleReportRecorder -- the same values as the "Worker cycle completed" log line. Only the
+     background loop records; --console runs do not feed the recorder.
+  6. Sleep until next local midnight (skip if already past boundary).
 
 
 CONSOLE / DEBUG MODE (--console)
@@ -272,6 +307,80 @@ Exit code:
   1 → every attempted station failed (processedStations == 0 && failedStations > 0),
       so a cron/script wrapper can detect a fully broken pass
   0 → otherwise (a partial success still did useful work)
+
+
+WEEKLY REPORT EMAIL (WeeklyReportMailService / CycleReportRecorder)
+---------------------------------------------------------------------
+Trigger: @Scheduled(cron = "${weather.report.cron:0 0 8 * * FRI}") -- every Friday at 08:00
+  server-local time by default. Requires @EnableScheduling on WeatherStationPusherApplication.
+
+Data source: CycleReportRecorder is an in-memory rolling buffer of the last 7
+  CycleReportEntry records (date, successfulStations, failedStations, lastProcessedStation,
+  lastFailedStation), appended once per completed background-loop cycle -- the exact same
+  values as the "Worker cycle completed" log line.
+  - NOT PERSISTED: a JVM restart (e.g. a mid-week deploy) clears the buffer, so a report
+    generated right after a restart only covers cycles completed since then, not the full
+    week. There is no DB table backing this.
+  - --console runs do NOT feed the recorder -- only the production midnight loop does.
+
+Skip conditions (logged, not an error, no email sent):
+  - weather.report.to blank/unset → SMTP not configured for reporting.
+  - BOTH CycleReportRecorder AND ServiceLifecycleTracker.recentIncidents() are empty.
+    Incidents alone are enough to trigger a send -- a crash-loop that never completes a single
+    cycle must not go unreported just because the cycle recorder is empty.
+
+Send failure: caught (MailException), logged as an ERROR; never propagates out of the
+  @Scheduled method.
+
+From address: weather.report.from if set, else falls back to spring.mail.username, else
+  omitted (mail server default).
+
+Body: plain text (SimpleMailMessage):
+  1. One line per recorded day:
+     YYYY-MM-DD: processed=N failed=N lastProcessedStation=<mli|none> lastFailedStation=<mli|none>
+  2. "Service reliability this week: " + either "no crashes or unexpected restarts detected."
+     or "N crash(es) detected" followed by one line per incident:
+     <detectedAt>: down from <downtimeStart> to <downtimeEnd> - <description>
+
+SMTP itself is fully optional at the app level: spring.mail.host/port/username/password all
+  default to blank (${SMTP_HOST:} etc.), so the weather worker starts and runs normally with
+  no SMTP configured -- only the weekly email is skipped.
+
+
+CRASH / UNCLEAN-RESTART TRACKING (ServiceLifecycleTracker / IncidentEntry)
+---------------------------------------------------------------------------
+Detection mechanism: a two-line marker file is written on every startup and rewritten on
+  graceful shutdown:
+    RUNNING|<startedAtIso>   -- written by @PostConstruct init()
+    CLEAN|<shutdownAtIso>    -- written by @PreDestroy onShutdown(), fired when Spring
+                                receives SIGTERM and has time to run its shutdown phase
+  If the NEXT startup finds the marker still says RUNNING, the previous process never got
+  that chance -- it crashed (OOM-killed, uncaught JVM error, kill -9, host reboot, or a
+  forceful container removal that skips SIGTERM).
+
+Incident description: the last ERROR/WARN line found by tailing the previous run's log file
+  (weather.lifecycle.log-file, JSON-per-line via the existing Logstash encoder, parsed with
+  the Jackson ObjectMapper already on the classpath via spring-boot-starter-web). Falls back
+  to "no errors or warnings recorded before the restart" if the tail has none, or
+  "no log data available" if the log file itself is missing/unreadable.
+
+Downtime start: the timestamp of the last parseable line in that log tail (closer to the true
+  crash moment than "when the crashed process started"); falls back to the marker's own
+  startedAt, then to LocalDateTime.now().
+
+CRITICAL DEPENDENCY: this only works if the deploy tooling stops the container gracefully
+  (SIGTERM, e.g. "docker stop") instead of force-killing it. "docker rm -f" / "docker kill"
+  sends SIGKILL immediately, skipping @PreDestroy -- every deploy would then be misreported
+  as a crash. docs/do-update.md and the update-service skill's Step 8 do
+  "docker stop -t 30" (SIGTERM, wait) THEN "docker rm", so a normal deploy is NOT counted.
+
+Persistence: state is a plain file under weather.lifecycle.state-dir (default
+  /app/logs/.lifecycle, a subdirectory of the logs volume) -- not a database table. Nothing
+  here fails startup: an unwritable/missing state dir is logged and skipped, same
+  degrade-gracefully pattern as the SMTP-unconfigured case.
+
+Retention: recentIncidents() returns and keeps only incidents detected within the last 7
+  days, trimming the backing file (incidents.log) on read.
 
 
 STATION QUERY (WeatherStationRepository)
@@ -492,7 +601,19 @@ functional classes. No Spring context is started; collaborators are mocked.
   StationWorkerTest                    delay budget math, millisUntilNextMidnight bounds, runOnce
                                        all/filtered, skipped-don't-block + degraded-cycle post-proc
                                        gate, stop-requested short-circuit, shutdown flag, console
-  ConsoleDebugRunnerTest               no-op without --console; runs + exits with/without --station
+  ConsoleDebugRunnerTest               no-op without --console; runs + exits with/without --station;
+                                       exit code 1 iff every attempted station failed
+  CycleReportRecorderTest              insertion order; evicts oldest beyond 7 entries
+  WeeklyReportMailServiceTest          skip when `to` blank / both cycles+incidents empty (but
+                                       incidents alone still trigger a send); one email covering
+                                       every recorded day + incident details; from →
+                                       spring.mail.username fallback; MailException caught
+  ServiceLifecycleTrackerTest          @TempDir: first-ever startup (no incident), clean-
+                                       shutdown-then-restart (no incident), unclean shutdown with
+                                       a real JSON log file (incident + last ERROR line as
+                                       description), crash with no log file (fallback
+                                       description), 7-day retention trim, unwritable state dir
+                                       does not throw
 
 Testability seams used by the tests (production behaviour unchanged):
   - OpenMeteoFetcher: weather.worker.open-meteo-base-url
@@ -522,10 +643,12 @@ Do not add these unless explicitly requested:
 RECREATION CHECKLIST
 ---------------------
  1. Maven Java 21 Spring Boot project; coordinates com.fishfind:weather-station-pusher:1.0.0
- 2. Add dependencies: web, actuator, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback
+ 2. Add dependencies: web, actuator, mail, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback
  3. Add build plugins: cyclonedx-maven-plugin:2.9.2 (bound to package), dependency-check-maven:12.2.2
  4. Implement dotenv bootstrap in WeatherStationPusherApplication using setDefaultProperties()
-    (secrets must NOT be written to System.setProperty — use Spring default properties map)
+    (secrets must NOT be written to System.setProperty — use Spring default properties map);
+    also covers SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, REPORT_EMAIL_TO,
+    REPORT_EMAIL_FROM (all optional)
  5. StationRef record: mli, latitude, longitude, state
  6. WeatherStationRepository — vwWeatherForecastToDay US query
  7. OpenMeteoFetcher — HttpURLConnection; honest User-Agent; verbatim UTF-8 body (no replace)
@@ -533,14 +656,24 @@ RECREATION CHECKLIST
  9. StationProcessorBase — template method exception handling
 10. StationProcessorOpen — fetch + save flow
 11. StationPostProcessingService — exact procedure order
-12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep
+12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep, records a
+    CycleReportEntry per completed cycle
 13. ConsoleDebugRunner — --console + --station one-shot mode
-14. application.yml (datasource, resilience4j, weather.worker, management, logging)
-15. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
-16. .env.example with trustServerCertificate=false
-17. .owasp-suppressions.xml stub
-18. .dockerignore
-19. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
+14. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days buffer (not persisted)
+15. IncidentEntry record + ServiceLifecycleTracker — marker-file crash detection + log-tail
+    description; degrades gracefully if its state dir is unwritable
+16. WeeklyReportMailService — @Scheduled Friday email built from the recorder AND the
+    lifecycle tracker; skips (not fails) only when BOTH are empty; catches MailException
+17. application.yml (datasource, mail, resilience4j, weather.worker, weather.report,
+    weather.lifecycle, management, logging — mail/report/lifecycle all blank-safe defaults)
+18. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
+19. .env.example with trustServerCertificate=false; optional SMTP_*/REPORT_EMAIL_* placeholders
+20. .owasp-suppressions.xml stub
+21. .dockerignore
+22. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
     exec java entrypoint, EXPOSE 8081 + HEALTHCHECK (curl -sf)
-20. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
-21. Verify: mvn test
+23. Deploy tooling (docs/do-update.md, update-service skill): graceful "docker stop -t 30"
+    before "docker rm" (never "-f"), plus a persistent /app/logs volume mount — both required
+    for crash tracking to survive redeploys and not misreport every deploy as a crash
+24. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
+25. Verify: mvn test

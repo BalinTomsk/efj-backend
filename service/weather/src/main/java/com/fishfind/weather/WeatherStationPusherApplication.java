@@ -7,12 +7,14 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * Bootstraps the weather worker application and loads database credentials
+ * Bootstraps the weather worker application and loads database/SMTP credentials
  * from the process environment or a dotenv file before Spring starts.
  */
 @SpringBootApplication
+@EnableScheduling
 public class WeatherStationPusherApplication {
     private static final String DEFAULT_DOTENV_FILE = ".env";
     private static final String DOTENV_PATH_ENV = "DOTENV_PATH";
@@ -30,11 +32,15 @@ public class WeatherStationPusherApplication {
     }
 
     /**
-     * Collects DB credentials from a dotenv file as a fallback for keys not already supplied
-     * by the process environment or JVM system properties. The values are returned for use as
-     * Spring default properties rather than being copied into the JVM-global system properties
-     * table, so that secrets (notably {@code DB_PASSWORD}) are not exposed process-wide via
-     * {@link System#getProperty} or heap-dump diagnostics.
+     * Collects DB and SMTP credentials from a dotenv file as a fallback for keys not already
+     * supplied by the process environment or JVM system properties. The values are returned
+     * for use as Spring default properties rather than being copied into the JVM-global system
+     * properties table, so that secrets (notably {@code DB_PASSWORD} and {@code SMTP_PASSWORD})
+     * are not exposed process-wide via {@link System#getProperty} or heap-dump diagnostics.
+     *
+     * <p>The SMTP_* keys and REPORT_EMAIL_TO are optional: the weekly report email is silently
+     * skipped (not a startup failure) when they are absent — see {@link
+     * com.fishfind.weather.service.WeeklyReportMailService}.
      */
     private static Map<String, Object> loadDotenvCredentials() {
         Dotenv dotenv = loadDotenv();
@@ -43,6 +49,12 @@ public class WeatherStationPusherApplication {
         addIfMissing(dotenv, fallback, "DB_URL");
         addIfMissing(dotenv, fallback, "DB_USERNAME");
         addIfMissing(dotenv, fallback, "DB_PASSWORD");
+        addIfMissing(dotenv, fallback, "SMTP_HOST");
+        addIfMissing(dotenv, fallback, "SMTP_PORT");
+        addIfMissing(dotenv, fallback, "SMTP_USERNAME");
+        addIfMissing(dotenv, fallback, "SMTP_PASSWORD");
+        addIfMissing(dotenv, fallback, "REPORT_EMAIL_TO");
+        addIfMissing(dotenv, fallback, "REPORT_EMAIL_FROM");
         return fallback;
     }
 

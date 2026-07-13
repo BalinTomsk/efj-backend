@@ -218,7 +218,7 @@ class StationWorkerTest {
         private long currentTimeMs;
 
         RecordingWorker() {
-            super(stationRepository, processor, postProcessing);
+            super(stationRepository, processor, postProcessing, new CycleReportRecorder());
         }
 
         @Override
