@@ -102,12 +102,15 @@ public class StationWorker implements ApplicationRunner {
     public int runCycle(String requestedMli) {
         String correlationId = UUID.randomUUID().toString().substring(0, 8);
 
-        CompletableFuture<Integer> caPass =
+        CompletableFuture<PassStats> caPass =
                 CompletableFuture.supplyAsync(() -> runPass("CA", requestedMli, correlationId), countryPassExecutor);
-        CompletableFuture<Integer> usPass =
+        CompletableFuture<PassStats> usPass =
                 CompletableFuture.supplyAsync(() -> runPass("US", requestedMli, correlationId), countryPassExecutor);
 
-        int succeeded = awaitPass(caPass, "CA") + awaitPass(usPass, "US");
+        PassStats caStats = awaitPass(caPass, "CA");
+        PassStats usStats = awaitPass(usPass, "US");
+        int succeeded = caStats.succeeded() + usStats.succeeded();
+        int failed = caStats.failed() + usStats.failed();
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
@@ -116,7 +119,15 @@ public class StationWorker implements ApplicationRunner {
             } else {
                 log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
             }
-            log.info("Station cycle completed. processedStations={}", succeeded);
+            log.info("Station cycle completed. successfulStations={} failedStations={} "
+                            + "caLastProcessedStation={} usLastProcessedStation={} "
+                            + "caLastFailedStation={} usLastFailedStation={}",
+                    succeeded,
+                    failed,
+                    logValue(caStats.lastProcessedStation()),
+                    logValue(usStats.lastProcessedStation()),
+                    logValue(caStats.lastFailedStation()),
+                    logValue(usStats.lastFailedStation()));
         } finally {
             MDC.remove(MDC_CORRELATION_ID);
         }
@@ -127,10 +138,18 @@ public class StationWorker implements ApplicationRunner {
      * Runs one country pass with the cycle's correlation id bound to the logging context (MDC) for the
      * duration, so every log line emitted on this pass thread carries {@code correlationId}.
      */
-    private int runPass(String country, String requestedMli, String correlationId) {
+    private PassStats runPass(String country, String requestedMli, String correlationId) {
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
-            return runOnce(country, requestedMli);
+            PassStats stats = runOnceStats(country, requestedMli);
+            log.info("Station pass completed. country={} successfulStations={} failedStations={} "
+                            + "lastProcessedStation={} lastFailedStation={}",
+                    stats.country(),
+                    stats.succeeded(),
+                    stats.failed(),
+                    logValue(stats.lastProcessedStation()),
+                    logValue(stats.lastFailedStation()));
+            return stats;
         } finally {
             MDC.clear();
         }
@@ -141,14 +160,14 @@ public class StationWorker implements ApplicationRunner {
      *
      * @param pass the in-flight pass
      * @param country country label for logging
-     * @return the pass result, or {@code 0} if the pass failed
+     * @return the pass result, or empty stats if the pass failed
      */
-    private int awaitPass(CompletableFuture<Integer> pass, String country) {
+    private PassStats awaitPass(CompletableFuture<PassStats> pass, String country) {
         try {
             return pass.join();
         } catch (CompletionException ex) {
             log.error("Station pass failed. country={}", country, ex.getCause() == null ? ex : ex.getCause());
-            return 0;
+            return PassStats.empty(country);
         }
     }
 
@@ -162,12 +181,19 @@ public class StationWorker implements ApplicationRunner {
      * @return the number of stations processed successfully
      */
     public int runOnce(String country, String requestedMli) {
+        return runOnceStats(country, requestedMli).succeeded();
+    }
+
+    private PassStats runOnceStats(String country, String requestedMli) {
         var stations = repo.findSupported(country);
         log.info("Loaded supported stations. country={} count={} requestedStation={}",
                 country, stations.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
         int succeeded = 0;
+        int failed = 0;
+        String lastProcessedStation = null;
+        String lastFailedStation = null;
         for (var station : stations) {
             if (requestedMli != null && !requestedMli.isBlank() && !station.mli().equalsIgnoreCase(requestedMli)) {
                 continue;
@@ -183,8 +209,12 @@ public class StationWorker implements ApplicationRunner {
             meterRegistry.counter(STATION_PROCESSED_METRIC,
                     "country", country,
                     "outcome", ok ? "success" : "failure").increment();
+            lastProcessedStation = station.mli();
             if (ok) {
                 succeeded++;
+            } else {
+                failed++;
+                lastFailedStation = station.mli();
             }
             log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());
 
@@ -198,7 +228,7 @@ public class StationWorker implements ApplicationRunner {
                 }
             }
         }
-        return succeeded;
+        return new PassStats(country, succeeded, failed, lastProcessedStation, lastFailedStation);
     }
 
     private boolean processStation(String country, String mli, String state, int tz) {
@@ -207,5 +237,21 @@ public class StationWorker implements ApplicationRunner {
             case "US" -> processorUS.process(mli, state, tz);
             default -> throw new IllegalArgumentException("Unsupported country " + country);
         };
+    }
+
+    private String logValue(String value) {
+        return value == null ? "<none>" : value;
+    }
+
+    private record PassStats(
+            String country,
+            int succeeded,
+            int failed,
+            String lastProcessedStation,
+            String lastFailedStation) {
+
+        private static PassStats empty(String country) {
+            return new PassStats(country, 0, 0, null, null);
+        }
     }
 }
