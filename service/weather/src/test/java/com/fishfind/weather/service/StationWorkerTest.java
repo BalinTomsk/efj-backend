@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherStationRepository;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -70,7 +73,8 @@ class StationWorkerTest {
         inOrder.verify(processor).process(THREE_STATIONS.get(1));
         inOrder.verify(processor).process(THREE_STATIONS.get(2));
         inOrder.verify(postProcessing).runAfterStationProcessing();
-        assertThat(recordedSleeps).hasSize(3);
+        assertThat(recordedSleeps).allMatch(ms -> ms <= 60 * 60 * 1000L);
+        assertThat(recordedSleeps.stream().mapToLong(Long::longValue).sum()).isEqualTo(EIGHT_HOURS_MS);
     }
 
     @Test
@@ -110,6 +114,82 @@ class StationWorkerTest {
     }
 
     @Test
+    void runOnceLogsCountryPassAndFullCycleStationSummaries() throws Exception {
+        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
+        when(processor.process(THREE_STATIONS.get(0))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processor.process(THREE_STATIONS.get(1))).thenReturn(ProcessingOutcome.FAILED);
+        when(processor.process(THREE_STATIONS.get(2))).thenReturn(ProcessingOutcome.PROCESSED);
+        ch.qos.logback.classic.Logger logger = stationWorkerLogger();
+        ListAppender<ILoggingEvent> appender = attachLogAppender(logger);
+
+        try {
+            worker.runOnce(null);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Country pass completed. country=US")
+                            .contains("successfulStations=2")
+                            .contains("failedStations=1")
+                            .contains("lastProcessedStation=MLI-3")
+                            .contains("lastFailedStation=MLI-2"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Full cycle summary.")
+                            .contains("successfulStations=2")
+                            .contains("failedStations=1")
+                            .contains("caLastProcessedStation=<none>")
+                            .contains("caLastFailedStation=<none>")
+                            .contains("usLastProcessedStation=MLI-3")
+                            .contains("usLastFailedStation=MLI-2"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void runOnceLogsHourlyProgressBeforeFinalCycleSummary() throws Exception {
+        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
+        when(processor.process(THREE_STATIONS.get(0))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processor.process(THREE_STATIONS.get(1))).thenReturn(ProcessingOutcome.FAILED);
+        when(processor.process(THREE_STATIONS.get(2))).thenReturn(ProcessingOutcome.PROCESSED);
+        ch.qos.logback.classic.Logger logger = stationWorkerLogger();
+        ListAppender<ILoggingEvent> appender = attachLogAppender(logger);
+
+        try {
+            worker.runOnce(null);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Country pass hourly progress. country=US")
+                            .contains("successfulStations=1")
+                            .contains("failedStations=0")
+                            .contains("lastProcessedStation=MLI-1")
+                            .contains("lastFailedStation=<none>"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Full cycle hourly progress.")
+                            .contains("successfulStations=1")
+                            .contains("failedStations=0")
+                            .contains("usLastProcessedStation=MLI-1")
+                            .contains("usLastFailedStation=<none>"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Country pass completed. country=US")
+                            .contains("successfulStations=2")
+                            .contains("failedStations=1")
+                            .contains("lastProcessedStation=MLI-3")
+                            .contains("lastFailedStation=MLI-2"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("Full cycle summary.")
+                            .contains("successfulStations=2")
+                            .contains("failedStations=1")
+                            .contains("usLastProcessedStation=MLI-3")
+                            .contains("usLastFailedStation=MLI-2"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
     void stopRequestedBeforeCycleSkipsProcessingAndPostProcessing() throws Exception {
         when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         ReflectionTestUtils.setField(worker, "running", false);
@@ -135,7 +215,20 @@ class StationWorkerTest {
         assertThat(ReflectionTestUtils.getField(worker, "running")).isEqualTo(false);
     }
 
+    private ch.qos.logback.classic.Logger stationWorkerLogger() {
+        return (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(StationWorker.class);
+    }
+
+    private ListAppender<ILoggingEvent> attachLogAppender(ch.qos.logback.classic.Logger logger) {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return appender;
+    }
+
     private class RecordingWorker extends StationWorker {
+        private long currentTimeMs;
+
         RecordingWorker() {
             super(stationRepository, processor, postProcessing);
         }
@@ -143,6 +236,12 @@ class StationWorkerTest {
         @Override
         protected void sleep(long ms) {
             recordedSleeps.add(ms);
+            currentTimeMs += ms;
+        }
+
+        @Override
+        protected long currentTimeMillis() {
+            return currentTimeMs;
         }
     }
 }
