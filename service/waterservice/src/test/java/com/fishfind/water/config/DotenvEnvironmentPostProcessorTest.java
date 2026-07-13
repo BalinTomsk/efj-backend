@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -66,6 +67,16 @@ class DotenvEnvironmentPostProcessorTest {
         StandardEnvironment environment = new StandardEnvironment();
 
         processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertFalse(environment.getPropertySources().contains(SOURCE_NAME));
+    }
+
+    @Test
+    void addsNoPropertySourceWhenDotenvPathIsDirectory() throws Exception {
+        Files.createDirectory(DOTENV_PATH);
+        StandardEnvironment environment = new StandardEnvironment();
+
+        assertDoesNotThrow(() -> processor.postProcessEnvironment(environment, new SpringApplication()));
 
         assertFalse(environment.getPropertySources().contains(SOURCE_NAME));
     }

@@ -28,6 +28,7 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
     private static final String PROPERTY_SOURCE_NAME = "dotenvProperties";
     private static final String DOTENV_PATH_ENV = "DOTENV_PATH";
     private static final String DEFAULT_DOTENV_FILE = ".env";
+    private static final String MISSING_DOTENV_FILE = ".env.missing";
 
     /**
      * Reads the resolved {@code .env} file and adds its declared entries as a low-precedence property source.
@@ -61,7 +62,7 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
      */
     private Dotenv loadDotenv() {
         Path configuredPath = resolveDotenvPath();
-        if (configuredPath != null && Files.exists(configuredPath)) {
+        if (configuredPath != null && Files.isRegularFile(configuredPath)) {
             Path parent = configuredPath.toAbsolutePath().getParent();
             String directory = parent == null ? "." : parent.toString();
             return Dotenv.configure()
@@ -73,6 +74,7 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
         }
 
         return Dotenv.configure()
+                .filename(MISSING_DOTENV_FILE)
                 .ignoreIfMalformed()
                 .ignoreIfMissing()
                 .load();
@@ -90,7 +92,7 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
         }
 
         Path workingDirectoryDotenv = Path.of(DEFAULT_DOTENV_FILE);
-        if (Files.exists(workingDirectoryDotenv)) {
+        if (Files.isRegularFile(workingDirectoryDotenv)) {
             return workingDirectoryDotenv;
         }
 
