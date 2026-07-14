@@ -114,6 +114,15 @@
      <plugin>
        <groupId>org.springframework.boot</groupId>
        <artifactId>spring-boot-maven-plugin</artifactId>
+       <executions>
+         <execution>
+           <goals>
+             <!-- Generates build-info.properties so BuildProperties (and /health "version") always
+                  reflects the pom version instead of a hardcoded constant. -->
+             <goal>build-info</goal>
+           </goals>
+         </execution>
+       </executions>
      </plugin>
    </plugins>
  </build>

@@ -91,10 +91,32 @@ public class StationWorker implements ApplicationRunner {
      * Wraps {@link #runCycle(String)} so a failed cycle is logged rather than killing the scheduler thread.
      */
     private void runScheduledCycle() {
+        java.time.Instant start = java.time.Instant.now();
         try {
             runCycle(null);
         } catch (Exception ex) {
             log.error("Station cycle failed.", ex);
+        } finally {
+            recordCycleOutcome(start, java.time.Instant.now());
+        }
+    }
+
+    /**
+     * Makes a cycle that overran its cron period observable: the single-threaded scheduler silently skips
+     * the next trigger in that case, so without this a slowly degrading cycle time produces data gaps with
+     * no signal. Increments {@code water.cycle.overrun} and logs a warning when the cycle finished at or
+     * after the next scheduled fire time.
+     */
+    void recordCycleOutcome(java.time.Instant start, java.time.Instant end) {
+        long durationSeconds = java.time.Duration.between(start, end).toSeconds();
+        java.time.ZonedDateTime nextFire = org.springframework.scheduling.support.CronExpression.parse(cron)
+                .next(start.atZone(java.time.ZoneId.systemDefault()));
+        if (nextFire != null && !end.isBefore(nextFire.toInstant())) {
+            meterRegistry.counter("water.cycle.overrun").increment();
+            log.warn("Station cycle overran its cron period; the next scheduled cycle was skipped. "
+                    + "durationSeconds={} cron=\"{}\"", durationSeconds, cron);
+        } else {
+            log.info("Station cycle duration. durationSeconds={}", durationSeconds);
         }
     }
 

@@ -401,6 +401,9 @@ Log the following events:
   - `/actuator/health/liveness` — process alive, NOT DB-dependent (so a DB blip doesn't restart the pod).
   - `/actuator/health/readiness` — includes the `db` indicator ⇒ 503 when the datasource is unreachable.
   - Custom `/health` ({status,version,uptime}) stays lightweight = the Docker HEALTHCHECK target.
+    `version` comes from Maven build info (`build-info` goal → `BuildProperties`), fallback "unknown".
+- **Overrun visibility:** `water_cycle_overrun_total` + WARN log when a cycle finishes at/after the next
+  cron fire (that trigger is silently skipped by the pool-size-1 scheduler); duration logged every cycle.
 - **Metrics:** `/actuator/prometheus` serves JVM/HTTP + Resilience4j metrics + custom
   `water_station_processed_total{country,outcome}` (incremented per station in `runOnce`). Use it for a
   sustained-failure-ratio alert.

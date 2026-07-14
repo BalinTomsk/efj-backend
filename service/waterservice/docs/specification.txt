@@ -255,7 +255,10 @@ Logging
   A `station` MDC key is bound around each station's processing.
 
 Health endpoint
-- `GET /health` returns HTTP 200 with JSON body: `{ "status": "UP", "version": "1.0.0", "uptime": <seconds> }`
+- `GET /health` returns HTTP 200 with JSON body: `{ "status": "UP", "version": <pom version>, "uptime": <seconds> }`
+- The version comes from Maven build info (`spring-boot-maven-plugin` `build-info` goal ->
+  `BuildProperties`), never a hardcoded constant; falls back to "unknown" when build info is absent
+  (e.g. IDE runs).
 - Implemented in `com.fishfind.water.web.HealthController`. Intentionally lightweight (liveness style) so the
   Docker HEALTHCHECK does NOT flap/restart the container during a transient DB outage.
 - Server listens on port 8080 (`server.port=8080` in application.yml)
@@ -278,6 +281,9 @@ Observability and operations
     resilience4j-spring-boot3 + Micrometer integration), and the custom counter
     `water_station_processed_total{country,outcome}` (outcome = `success` | `failure`), incremented per station
     in `StationWorker.runOnce`.
+  - `water_cycle_overrun_total`: incremented (with a WARN log) when a scheduled cycle finishes at or after
+    the next cron fire time — the pool-size-1 scheduler silently skips that trigger, so this is the only
+    signal that cycles are being dropped. Cycle duration is logged after every scheduled cycle.
   - Recommended alert (in the monitoring stack, not this repo): sustained high failure ratio, e.g.
     `sum(rate(water_station_processed_total{outcome="failure"}[1h])) / sum(rate(water_station_processed_total[1h])) > 0.5`.
 - CI: `.github/workflows/waterservice-ci.yml` runs `mvn -B test` then `mvn -B -DskipTests package` on any change

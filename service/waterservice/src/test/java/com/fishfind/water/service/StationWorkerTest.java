@@ -191,6 +191,26 @@ class StationWorkerTest {
     }
 
     @Test
+    void cycleOverrunningItsCronPeriodIsCountedAndVisible() {
+        // Cycle started at the top of the hour and finished after the next trigger should have fired:
+        // the pool-size-1 scheduler silently skipped a cycle, which must be observable.
+        worker.recordCycleOutcome(
+                java.time.Instant.parse("2026-07-13T10:00:00Z"),
+                java.time.Instant.parse("2026-07-13T11:30:00Z"));
+
+        assertEquals(1.0, meterRegistry.counter("water.cycle.overrun").count());
+    }
+
+    @Test
+    void cycleFinishingWithinItsCronPeriodDoesNotCountAnOverrun() {
+        worker.recordCycleOutcome(
+                java.time.Instant.parse("2026-07-13T10:00:00Z"),
+                java.time.Instant.parse("2026-07-13T10:10:00Z"));
+
+        assertEquals(0.0, meterRegistry.counter("water.cycle.overrun").count());
+    }
+
+    @Test
     void runCycleStillCleansOldWaterDataWhenSpeciesPostProcessingFails() {
         when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
         when(repo.findSupported("US")).thenReturn(List.of());
