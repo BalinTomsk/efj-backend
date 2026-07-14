@@ -15,6 +15,8 @@
 
  <properties>
    <java.version>21</java.version>
+   <!-- Override Boot 3.3's managed 12.6.x with the current driver line. -->
+   <mssql-jdbc.version>12.8.1.jre11</mssql-jdbc.version>
  </properties>
 
  <dependencies>

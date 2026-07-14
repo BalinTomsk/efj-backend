@@ -51,7 +51,8 @@ public class XmlFetcherUS {
             log.debug("Fetched USGS WaterML. station={} state={}", mli, state);
             return body == null ? "" : body;
         } catch (HttpClientErrorException.NotFound ex) {
-            throw new FileNotFoundException("HTTP error 404");
+            throw new FileNotFoundException(
+                    "HTTP 404: WaterML not published for US station " + mli + " (state " + state + ")");
         }
     }
 }

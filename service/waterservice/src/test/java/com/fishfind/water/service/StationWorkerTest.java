@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -188,6 +189,21 @@ class StationWorkerTest {
         assertEquals(0, processed);
         verify(postProcessingService, never()).runAfterStationProcessing();
         verify(postProcessingService, times(1)).cleanOldWaterData();
+    }
+
+    @Test
+    void runOnceDoesNotSleepAfterTheFinalStation() {
+        // The pause exists to be polite between requests; sleeping after the last station of a pass
+        // just delays the cycle for nothing.
+        ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 500L);
+        when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
+        when(processorCA.process("A", "QC", -5)).thenReturn(true);
+
+        long startNanos = System.nanoTime();
+        worker.runOnce("CA", null);
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+
+        assertTrue(elapsedMs < 400, "single-station pass slept the between-stations pause: " + elapsedMs + "ms");
     }
 
     @Test
