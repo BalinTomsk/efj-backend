@@ -59,8 +59,9 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 
 ## Goal
 
-- Poll up to 1400 weather stations per country for US and CA from MSSQL (`dbo.vwWeatherForecastToDay`).
-- Fetch raw JSON forecast data from Open-Meteo for each station.
+- Poll up to 900 US weather stations and up to 1400 CA weather stations from MSSQL (`dbo.vwWeatherForecastToDay`).
+- Fetch raw JSON latest-observation data from Weather.gov for US stations.
+- Fetch raw JSON forecast data from Open-Meteo for CA stations.
 - Store the raw JSON as-is into `dbo.ows_meteo` with source type `2`. **Do not parse JSON in Java.**
 - After each full pass, run post-processing stored procedures in order:
   1. `dbo.spPushSpeciesFromLakeToStation`
@@ -112,8 +113,8 @@ com.fishfind.weather
 │   └── WeatherStationRepository.java
 └── service
     ├── ConsoleDebugRunner.java
-    ├── CycleReportEntry.java           # record: one day's completed-cycle summary
-    ├── CycleReportRecorder.java        # in-memory rolling buffer (last 7 days) for the weekly email
+    ├── CycleReportEntry.java           # record: one worker's completed-cycle summary
+    ├── CycleReportRecorder.java        # in-memory rolling buffer (last 7 days per worker) for the weekly email
     ├── IncidentEntry.java              # record: one detected crash/unclean-restart incident
     ├── OpenMeteoFetcher.java          # resilience4j + 429 Retry-After
     ├── ProcessingOutcome.java         # enum PROCESSED / SKIPPED / FAILED
@@ -302,7 +303,7 @@ logging:
 2. Compute target delay: `max(8_hours_ms / stationCount, 2000)`. If count ≤ 1, use `2000 ms`.
 3. For each station (unless stopping): `process()` → tally `PROCESSED/SKIPPED/FAILED` → sleep `(targetDelay - actualProcessingTime)` (skip if negative).
 4. **Post-processing gate** (`maybeRunPostProcessing`): with `attempted = processed + failed`, if `attempted > 0 && failed/attempted > weather.worker.post-processing.max-failure-rate` → log **ERROR** and **skip** post-processing (don't recompute probabilities from partial data); otherwise run the procedures. Skipped (no-feed) stations never block post-processing.
-5. On cycle completion, record a `CycleReportEntry` (date, processed, failed, last processed/failed station) into `CycleReportRecorder` — the same data as the "Worker cycle completed" log line, feeding the weekly report email (see below). Only the background loop records; `--console` runs do not.
+5. On cycle completion, record a `CycleReportEntry` (date, worker, country, processed, failed, last processed/failed station) into `CycleReportRecorder` — the same data as the "Worker cycle completed" log line, feeding the weekly report email (see below). Only the background loop records; `--console` runs do not.
 6. Sleep until next local midnight (skip if already past boundary).
 
 ---
@@ -319,7 +320,7 @@ logging:
 ## Weekly report email (`WeeklyReportMailService` / `CycleReportRecorder`)
 
 - **Trigger:** `@Scheduled(cron = "${weather.report.cron:0 0 8 * * FRI}")` — every Friday at 08:00 server-local time by default; requires `@EnableScheduling` on `WeatherStationPusherApplication`.
-- **Data source:** `CycleReportRecorder` is an in-memory rolling buffer of the last **7** `CycleReportEntry` records (date, `successfulStations`, `failedStations`, last processed/failed station), appended once per completed background-loop cycle in `StationWorker.loop()` — the exact same values as the "Worker cycle completed" log line.
+- **Data source:** `CycleReportRecorder` is an in-memory rolling buffer of the last **7 days per worker** (`14` total expected entries) of `CycleReportEntry` records (date, worker, country, `successfulStations`, `failedStations`, last processed/failed station), appended once per completed background-loop cycle in `StationWorker.loop()` — the exact same values as the "Worker cycle completed" log line.
   - **Not persisted.** A JVM restart (e.g. a mid-week deploy) clears the buffer, so a report generated right after a restart only covers cycles completed since then, not the full week. There is no DB table backing this.
   - `--console` runs do **not** feed the recorder — only the production midnight loop does.
 - **Skip conditions (no error, just a log line and no email):**
@@ -327,7 +328,7 @@ logging:
   - `CycleReportRecorder` empty → nothing completed yet since the last restart/report.
 - **Send failure:** caught (`MailException`) and logged as an **error**; never propagates out of the `@Scheduled` method.
 - **From address:** `weather.report.from` if set, else falls back to `spring.mail.username`, else omitted (mail server default).
-- **Body:** plain text (`SimpleMailMessage`), one line per recorded day: `YYYY-MM-DD: processed=N failed=N lastProcessedStation=<mli|none> lastFailedStation=<mli|none>`.
+- **Body:** plain text (`SimpleMailMessage`), one line per recorded worker cycle: `YYYY-MM-DD: worker=<provider> country=<country> processed=N failed=N lastProcessedStation=<mli|none> lastFailedStation=<mli|none>`.
 - **SMTP itself is fully optional at the app level:** `spring.mail.host/port/username/password` all default to blank (`${SMTP_HOST:}` etc.), so the weather worker starts and runs normally with no SMTP configured — only the weekly email is skipped.
 - **Skip logic accounts for crash-loops:** the email is skipped only when there is genuinely nothing to report (`entries` AND `incidents` both empty). Incidents alone are enough to trigger a send — a service that crash-loops before ever completing a cycle must not go unreported just because `CycleReportRecorder` is empty.
 
@@ -601,7 +602,7 @@ Do not add these unless explicitly requested:
 11. `StationPostProcessingService` — exact procedure order.
 12. `StationWorker` — background thread, 8-hour dynamic delay, midnight sleep, `@PreDestroy` graceful shutdown, post-processing success gate, records a `CycleReportEntry` per completed cycle.
 13. `ConsoleDebugRunner` — `--console` + `--station` one-shot mode.
-14. `CycleReportEntry` record + `CycleReportRecorder` — in-memory last-7-days buffer (not persisted).
+14. `CycleReportEntry` record + `CycleReportRecorder` — in-memory last-7-days-per-worker buffer (not persisted).
 15. `IncidentEntry` record + `ServiceLifecycleTracker` — marker-file crash detection + log-tail description; degrades gracefully if its state dir is unwritable.
 16. `WeeklyReportMailService` — `@Scheduled` Friday email built from the recorder and the lifecycle tracker; skips (not fails) only when both are empty; catches `MailException`.
 17. `application.yml` and `logback-spring.xml` (incl. `spring.mail.*`, `weather.report.*`, `weather.lifecycle.*`, all-blank-safe defaults).

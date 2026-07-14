@@ -24,19 +24,20 @@ class CycleReportRecorderTest {
     }
 
     @Test
-    void evictsOldestBeyondSevenEntries() {
+    void evictsOldestBeyondSevenDaysPerWorker() {
         CycleReportRecorder recorder = new CycleReportRecorder();
-        for (int i = 1; i <= 9; i++) {
+        for (int i = 1; i <= 16; i++) {
             recorder.record(entry(i));
         }
 
         assertThat(recorder.recentEntries())
                 .hasSize(CycleReportRecorder.MAX_ENTRIES)
                 .extracting(CycleReportEntry::successfulStations)
-                .containsExactly(3, 4, 5, 6, 7, 8, 9);
+                .containsExactly(3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
     }
 
     private static CycleReportEntry entry(int successfulStations) {
-        return new CycleReportEntry(LocalDate.now(), successfulStations, 0, "MLI-" + successfulStations, null);
+        return new CycleReportEntry(
+                LocalDate.now(), "Weather.gov", "US", successfulStations, 0, "MLI-" + successfulStations, null);
     }
 }

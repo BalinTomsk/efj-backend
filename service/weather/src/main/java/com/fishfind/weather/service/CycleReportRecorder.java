@@ -12,7 +12,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class CycleReportRecorder {
-    static final int MAX_ENTRIES = 7;
+    static final int MAX_ENTRIES_PER_WORKER = 7;
+    static final int EXPECTED_WORKER_COUNT = 2;
+    static final int MAX_ENTRIES = MAX_ENTRIES_PER_WORKER * EXPECTED_WORKER_COUNT;
 
     private final Deque<CycleReportEntry> entries = new ArrayDeque<>();
 

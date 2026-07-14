@@ -19,9 +19,10 @@ Artifact     : com.fishfind:weather-station-pusher:1.0.0
 
 GOAL
 ----
-- Poll up to 1400 weather stations per country for US and CA from MSSQL
+- Poll up to 900 US weather stations and up to 1400 non-US weather stations from MSSQL
   (dbo.vwWeatherForecastToDay).
-- Fetch raw JSON forecast data from Open-Meteo for each station.
+- Fetch raw JSON latest-observation data from Weather.gov for US stations.
+- Fetch raw JSON forecast data from Open-Meteo for CA stations.
 - Store the raw JSON as-is into dbo.ows_meteo with source type 2. Do NOT parse JSON in Java.
 - After each full pass, run post-processing stored procedures in order:
     1. dbo.spPushSpeciesFromLakeToStation
@@ -73,17 +74,19 @@ com.fishfind.weather
 │   └── WeatherStationRepository.java
 └── service
     ├── ConsoleDebugRunner.java            --console one-shot mode
-    ├── CycleReportEntry.java              record: one day's completed-cycle summary
-    ├── CycleReportRecorder.java           in-memory rolling buffer (last 7 days), not persisted
+    ├── CycleReportEntry.java              record: one worker's completed-cycle summary
+    ├── CycleReportRecorder.java           in-memory rolling buffer (last 7 days per worker), not persisted
     ├── IncidentEntry.java                 record: one detected crash/unclean-restart incident
-    ├── OpenMeteoFetcher.java              HTTP client (resilience4j + 429 Retry-After)
+    ├── OpenMeteoFetcher.java              Open-Meteo HTTP client (resilience4j + 429 Retry-After)
     ├── ProcessingOutcome.java             enum PROCESSED / SKIPPED / FAILED
     ├── RateLimitedException.java          IOException raised on exhausted 429 retries
     ├── ServiceLifecycleTracker.java       crash detection via marker file + log-tail description
     ├── StationPostProcessingService.java  stored procedure runner
     ├── StationProcessorBase.java          template method; returns ProcessingOutcome
-    ├── StationProcessorOpen.java          fetch + persist flow
+    ├── StationProcessorOpen.java          Open-Meteo fetch + persist flow
+    ├── StationProcessorWeatherGov.java    Weather.gov fetch + persist flow
     ├── StationWorker.java                 background worker + graceful shutdown + post-proc gate
+    ├── WeatherGovFetcher.java             Weather.gov HTTP client (resilience4j + 429 Retry-After)
     └── WeeklyReportMailService.java       @Scheduled Friday email: cycles + crash incidents
 
 
@@ -105,7 +108,9 @@ src/main/java/com/fishfind/weather/service/ServiceLifecycleTracker.java
 src/main/java/com/fishfind/weather/service/StationPostProcessingService.java
 src/main/java/com/fishfind/weather/service/StationProcessorBase.java
 src/main/java/com/fishfind/weather/service/StationProcessorOpen.java
+src/main/java/com/fishfind/weather/service/StationProcessorWeatherGov.java
 src/main/java/com/fishfind/weather/service/StationWorker.java
+src/main/java/com/fishfind/weather/service/WeatherGovFetcher.java
 src/main/java/com/fishfind/weather/service/WeeklyReportMailService.java
 src/main/resources/application.yml
 src/main/resources/logback-spring.xml
@@ -129,8 +134,8 @@ Before Spring initialises:
    table where they would be visible to heap dumps and diagnostic tools.
    Real process env / JVM system properties always win (they take precedence over default properties).
 4. The same dotenv fallback also covers SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD,
-   REPORT_EMAIL_TO, REPORT_EMAIL_FROM -- all optional. Their absence is not a startup failure;
-   see WEEKLY REPORT EMAIL below.
+   REPORT_EMAIL_TO, REPORT_EMAIL_FROM, and WEATHER_GOV_USER_AGENT -- all optional. Their
+   absence is not a startup failure; see WEEKLY REPORT EMAIL and Weather.gov config below.
 
 
 CONFIGURATION (application.yml)
@@ -178,6 +183,18 @@ resilience4j:
           - java.io.FileNotFoundException
           - com.fishfind.weather.service.RateLimitedException
           - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      weatherGov:                        # same retry model for Weather.gov
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions: [java.io.IOException]
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
   circuitbreaker:
     instances:
       sqlBreaker:
@@ -193,10 +210,22 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3
         record-exceptions: [java.io.IOException]
         ignore-exceptions: [java.io.FileNotFoundException]
+      weatherGov:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions: [java.io.IOException]
+        ignore-exceptions: [java.io.FileNotFoundException]
   ratelimiter:
     instances:
       openMeteo:
         limit-for-period: 5
+        limit-refresh-period: 1s
+        timeout-duration: 10s
+      weatherGov:
+        limit-for-period: 1
         limit-refresh-period: 1s
         timeout-duration: 10s
 
@@ -205,6 +234,8 @@ weather:
     connect-timeout-ms: 15000
     read-timeout-ms: 30000
     open-meteo-base-url: https://api.open-meteo.com/v1/forecast
+    weather-gov-base-url: https://api.weather.gov
+    weather-gov-user-agent: ${WEATHER_GOV_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
     rate-limit:                          # inline 429 Retry-After handling
       max-retries: 2
       default-wait-ms: 5000
@@ -291,9 +322,9 @@ Per-cycle loop
        else → run post-processing procedures
      Rationale: a high failure rate (e.g. open circuit / mass SQL failure) must not recompute
      probabilities from partial data; legitimate no-feed skips never block post-processing.
-  5. Record a CycleReportEntry (date, processed, failed, last processed/failed station) into
-     CycleReportRecorder -- the same values as the "Worker cycle completed" log line. Only the
-     background loop records; --console runs do not feed the recorder.
+  5. Record a CycleReportEntry (date, worker, country, processed, failed, last processed/failed
+     station) into CycleReportRecorder -- the same values as the "Worker cycle completed" log
+     line. Only the background loop records; --console runs do not feed the recorder.
   6. Sleep until next local midnight (skip if already past boundary).
 
 
@@ -317,10 +348,11 @@ WEEKLY REPORT EMAIL (WeeklyReportMailService / CycleReportRecorder)
 Trigger: @Scheduled(cron = "${weather.report.cron:0 0 8 * * FRI}") -- every Friday at 08:00
   server-local time by default. Requires @EnableScheduling on WeatherStationPusherApplication.
 
-Data source: CycleReportRecorder is an in-memory rolling buffer of the last 7
-  CycleReportEntry records (date, successfulStations, failedStations, lastProcessedStation,
-  lastFailedStation), appended once per completed background-loop cycle -- the exact same
-  values as the "Worker cycle completed" log line.
+Data source: CycleReportRecorder is an in-memory rolling buffer of the last 7 days per
+  expected worker (14 total entries for Weather.gov/US and Open-Meteo/CA). CycleReportEntry
+  records include date, worker, country, successfulStations, failedStations,
+  lastProcessedStation, and lastFailedStation, appended once per completed background-loop
+  cycle -- the exact same values as the "Worker cycle completed" log line.
   - NOT PERSISTED: a JVM restart (e.g. a mid-week deploy) clears the buffer, so a report
     generated right after a restart only covers cycles completed since then, not the full
     week. There is no DB table backing this.
@@ -339,8 +371,9 @@ From address: weather.report.from if set, else falls back to spring.mail.usernam
   omitted (mail server default).
 
 Body: plain text (SimpleMailMessage):
-  1. One line per recorded day:
-     YYYY-MM-DD: processed=N failed=N lastProcessedStation=<mli|none> lastFailedStation=<mli|none>
+  1. One line per recorded worker cycle:
+     YYYY-MM-DD: worker=<provider> country=<country> processed=N failed=N
+     lastProcessedStation=<mli|none> lastFailedStation=<mli|none>
   2. "Service reliability this week: " + either "no crashes or unexpected restarts detected."
      or "N crash(es) detected" followed by one line per incident:
      <detectedAt>: down from <downtimeStart> to <downtimeEnd> - <description>
@@ -388,13 +421,14 @@ Retention: recentIncidents() returns and keeps only incidents detected within th
 
 STATION QUERY (WeatherStationRepository)
 -----------------------------------------
-  SELECT TOP 1400 mli, lat, lon, state
+  SELECT TOP (?) mli, lat, lon, state
   FROM dbo.vwWeatherForecastToDay
   WHERE country = ?
   ORDER BY stamp DESC
 
-StationWorker starts one pass loop for US and one for CA; the repository binds the country
-parameter for each loop.
+StationWorker starts one pass loop for US and one for CA. US calls findSupportedUsStations()
+with a 900-station limit for Weather.gov. Other countries call findSupportedStations(country)
+with the default 1400-station limit.
 
 Model: StationRef(String mli, double latitude, double longitude, String state)
 
@@ -442,6 +476,29 @@ URL shape:
     &timezone=auto
 
 
+HTTP FETCH (WeatherGovFetcher)
+------------------------------
+Transport: HttpURLConnection, method GET.
+Base URL: weather.worker.weather-gov-base-url (default https://api.weather.gov).
+Endpoint: /stations/{station.mli}/observations/latest.
+Headers:
+  User-Agent: weather.worker.weather-gov-user-agent. Weather.gov requires this; include contact info.
+  Accept: application/geo+json.
+
+Resilience (fetch is annotated @Retry + @CircuitBreaker + @RateLimiter, instance "weatherGov"):
+  HTTP 200 -> read response body as UTF-8 verbatim, with the same max-response-bytes and
+              first-non-whitespace-char-is-'{' guard used by OpenMeteoFetcher.
+  HTTP 404 -> throw FileNotFoundException (not retried; maps to SKIPPED upstream).
+  HTTP 429 -> honour Retry-After inline, clamped and bounded by weather.worker.rate-limit.
+  Other non-200 / timeout -> throw IOException.
+
+Weather.gov service-limit note:
+  The official docs do not publish a daily request limit. They state rate limits are reasonable,
+  not public, generous for typical use, and 429 responses may usually be retried after the limit
+  clears, typically within about 5 seconds. The worker therefore spreads 900 US stations across
+  the 8-hour budget (about 32 seconds per station) and still handles 429 Retry-After explicitly.
+
+
 PERSISTENCE (WeatherDataRepository)
 -------------------------------------
 Save raw JSON:
@@ -477,11 +534,17 @@ StationProcessorBase (template method):
   process(StationRef) is final; calls processStation() inside try/catch and returns a
   ProcessingOutcome (PROCESSED / SKIPPED / FAILED) the worker uses for the post-processing gate:
     success              → PROCESSED
-    FileNotFoundException → SKIPPED; log info "Skipping US station with no published Open-Meteo source. ..."
+    FileNotFoundException → SKIPPED; log info "Skipping {country} station with no published {source}. ..."
     any other exception   → FAILED;  log warning "US station processing failed. station={mli} state={state}"
 
 StationProcessorOpen:
   1. Fetch JSON from Open-Meteo using station lat/lon.
+  2. Log save start with payload byte count.
+  3. Update dbo.ows_meteo via WeatherDataRepository.
+  4. Log station processed.
+
+StationProcessorWeatherGov:
+  1. Fetch latest-observation JSON from Weather.gov using station.mli as the station id.
   2. Log save start with payload byte count.
   3. Update dbo.ows_meteo via WeatherDataRepository.
   4. Log station processed.
@@ -494,7 +557,8 @@ StationPostProcessingService calls procedures in this exact order:
 
 TIMING MODEL
 ------------
-  1400 stations, 8h budget → delay ≈ 28_800_000 / 1400 = 20_571 ms per station
+  US: 900 stations, 8h budget → delay ≈ 28_800_000 / 900 = 32_000 ms per station
+  CA: 1400 stations, 8h budget → delay ≈ 28_800_000 / 1400 = 20_571 ms per station
   Actual delay             → targetDelay − actualProcessingTime; never negative
   Between cycles           → sleep until next local midnight; skip if already past boundary
 
@@ -668,7 +732,7 @@ RECREATION CHECKLIST
 12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep, records a
     CycleReportEntry per completed cycle
 13. ConsoleDebugRunner — --console + --station one-shot mode
-14. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days buffer (not persisted)
+14. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days-per-worker buffer (not persisted)
 15. IncidentEntry record + ServiceLifecycleTracker — marker-file crash detection + log-tail
     description; degrades gracefully if its state dir is unwritable
 16. WeeklyReportMailService — @Scheduled Friday email built from the recorder AND the
