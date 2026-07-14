@@ -25,6 +25,7 @@ class StationPostProcessingServiceTest {
         InOrder inOrder = Mockito.inOrder(weatherDataRepository);
         inOrder.verify(weatherDataRepository).pushSpeciesFromLakeToStation();
         inOrder.verify(weatherDataRepository).totalUpdateProbability();
+        inOrder.verify(weatherDataRepository).cleanOldWeatherData();
         inOrder.verifyNoMoreInteractions();
     }
 }

@@ -115,6 +115,16 @@ class WeatherDataRepositoryTest {
     }
 
     @Test
+    void cleanOldWeatherDataExecutesProcedure() {
+        when(jdbc.execute(eq("EXEC dbo.sp_clean_old_weather_data"), any(PreparedStatementCallback.class)))
+                .thenReturn(null);
+
+        repository.cleanOldWeatherData();
+
+        verify(jdbc).execute(eq("EXEC dbo.sp_clean_old_weather_data"), any(PreparedStatementCallback.class));
+    }
+
+    @Test
     void fallbackSaveWrapsCause() {
         RuntimeException cause = new RuntimeException("boom");
 

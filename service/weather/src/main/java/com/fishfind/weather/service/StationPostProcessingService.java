@@ -24,5 +24,8 @@ public class StationPostProcessingService {
 
         log.info("Running post-processing procedure {}", "spTotalUpdateProbability");
         weatherDataRepository.totalUpdateProbability();
+
+        log.info("Running post-processing procedure {}", "sp_clean_old_weather_data");
+        weatherDataRepository.cleanOldWeatherData();
     }
 }
