@@ -194,6 +194,11 @@ spring:
 4. Run stale-data cleanup **exactly once after every cycle** through `dbo.sp_clean_old_water_data`.
    - `dbo.spPushSpeciesFromLakeToStation`
    - (Previously each worker thread ran this independently ⇒ the SP executed twice, concurrently. Fixed.)
+5. Failure semantics: a species post-processing failure never blocks cleanup; if cleanup **also** fails, the
+   species exception propagates with the cleanup exception as **suppressed** (no finally-masking). The
+   cycle-completed summary log is always emitted.
+6. Shutdown-safe pass startup: executor rejection ⇒ failed future (empty pass), and `awaitPass` handles
+   `CompletionException` **and** `CancellationException`.
 - `StationProcessorBase.process(...)` returns `boolean` so the cycle knows whether anything succeeded.
 
 ### Configurable properties
@@ -382,6 +387,8 @@ Log the following events:
 
 ## Observability & ops
 
+- **Actuator on a private management port**: `management.server.port: 8081` — never publish/expose it
+  publicly; only `/health` on 8080 is the external probe surface.
 - **Actuator + Micrometer/Prometheus.** Exposed web endpoints ONLY: `health,info,prometheus,metrics`
   (never `env`/`beans`/`configprops` — would leak config/secrets). `health.show-details: never`.
 - **Liveness vs readiness** (`management.endpoint.health.probes.enabled: true`):
@@ -404,6 +411,8 @@ CMD java $JAVA_OPTS -jar /app/water-station-pusher.jar
 
 - Do **not** bake the real `.env` into the image or jar resources.
 - `.dockerignore` must exclude `.env`, secrets, and local build artifacts.
+- The temurin JRE image has **no wget/curl** — the runtime stage installs `wget` so the HEALTHCHECK
+  (`wget -qO- http://localhost:8080/health`) can run; without it the container is permanently unhealthy.
 - **SECURITY:** both base images are pinned by digest (`image@sha256:...`) with the human-readable tag in a
   comment; the runtime runs as a non-root user (`USER 10001:10001`) with `/app/logs` pre-created and owned by
   that user (read-only-rootfs friendly — mount a volume/tmpfs at `/app/logs`).

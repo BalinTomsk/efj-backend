@@ -156,6 +156,41 @@ class StationWorkerTest {
     }
 
     @Test
+    void runCyclePropagatesSpeciesFailureNotCleanupFailureWhenBothFail() {
+        when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
+        when(repo.findSupported("US")).thenReturn(List.of());
+        when(processorCA.process("A", "QC", -5)).thenReturn(true);
+        doThrow(new RuntimeException("species push failed"))
+                .when(postProcessingService).runAfterStationProcessing();
+        doThrow(new RuntimeException("cleanup failed"))
+                .when(postProcessingService).cleanOldWaterData();
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> worker.runCycle(null));
+
+        // The original species failure must not be masked by the cleanup failure in the finally block.
+        assertEquals("species push failed", ex.getMessage());
+        assertEquals(1, ex.getSuppressed().length);
+        assertEquals("cleanup failed", ex.getSuppressed()[0].getMessage());
+    }
+
+    @Test
+    void runCycleSurvivesExecutorRejectionAndStillCleansOldWaterData() {
+        Executor rejectingExecutor = task -> {
+            throw new java.util.concurrent.RejectedExecutionException("executor shutting down");
+        };
+        StationWorker rejectedWorker = new StationWorker(
+                repo, processorCA, processorUS, postProcessingService, scheduler, rejectingExecutor, meterRegistry);
+        ReflectionTestUtils.setField(rejectedWorker, "pauseBetweenStationsMs", 0L);
+
+        int processed = rejectedWorker.runCycle(null);
+
+        // Both passes failed to start; the cycle must complete gracefully and still run cleanup.
+        assertEquals(0, processed);
+        verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService, times(1)).cleanOldWaterData();
+    }
+
+    @Test
     void runCycleStillCleansOldWaterDataWhenSpeciesPostProcessingFails() {
         when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
         when(repo.findSupported("US")).thenReturn(List.of());
