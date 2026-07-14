@@ -17,7 +17,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * Runs the Open-Meteo weather-processing loop.
+ * Runs the weather-processing loop.
  */
 @Component
 public class StationWorker implements ApplicationRunner {
@@ -31,6 +31,7 @@ public class StationWorker implements ApplicationRunner {
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
+    private final StationProcessorWeatherGov stationProcessorWeatherGov;
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
 
@@ -42,10 +43,12 @@ public class StationWorker implements ApplicationRunner {
 
     public StationWorker(WeatherStationRepository stationRepository,
                          StationProcessorOpen stationProcessorOpen,
+                         StationProcessorWeatherGov stationProcessorWeatherGov,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
+        this.stationProcessorWeatherGov = stationProcessorWeatherGov;
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
     }
@@ -57,7 +60,7 @@ public class StationWorker implements ApplicationRunner {
         }
 
         for (String country : COUNTRIES) {
-            Thread thread = new Thread(() -> loop(country), "weather-data-worker-open-" + country.toLowerCase());
+            Thread thread = new Thread(() -> loop(country), workerThreadName(country));
             thread.setDaemon(false);
             workerThreads.add(thread);
             thread.start();
@@ -100,7 +103,9 @@ public class StationWorker implements ApplicationRunner {
     }
 
     private CountryPassSummary runCycle(String country, String requestedMli) throws InterruptedException {
-        List<StationRef> stations = stationRepository.findSupportedStations(country);
+        List<StationRef> stations = "US".equalsIgnoreCase(country)
+                ? stationRepository.findSupportedUsStations()
+                : stationRepository.findSupportedStations(country);
         log.info("Loaded supported stations. country={} count={} requestedStation={}",
                 country,
                 stations.size(),
@@ -130,7 +135,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             long startedAt = currentTimeMillis();
-            switch (stationProcessorOpen.process(station, country)) {
+            switch (processorFor(country).process(station, country)) {
                 case PROCESSED -> {
                     processed++;
                     lastProcessedStation = station.mli();
@@ -243,6 +248,8 @@ public class StationWorker implements ApplicationRunner {
                 CountryPassSummary summary = runCycle(country, null);
                 cycleReportRecorder.record(new CycleReportEntry(
                         LocalDate.now(),
+                        workerName(country),
+                        country,
                         summary.successfulStations(),
                         summary.failedStations(),
                         summary.lastProcessedStation(),
@@ -300,6 +307,19 @@ public class StationWorker implements ApplicationRunner {
                 .plusDays(1)
                 .atStartOfDay(ZoneId.systemDefault());
         return Math.max(0L, Duration.between(now, nextMidnight).toMillis());
+    }
+
+    private StationProcessorBase processorFor(String country) {
+        return "US".equalsIgnoreCase(country) ? stationProcessorWeatherGov : stationProcessorOpen;
+    }
+
+    private String workerThreadName(String country) {
+        String provider = "US".equalsIgnoreCase(country) ? "weather-gov" : "open";
+        return "weather-data-worker-" + provider + "-" + country.toLowerCase();
+    }
+
+    private String workerName(String country) {
+        return "US".equalsIgnoreCase(country) ? "Weather.gov" : "Open-Meteo";
     }
 
     private record CountryPassSummary(

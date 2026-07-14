@@ -41,7 +41,7 @@ class WeeklyReportMailServiceTest {
     @Test
     void skipsWhenRecipientNotConfigured() {
         ReflectionTestUtils.setField(service, "to", "");
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 10), 5, 1, "MLI-1", "MLI-2"));
+        recorder.record(entry(LocalDate.of(2026, 7, 10), "Weather.gov", "US", 5, 1, "MLI-1", "MLI-2"));
 
         service.sendWeeklyReport();
 
@@ -72,8 +72,8 @@ class WeeklyReportMailServiceTest {
 
     @Test
     void sendsOneEmailCoveringEveryRecordedDay() {
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 6), 5, 0, "MLI-1", null));
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 7), 3, 2, "MLI-3", "MLI-4"));
+        recorder.record(entry(LocalDate.of(2026, 7, 6), "Weather.gov", "US", 5, 0, "KNYC", null));
+        recorder.record(entry(LocalDate.of(2026, 7, 6), "Open-Meteo", "CA", 3, 2, "MLI-3", "MLI-4"));
 
         service.sendWeeklyReport();
 
@@ -85,8 +85,9 @@ class WeeklyReportMailServiceTest {
         assertThat(sent.getSubject()).contains("Weekly Report");
         assertThat(sent.getText())
                 .contains("2026-07-06")
+                .contains("worker=Weather.gov country=US")
                 .contains("processed=5")
-                .contains("2026-07-07")
+                .contains("worker=Open-Meteo country=CA")
                 .contains("failed=2")
                 .contains("lastFailedStation=MLI-4")
                 .contains("no crashes or unexpected restarts detected");
@@ -94,7 +95,7 @@ class WeeklyReportMailServiceTest {
 
     @Test
     void includesIncidentDetailsInBody() {
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 10), 1, 0, "MLI-1", null));
+        recorder.record(entry(LocalDate.of(2026, 7, 10), "Weather.gov", "US", 1, 0, "KNYC", null));
         when(lifecycleTracker.recentIncidents()).thenReturn(List.of(
                 new IncidentEntry(
                         LocalDateTime.of(2026, 7, 8, 3, 0),
@@ -117,7 +118,7 @@ class WeeklyReportMailServiceTest {
     void fallsBackToSmtpUsernameWhenFromNotConfigured() {
         ReflectionTestUtils.setField(service, "from", "");
         ReflectionTestUtils.setField(service, "smtpUsername", "smtp-account@example.com");
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 10), 1, 0, "MLI-1", null));
+        recorder.record(entry(LocalDate.of(2026, 7, 10), "Weather.gov", "US", 1, 0, "KNYC", null));
 
         service.sendWeeklyReport();
 
@@ -128,7 +129,7 @@ class WeeklyReportMailServiceTest {
 
     @Test
     void doesNotPropagateMailSendFailure() {
-        recorder.record(new CycleReportEntry(LocalDate.of(2026, 7, 10), 1, 0, "MLI-1", null));
+        recorder.record(entry(LocalDate.of(2026, 7, 10), "Weather.gov", "US", 1, 0, "KNYC", null));
         doThrow(new MailSendException("boom")).when(mailSender).send(any(SimpleMailMessage.class));
 
         service.sendWeeklyReport(); // must not throw
@@ -137,9 +138,19 @@ class WeeklyReportMailServiceTest {
     @Test
     void buildReportBodyFormatsMissingStationsAsNone() {
         String body = WeeklyReportMailService.buildReportBody(
-                List.of(new CycleReportEntry(LocalDate.of(2026, 7, 10), 0, 0, null, null)),
+                List.of(entry(LocalDate.of(2026, 7, 10), null, null, 0, 0, null, null)),
                 List.of());
 
-        assertThat(body).contains("lastProcessedStation=<none>").contains("lastFailedStation=<none>");
+        assertThat(body)
+                .contains("worker=<unknown>")
+                .contains("country=<unknown>")
+                .contains("lastProcessedStation=<none>")
+                .contains("lastFailedStation=<none>");
+    }
+
+    private static CycleReportEntry entry(LocalDate date, String worker, String country, int successfulStations,
+                                          int failedStations, String lastProcessedStation, String lastFailedStation) {
+        return new CycleReportEntry(
+                date, worker, country, successfulStations, failedStations, lastProcessedStation, lastFailedStation);
     }
 }

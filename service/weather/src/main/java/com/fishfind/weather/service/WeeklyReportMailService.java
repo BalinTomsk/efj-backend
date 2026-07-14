@@ -71,20 +71,22 @@ public class WeeklyReportMailService {
 
         try {
             mailSender.send(message);
-            log.info("Weekly report email sent. to={} days={} incidents={}", to, entries.size(), incidents.size());
+            log.info("Weekly report email sent. to={} cycleEntries={} incidents={}", to, entries.size(), incidents.size());
         } catch (MailException ex) {
             log.error("Failed to send weekly report email. to={}", to, ex);
         }
     }
 
     static String buildReportBody(List<CycleReportEntry> entries, List<IncidentEntry> incidents) {
-        StringBuilder body = new StringBuilder("Weather service - cycle summary for the past ")
+        StringBuilder body = new StringBuilder("Weather service - worker cycle summary for the past ")
                 .append(entries.size())
-                .append(entries.size() == 1 ? " day" : " days")
+                .append(entries.size() == 1 ? " entry" : " entries")
                 .append(":\n\n");
 
         for (CycleReportEntry entry : entries) {
             body.append(entry.date().format(DATE_FORMAT)).append(": ")
+                    .append("worker=").append(display(entry.worker()))
+                    .append(" country=").append(display(entry.country())).append(' ')
                     .append("processed=").append(entry.successfulStations())
                     .append(" failed=").append(entry.failedStations())
                     .append(" lastProcessedStation=").append(displayStation(entry.lastProcessedStation()))
@@ -112,5 +114,9 @@ public class WeeklyReportMailService {
 
     private static String displayStation(String station) {
         return station == null || station.isBlank() ? "<none>" : station;
+    }
+
+    private static String display(String value) {
+        return value == null || value.isBlank() ? "<unknown>" : value;
     }
 }
