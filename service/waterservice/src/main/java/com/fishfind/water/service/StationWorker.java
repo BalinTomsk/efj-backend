@@ -48,6 +48,9 @@ public class StationWorker implements ApplicationRunner {
     @Value("${water.worker.cron:0 0 * * * *}")
     private String cron;
 
+    @Value("${water.worker.enabled:true}")
+    private boolean enabled;
+
     public StationWorker(WaterStationRepository repo,
                          StationProcessorCA processorCA,
                          StationProcessorUS processorUS,
@@ -71,6 +74,11 @@ public class StationWorker implements ApplicationRunner {
      */
     @Override
     public void run(ApplicationArguments args) {
+        if (!enabled) {
+            log.info("Station cycle scheduling is disabled.");
+            return;
+        }
+
         if (args.containsOption("console")) {
             return;
         }

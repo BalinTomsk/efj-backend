@@ -40,6 +40,7 @@ class StationWorkerTest {
     StationWorkerTest() {
         ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
         ReflectionTestUtils.setField(worker, "cron", "0 0 * * * *");
+        ReflectionTestUtils.setField(worker, "enabled", true);
     }
 
     @Test
@@ -54,6 +55,15 @@ class StationWorkerTest {
         worker.run(new DefaultApplicationArguments());
 
         verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+    }
+
+    @Test
+    void disabledWorkerDoesNotScheduleAnything() {
+        ReflectionTestUtils.setField(worker, "enabled", false);
+
+        worker.run(new DefaultApplicationArguments());
+
+        verify(scheduler, never()).schedule(any(Runnable.class), any(Trigger.class));
     }
 
     @Test
