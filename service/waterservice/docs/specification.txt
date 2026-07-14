@@ -86,6 +86,12 @@ Worker behavior
   - Run species post-processing EXACTLY ONCE per cycle, and ONLY when at least one station was processed
     successfully.
   - Run stale-data cleanup EXACTLY ONCE after every cycle by executing `dbo.sp_clean_old_water_data`.
+  - Post-processing failure semantics: a species post-processing failure never prevents cleanup from running;
+    if cleanup ALSO fails, the species exception propagates with the cleanup exception attached as suppressed
+    (a cleanup failure must not mask the species failure). The cycle-completed summary log is always emitted.
+  - Pass startup is shutdown-safe: an executor `RejectedExecutionException` (e.g. during context shutdown) is
+    converted into a failed future, so the cycle degrades to an empty pass instead of throwing out of the
+    scheduler. `awaitPass` handles both `CompletionException` and `CancellationException`.
   - This replaces the previous design where each of the two worker threads ran post-processing independently,
     causing the same stored procedure to execute twice concurrently every hour.
 - `StationWorker.runOnce(country, requestedMli)`:
@@ -251,6 +257,9 @@ Health endpoint
 Observability and operations
 - Spring Boot Actuator + Micrometer Prometheus registry.
   - Dependencies: `spring-boot-starter-actuator`, `io.micrometer:micrometer-registry-prometheus` (runtime).
+  - SECURITY: actuator is served on a separate management port 8081 (`management.server.port: 8081`) that must
+    NOT be published/exposed publicly — only `/health` on 8080 is the external probe surface. Scrape
+    Prometheus over the private network / localhost only.
   - Exposed web endpoints ONLY: `health`, `info`, `prometheus`, `metrics`. Never expose `env`/`configprops`/
     `beans` (would leak configuration/secrets).
   - `management.endpoint.health.show-details: never` (aggregate status only).
@@ -277,6 +286,9 @@ Docker expectations
   `/app/logs` is pre-created and owned by that user so the container can run with a read-only root filesystem
   (mount a volume/tmpfs at `/app/logs` for the logback FILE appender).
 - Runtime container:
+  - The temurin JRE image ships WITHOUT wget/curl; the Dockerfile installs `wget` (apt, no-install-recommends)
+    so the HEALTHCHECK can actually execute — without it the check exits 127 and the container is permanently
+    reported unhealthy.
   - EXPOSE 8080
   - HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD wget -qO- http://localhost:8080/health || exit 1
   - Launches: `java $JAVA_OPTS -jar /app/water-station-pusher.jar`

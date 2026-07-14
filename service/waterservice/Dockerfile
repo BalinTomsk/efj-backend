@@ -14,6 +14,11 @@ WORKDIR /app
 
 COPY --from=build /app/target/water-station-pusher-1.0.0.jar /app/water-station-pusher.jar
 
+# The temurin JRE image ships without wget/curl; install wget so HEALTHCHECK can actually run.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends wget \
+ && rm -rf /var/lib/apt/lists/*
+
 # Run as an unprivileged user. Pre-create the writable logs directory owned by that user
 # so the container can run with a read-only root filesystem (mount a volume/tmpfs at /app/logs).
 RUN groupadd --system --gid 10001 app \

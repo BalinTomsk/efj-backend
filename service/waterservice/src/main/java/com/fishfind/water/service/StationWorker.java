@@ -110,10 +110,8 @@ public class StationWorker implements ApplicationRunner {
     public int runCycle(String requestedMli) {
         String correlationId = UUID.randomUUID().toString().substring(0, 8);
 
-        CompletableFuture<PassStats> caPass =
-                CompletableFuture.supplyAsync(() -> runPass("CA", requestedMli, correlationId), countryPassExecutor);
-        CompletableFuture<PassStats> usPass =
-                CompletableFuture.supplyAsync(() -> runPass("US", requestedMli, correlationId), countryPassExecutor);
+        CompletableFuture<PassStats> caPass = startPass("CA", requestedMli, correlationId);
+        CompletableFuture<PassStats> usPass = startPass("US", requestedMli, correlationId);
 
         PassStats caStats = awaitPass(caPass, "CA");
         PassStats usStats = awaitPass(usPass, "US");
@@ -122,14 +120,27 @@ public class StationWorker implements ApplicationRunner {
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
+            RuntimeException postProcessingFailure = null;
             try {
                 if (succeeded > 0) {
                     postProcessingService.runAfterStationProcessing();
                 } else {
                     log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
                 }
-            } finally {
+            } catch (RuntimeException ex) {
+                postProcessingFailure = ex;
+                log.error("Species post-processing failed; still running old-data cleanup.", ex);
+            }
+            try {
                 postProcessingService.cleanOldWaterData();
+            } catch (RuntimeException ex) {
+                // Never let a cleanup failure mask the species-push failure that preceded it.
+                if (postProcessingFailure == null) {
+                    postProcessingFailure = ex;
+                } else {
+                    postProcessingFailure.addSuppressed(ex);
+                    log.error("Old-data cleanup also failed.", ex);
+                }
             }
             log.info("Station cycle completed. successfulStations={} failedStations={} "
                             + "caLastProcessedStation={} usLastProcessedStation={} "
@@ -140,10 +151,25 @@ public class StationWorker implements ApplicationRunner {
                     logValue(usStats.lastProcessedStation()),
                     logValue(caStats.lastFailedStation()),
                     logValue(usStats.lastFailedStation()));
+            if (postProcessingFailure != null) {
+                throw postProcessingFailure;
+            }
         } finally {
             MDC.remove(MDC_CORRELATION_ID);
         }
         return succeeded;
+    }
+
+    /**
+     * Starts one country pass on the pass executor, converting an executor rejection (e.g. during shutdown)
+     * into an already-failed future so the cycle degrades gracefully instead of throwing out of scheduling.
+     */
+    private CompletableFuture<PassStats> startPass(String country, String requestedMli, String correlationId) {
+        try {
+            return CompletableFuture.supplyAsync(() -> runPass(country, requestedMli, correlationId), countryPassExecutor);
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /**
@@ -179,6 +205,9 @@ public class StationWorker implements ApplicationRunner {
             return pass.join();
         } catch (CompletionException ex) {
             log.error("Station pass failed. country={}", country, ex.getCause() == null ? ex : ex.getCause());
+            return PassStats.empty(country);
+        } catch (java.util.concurrent.CancellationException ex) {
+            log.error("Station pass was cancelled. country={}", country, ex);
             return PassStats.empty(country);
         }
     }
