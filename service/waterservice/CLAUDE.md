@@ -129,7 +129,8 @@ Dockerfile
 - `spring-boot-starter-aop`
 - `spring-boot-starter-actuator`
 - `io.micrometer:micrometer-registry-prometheus` (runtime)
-- MSSQL JDBC driver (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
+- MSSQL JDBC driver (`com.microsoft.sqlserver.jdbc.SQLServerDriver`; version overridden via
+  `<mssql-jdbc.version>` to the current 12.8.x line)
 - `io.github.resilience4j:resilience4j-spring-boot3`
 - `commons-csv` (used for CA CSV parsing)
 - `io.github.cdimascio:dotenv-java`
@@ -189,7 +190,7 @@ spring:
 
 1. Run CA and US passes **in parallel** on `countryPassExecutor`; a failure of one country is isolated/logged.
 2. Each pass (`runOnce`) loads its stations, processes them one by one sleeping `pause-between-stations-ms`
-   (interrupt-aware), and returns the count processed **successfully**.
+   **between** stations only — never after the last (interrupt-aware), and returns the count processed **successfully**.
 3. Run species post-processing **exactly once per cycle**, and **only if ≥1 station succeeded**.
 4. Run stale-data cleanup **exactly once after every cycle** through `dbo.sp_clean_old_water_data`.
    - `dbo.spPushSpeciesFromLakeToStation`
@@ -246,7 +247,7 @@ water:
 - SECURITY: built as a RestClient **URI template** — `state`/`mli` are strictly URL-encoded, so a hostile
   or corrupt DB row cannot rewrite the request path (second-order injection).
 - `fetch` returns the raw CSV body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("caFeed")`.
-- HTTP 404 → `FileNotFoundException` → station skipped (ignored by retry + breaker).
+- HTTP 404 → `FileNotFoundException` → station skipped (ignored by retry + breaker). The exception message names the feed, station, and state (self-sufficient without caller context).
 - 5xx / network errors are retried; sustained failures open `caFeed`.
 
 ---
@@ -257,7 +258,7 @@ water:
 - SECURITY: built as a RestClient **URI template** — `mli` is strictly URL-encoded, so a DB value cannot
   append or override query parameters.
 - `fetch` returns the raw XML body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`.
-- HTTP 404 → `FileNotFoundException` → station skipped.
+- HTTP 404 → `FileNotFoundException` → station skipped. The exception message names the feed, station, and state (self-sufficient without caller context).
 - Transient failures (premature EOF, socket timeouts, 5xx) retried by `httpRetry` — the old hand-rolled retry
   loop was removed.
 

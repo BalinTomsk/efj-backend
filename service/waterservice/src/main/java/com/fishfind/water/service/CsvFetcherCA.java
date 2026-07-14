@@ -52,7 +52,8 @@ public class CsvFetcherCA {
             log.debug("Fetched station CSV. station={} state={}", mli, state);
             return body == null ? "" : body;
         } catch (HttpClientErrorException.NotFound ex) {
-            throw new FileNotFoundException("HTTP error 404");
+            throw new FileNotFoundException(
+                    "HTTP 404: hydrometric CSV not published for CA station " + mli + " (state " + state + ")");
         }
     }
 }

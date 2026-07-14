@@ -257,10 +257,23 @@ public class StationWorker implements ApplicationRunner {
         int failed = 0;
         String lastProcessedStation = null;
         String lastFailedStation = null;
+        boolean anyProcessed = false;
         for (var station : stations) {
             if (requestedMli != null && !requestedMli.isBlank() && !station.mli().equalsIgnoreCase(requestedMli)) {
                 continue;
             }
+
+            // Pause BETWEEN stations only — sleeping after the final station just delays the cycle.
+            if (anyProcessed && pauseBetweenStationsMs > 0) {
+                try {
+                    Thread.sleep(pauseBetweenStationsMs);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    log.info("Station pass interrupted. country={}", country);
+                    break;
+                }
+            }
+            anyProcessed = true;
 
             boolean ok;
             MDC.put(MDC_STATION, station.mli());
@@ -280,16 +293,6 @@ public class StationWorker implements ApplicationRunner {
                 lastFailedStation = station.mli();
             }
             log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());
-
-            if (pauseBetweenStationsMs > 0) {
-                try {
-                    Thread.sleep(pauseBetweenStationsMs);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    log.info("Station pass interrupted. country={}", country);
-                    break;
-                }
-            }
         }
         return new PassStats(country, succeeded, failed, lastProcessedStation, lastFailedStation);
     }

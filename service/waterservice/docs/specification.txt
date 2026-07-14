@@ -19,7 +19,7 @@ Tech stack
 - `spring-boot-starter-aop`
 - `spring-boot-starter-actuator`
 - `io.micrometer:micrometer-registry-prometheus` (runtime)
-- MSSQL JDBC driver
+- MSSQL JDBC driver (Boot-managed version overridden via `<mssql-jdbc.version>` to the current 12.8.x line)
 - Resilience4j Spring Boot 3 integration for SQL retry/circuit breaker
 - `commons-csv` is used for CA CSV parsing (quoted-field-safe, fault-tolerant)
 - `dotenv-java` for local credential loading
@@ -96,7 +96,7 @@ Worker behavior
     causing the same stored procedure to execute twice concurrently every hour.
 - `StationWorker.runOnce(country, requestedMli)`:
   - Load supported stations for the country, process matching stations one by one, sleeping
-    `pause-between-stations-ms` between each (interrupt-aware: stops the pass early if interrupted).
+    `pause-between-stations-ms` BETWEEN stations only (never after the final station) (interrupt-aware: stops the pass early if interrupted).
   - Returns the number of stations processed SUCCESSFULLY. Does NOT run post-processing.
 - `StationProcessorBase.process(...)` returns `boolean` — `true` on success, `false` when an exception was
   handled (failure or unpublished/skipped source) — so the cycle can decide whether to post-process.
@@ -141,7 +141,7 @@ CSV fetch rules (`CsvFetcherCA`)
 - SECURITY: build the URL as a RestClient URI template with `{state}`/`{mli}` variables so values are
   strictly URL-encoded; never interpolate DB values into the URL string (second-order path injection).
 - `fetch` returns the raw CSV body as a `String`.
-- HTTP 404 -> `FileNotFoundException` so the station is skipped (ignored by retry and breaker).
+- HTTP 404 -> `FileNotFoundException` so the station is skipped (ignored by retry and breaker). The exception message names the feed, station, and state (self-sufficient without caller context).
 - Other non-2xx / network errors propagate (5xx and network errors are retried by `httpRetry`).
 
 US fetch rules (`XmlFetcherUS`)
@@ -150,7 +150,7 @@ US fetch rules (`XmlFetcherUS`)
 - SECURITY: build the URL as a RestClient URI template with a `{mli}` variable so the value is strictly
   URL-encoded; never concatenate DB values into the query string (parameter injection).
 - `fetch` returns the raw XML body as a `String`.
-- HTTP 404 -> `FileNotFoundException` so the station is skipped.
+- HTTP 404 -> `FileNotFoundException` so the station is skipped. The exception message names the feed, station, and state (self-sufficient without caller context).
 - Transient failures (premature EOF, socket timeouts, 5xx) are retried by `httpRetry` (the previous hand-rolled
   retry loop was removed in favor of declarative Resilience4j retry).
 

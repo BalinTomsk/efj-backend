@@ -10,6 +10,7 @@ import java.io.FileNotFoundException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -52,10 +53,15 @@ class XmlFetcherUSTest {
     }
 
     @Test
-    void fetchThrowsFileNotFoundOn404() {
+    void fetchThrowsFileNotFoundOn404WithStationContextInMessage() {
         server.expect(requestTo(URL)).andRespond(withStatus(NOT_FOUND));
 
-        assertThrows(FileNotFoundException.class, () -> fetcher.fetch("NY", "08313000"));
+        FileNotFoundException ex =
+                assertThrows(FileNotFoundException.class, () -> fetcher.fetch("NY", "08313000"));
+
+        // The message must be self-sufficient when it surfaces without caller context (stack traces, alerts).
+        assertTrue(ex.getMessage().contains("08313000"), "message should name the station: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("NY"), "message should name the state: " + ex.getMessage());
     }
 
     @Test
