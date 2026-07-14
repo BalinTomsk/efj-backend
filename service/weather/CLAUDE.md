@@ -61,6 +61,7 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 - After each full pass, run post-processing stored procedures in order:
   1. `dbo.spPushSpeciesFromLakeToStation`
   2. `dbo.spTotalUpdateProbability`
+  3. `dbo.sp_clean_old_weather_data`
 - Log failures and skipped unpublished-source events; **do not disable stations automatically**.
 - Sleep until next midnight between cycles.
 
@@ -401,6 +402,7 @@ WHERE mli = ?
 ```java
 pushSpeciesFromLakeToStation()  // → EXEC dbo.spPushSpeciesFromLakeToStation
 totalUpdateProbability()        // → EXEC dbo.spTotalUpdateProbability
+cleanOldWeatherData()           // → EXEC dbo.sp_clean_old_weather_data
 ```
 
 - Each runs in a transaction; each is protected by Resilience4j retry + circuit breaker.
@@ -424,6 +426,7 @@ totalUpdateProbability()        // → EXEC dbo.spTotalUpdateProbability
 `StationPostProcessingService` calls procedures in this exact order (matches legacy base):
 1. `dbo.spPushSpeciesFromLakeToStation`
 2. `dbo.spTotalUpdateProbability`
+3. `dbo.sp_clean_old_weather_data`
 
 ---
 

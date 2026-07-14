@@ -68,6 +68,13 @@ public class WeatherDataRepository {
         executeProcedureAllowingResults("EXEC dbo.spTotalUpdateProbability");
     }
 
+    @Transactional
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
+    public void cleanOldWeatherData() {
+        executeProcedureAllowingResults("EXEC dbo.sp_clean_old_weather_data");
+    }
+
     @SuppressWarnings("unused")
     public void fallbackSave(String mli, String jsonData, Throwable ex) {
         throw new RuntimeException("SQL save failed for station " + mli, ex);

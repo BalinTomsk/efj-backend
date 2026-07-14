@@ -25,6 +25,7 @@ GOAL
 - After each full pass, run post-processing stored procedures in order:
     1. dbo.spPushSpeciesFromLakeToStation
     2. dbo.spTotalUpdateProbability
+    3. dbo.sp_clean_old_weather_data
 - Log failures and skipped unpublished-source events; do not disable stations automatically.
 - Sleep until next midnight between cycles.
 - Expose a health endpoint on port 8081 for Docker/Kubernetes health checks.
@@ -459,6 +460,7 @@ Save raw JSON:
 Post-processing procedures:
   pushSpeciesFromLakeToStation()  → EXEC dbo.spPushSpeciesFromLakeToStation
   totalUpdateProbability()        → EXEC dbo.spTotalUpdateProbability
+  cleanOldWeatherData()           → EXEC dbo.sp_clean_old_weather_data
   Each runs in a transaction; each protected by Resilience4j retry + circuit breaker.
   Procedures may emit incidental result sets — drain with PreparedStatementCallback + getMoreResults.
 
@@ -481,6 +483,7 @@ StationProcessorOpen:
 StationPostProcessingService calls procedures in this exact order:
   1. dbo.spPushSpeciesFromLakeToStation
   2. dbo.spTotalUpdateProbability
+  3. dbo.sp_clean_old_weather_data
 
 
 TIMING MODEL
