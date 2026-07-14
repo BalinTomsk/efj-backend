@@ -30,6 +30,13 @@ It must always reflect the current state of the code.
 Explicitly follows database schema at:
 - @srv/../database/database/mssql/ffi2.sql  
 
+## Local Claude skills
+
+- Deployment skill: `.claude/skills/update-water/SKILL.md`
+- Use `update-water` when asked to deploy/update/release `water-station-pusher`, build and push a tagged Docker image, install it on the DigitalOcean droplet, or verify the deployed service.
+- A version tag is required. If the user does not provide one, ask for it before running deployment commands.
+- The deployment runbook/source of truth is `docs/do-update.md`; keep it aligned with the skill before deploying.
+
 ---
 
 ## Project identity

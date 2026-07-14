@@ -23,11 +23,6 @@ water:
     read-timeout-ms: 1000
     user-agent: "water-station-pusher-test/1.0.0"
 
-management:
-  health:
-    db:
-      enabled: false
-
 logging:
   level:
     root: WARN

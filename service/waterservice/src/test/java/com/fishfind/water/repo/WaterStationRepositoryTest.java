@@ -37,7 +37,7 @@ class WaterStationRepositoryTest {
 
         assertEquals(List.of(new StationRef("02JE025", "QC", -5)), stations);
         verify(jdbc).query(
-                eq("SELECT mli, state, tz FROM vwWaterStation WHERE country = ?"),
+                eq("SELECT mli, state, tz, stamp FROM vwWaterStation WHERE country = ? ORDER BY stamp DESC"),
                 any(PreparedStatementSetter.class),
                 any(RowMapper.class)
         );
