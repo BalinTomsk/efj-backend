@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +26,8 @@ public class StationWorker implements ApplicationRunner {
     private static final long SUMMARY_LOG_INTERVAL_MS = Duration.ofHours(1).toMillis();
     private static final Duration TIME_BUDGET = Duration.ofHours(8);
     private static final long SHUTDOWN_JOIN_MS = 25_000L;
-    private static final String COUNTRY = "US";
+    private static final String DEFAULT_COUNTRY = "US";
+    private static final List<String> COUNTRIES = List.of("US", "CA");
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
@@ -36,7 +38,7 @@ public class StationWorker implements ApplicationRunner {
     private double maxFailureRate;
 
     private volatile boolean running = true;
-    private volatile Thread workerThread;
+    private final List<Thread> workerThreads = new ArrayList<>();
 
     public StationWorker(WeatherStationRepository stationRepository,
                          StationProcessorOpen stationProcessorOpen,
@@ -54,27 +56,33 @@ public class StationWorker implements ApplicationRunner {
             return;
         }
 
-        Thread thread = new Thread(this::loop, "weather-data-worker-open");
-        thread.setDaemon(false);
-        this.workerThread = thread;
-        thread.start();
-        log.info("Started background weather worker thread. country={} thread={}", COUNTRY, thread.getName());
+        for (String country : COUNTRIES) {
+            Thread thread = new Thread(() -> loop(country), "weather-data-worker-open-" + country.toLowerCase());
+            thread.setDaemon(false);
+            workerThreads.add(thread);
+            thread.start();
+            log.info("Started background weather worker thread. country={} thread={}", country, thread.getName());
+        }
     }
 
     /** Stops the worker loop and waits (bounded) for the thread to unwind on context shutdown. */
     @PreDestroy
     void shutdown() {
         running = false;
-        Thread thread = workerThread;
-        if (thread == null) {
+        if (workerThreads.isEmpty()) {
             return;
         }
-        log.info("Stopping weather worker thread. thread={}", thread.getName());
-        thread.interrupt();
-        try {
-            thread.join(SHUTDOWN_JOIN_MS);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
+        for (Thread thread : workerThreads) {
+            log.info("Stopping weather worker thread. thread={}", thread.getName());
+            thread.interrupt();
+        }
+        for (Thread thread : workerThreads) {
+            try {
+                thread.join(SHUTDOWN_JOIN_MS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -83,20 +91,24 @@ public class StationWorker implements ApplicationRunner {
     }
 
     public RunResult runOnce(String requestedMli) throws InterruptedException {
-        CountryPassSummary summary = runCycle(requestedMli);
+        return runOnce(DEFAULT_COUNTRY, requestedMli);
+    }
+
+    public RunResult runOnce(String country, String requestedMli) throws InterruptedException {
+        CountryPassSummary summary = runCycle(country, requestedMli);
         return new RunResult(summary.successfulStations(), summary.failedStations());
     }
 
-    private CountryPassSummary runCycle(String requestedMli) throws InterruptedException {
-        List<StationRef> stations = stationRepository.findSupportedUsStations();
+    private CountryPassSummary runCycle(String country, String requestedMli) throws InterruptedException {
+        List<StationRef> stations = stationRepository.findSupportedStations(country);
         log.info("Loaded supported stations. country={} count={} requestedStation={}",
-                COUNTRY,
+                country,
                 stations.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
         long targetDelayMs = calculateDelayMs(stations.size());
         log.info("Weather worker time budget. country={} budgetHours={} delayPerStationMs={}",
-                COUNTRY,
+                country,
                 TIME_BUDGET.toHours(),
                 targetDelayMs);
 
@@ -118,7 +130,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             long startedAt = currentTimeMillis();
-            switch (stationProcessorOpen.process(station)) {
+            switch (stationProcessorOpen.process(station, country)) {
                 case PROCESSED -> {
                     processed++;
                     lastProcessedStation = station.mli();
@@ -132,13 +144,13 @@ public class StationWorker implements ApplicationRunner {
 
             long remainingDelayMs = targetDelayMs - (currentTimeMillis() - startedAt);
             CountryPassSummary progressSummary = new CountryPassSummary(
-                    COUNTRY, processed, skipped, failed, lastProcessedStation, lastFailedStation);
+                    country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
             nextSummaryLogAt = sleepUntilNextStationWithHourlySummaries(remainingDelayMs, nextSummaryLogAt,
                     progressSummary);
         }
 
         CountryPassSummary summary = new CountryPassSummary(
-                COUNTRY, processed, skipped, failed, lastProcessedStation, lastFailedStation);
+                country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
         logCountryPassSummary(summary);
 
         if (stoppedEarly) {
@@ -214,21 +226,21 @@ public class StationWorker implements ApplicationRunner {
 
         if (attempted > 0 && failureRate > maxFailureRate) {
             log.error("Cycle degraded; skipping post-processing. country={} processed={} skipped={} "
-                            + "failed={} failureRate={} threshold={}",
-                    COUNTRY, processed, skipped, failed,
+                    + "failed={} failureRate={} threshold={}",
+                    summary.country(), processed, skipped, failed,
                     String.format("%.2f", failureRate), maxFailureRate);
             return;
         }
 
         log.info("Cycle healthy; running post-processing. country={} processed={} skipped={} failed={}",
-                COUNTRY, processed, skipped, failed);
+                summary.country(), processed, skipped, failed);
         postProcessingService.runAfterStationProcessing();
     }
 
-    private void loop() {
+    private void loop(String country) {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
-                CountryPassSummary summary = runCycle(null);
+                CountryPassSummary summary = runCycle(country, null);
                 cycleReportRecorder.record(new CycleReportEntry(
                         LocalDate.now(),
                         summary.successfulStations(),
@@ -240,7 +252,7 @@ public class StationWorker implements ApplicationRunner {
                 log.info("Worker cycle completed. country={} successfulStations={} failedStations={} "
                                 + "lastProcessedStation={} lastFailedStation={} "
                                 + "nextRunAt={} sleepMs={}",
-                        COUNTRY,
+                        country,
                         summary.successfulStations(),
                         summary.failedStations(),
                         logStation(summary.lastProcessedStation()),
@@ -258,7 +270,7 @@ public class StationWorker implements ApplicationRunner {
                 log.info("Weather worker interrupted. thread={}", Thread.currentThread().getName());
                 return;
             } catch (Exception ex) {
-                log.error("Weather worker loop failed. country={}", COUNTRY, ex);
+                log.error("Weather worker loop failed. country={}", country, ex);
             }
         }
         log.info("Weather worker loop exited. thread={}", Thread.currentThread().getName());

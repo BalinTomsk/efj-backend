@@ -19,7 +19,8 @@ Artifact     : com.fishfind:weather-station-pusher:1.0.0
 
 GOAL
 ----
-- Poll up to 1400 US weather stations from MSSQL (dbo.vwWeatherForecastToDay).
+- Poll up to 1400 weather stations per country for US and CA from MSSQL
+  (dbo.vwWeatherForecastToDay).
 - Fetch raw JSON forecast data from Open-Meteo for each station.
 - Store the raw JSON as-is into dbo.ows_meteo with source type 2. Do NOT parse JSON in Java.
 - After each full pass, run post-processing stored procedures in order:
@@ -266,19 +267,20 @@ WORKER BEHAVIOUR
 ----------------
 Thread
   Launched by StationWorker (ApplicationRunner).
-  Thread name: weather-data-worker-open
-  Non-daemon thread.
-  If app starts with --console: do not launch the background thread.
+  Thread names: weather-data-worker-open-us and weather-data-worker-open-ca.
+  Non-daemon threads.
+  If app starts with --console: do not launch background threads.
   Pauses (per-station pacing and between-cycle waits) go through a protected sleep(long ms)
   method so tests can subclass and run without real waits.
 
 Graceful shutdown
-  - A volatile `running` flag and the loop's interrupt check let the worker stop cleanly.
-  - @PreDestroy shutdown(): set running=false, interrupt the worker thread, join up to 25s.
+  - A volatile `running` flag and each loop's interrupt check let workers stop cleanly.
+  - @PreDestroy shutdown(): set running=false, interrupt each worker thread, join each up to 25s.
   - If a stop is requested mid-cycle the loop breaks and post-processing is SKIPPED.
 
 Per-cycle loop
-  1. Load US stations from dbo.vwWeatherForecastToDay (max 1400).
+  1. Load stations for the worker country (US or CA) from dbo.vwWeatherForecastToDay
+     (max 1400 per country).
   2. Compute target delay: max(8_hours_ms / stationCount, 2000). If count <= 1, use 2000 ms.
   3. For each station (unless stopping): process() → tally PROCESSED/SKIPPED/FAILED →
      sleep (targetDelay - actualProcessingTime). Skip sleep if negative.
@@ -372,7 +374,7 @@ Downtime start: the timestamp of the last parseable line in that log tail (close
 CRITICAL DEPENDENCY: this only works if the deploy tooling stops the container gracefully
   (SIGTERM, e.g. "docker stop") instead of force-killing it. "docker rm -f" / "docker kill"
   sends SIGKILL immediately, skipping @PreDestroy -- every deploy would then be misreported
-  as a crash. docs/do-update.md and the update-service skill's Step 8 do
+  as a crash. docs/do-update.md and the update-weather skill's Step 8 do
   "docker stop -t 30" (SIGTERM, wait) THEN "docker rm", so a normal deploy is NOT counted.
 
 Persistence: state is a plain file under weather.lifecycle.state-dir (default
@@ -388,7 +390,11 @@ STATION QUERY (WeatherStationRepository)
 -----------------------------------------
   SELECT TOP 1400 mli, lat, lon, state
   FROM dbo.vwWeatherForecastToDay
-  WHERE country = 'US'
+  WHERE country = ?
+  ORDER BY stamp DESC
+
+StationWorker starts one pass loop for US and one for CA; the repository binds the country
+parameter for each loop.
 
 Model: StationRef(String mli, double latitude, double longitude, String state)
 
@@ -675,7 +681,7 @@ RECREATION CHECKLIST
 21. .dockerignore
 22. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
     exec java entrypoint, EXPOSE 8081 + HEALTHCHECK (curl -sf)
-23. Deploy tooling (docs/do-update.md, update-service skill): graceful "docker stop -t 30"
+23. Deploy tooling (docs/do-update.md, update-weather skill): graceful "docker stop -t 30"
     before "docker rm" (never "-f"), plus a persistent /app/logs volume mount — both required
     for crash tracking to survive redeploys and not misreport every deploy as a crash
 24. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams

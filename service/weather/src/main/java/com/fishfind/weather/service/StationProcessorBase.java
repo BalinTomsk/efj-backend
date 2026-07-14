@@ -1,9 +1,8 @@
 package com.fishfind.weather.service;
 
 import com.fishfind.weather.domain.StationRef;
-import org.slf4j.Logger;
-
 import java.io.FileNotFoundException;
+import org.slf4j.Logger;
 
 /**
  * Shared processing template for station processors.
@@ -11,11 +10,15 @@ import java.io.FileNotFoundException;
 public abstract class StationProcessorBase {
 
     public final ProcessingOutcome process(StationRef station) {
+        return process(station, country());
+    }
+
+    public final ProcessingOutcome process(StationRef station, String country) {
         try {
             processStation(station);
             return ProcessingOutcome.PROCESSED;
         } catch (Exception ex) {
-            return handleProcessingException(station, ex);
+            return handleProcessingException(station, ex, country);
         }
     }
 
@@ -28,10 +31,14 @@ public abstract class StationProcessorBase {
     protected abstract String missingSourceDescription();
 
     protected ProcessingOutcome handleProcessingException(StationRef station, Exception ex) {
+        return handleProcessingException(station, ex, country());
+    }
+
+    protected ProcessingOutcome handleProcessingException(StationRef station, Exception ex, String country) {
         if (ex instanceof FileNotFoundException) {
             logger().info(
                     "Skipping {} with no published {}. station={} state={}",
-                    stationLabel(),
+                    stationLabel(country),
                     missingSourceDescription(),
                     station.mli(),
                     station.state()
@@ -41,7 +48,7 @@ public abstract class StationProcessorBase {
 
         logger().warn(
                 "{} processing failed. station={} state={}",
-                stationLabel(),
+                stationLabel(country),
                 station.mli(),
                 station.state(),
                 ex
@@ -49,7 +56,7 @@ public abstract class StationProcessorBase {
         return ProcessingOutcome.FAILED;
     }
 
-    private String stationLabel() {
-        return country() + " station";
+    private String stationLabel(String country) {
+        return country + " station";
     }
 }

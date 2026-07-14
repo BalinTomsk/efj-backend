@@ -31,6 +31,10 @@ It must always reflect the current state of the code.
 Explicitly follows database schema at:
 - @srv/../efj-backend/database/database/mssql/ffi2.sql  
 
+- Local project skills live under `.claude/skills` inside this service. When the user asks to run a
+  skill by name, check `.claude/skills/<skill-name>/SKILL.md` before searching repo-level `Skills`
+  directories or global skill registries.
+
 - **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
 bug fix that touches the DB), **read `c:\envoinx\fishfind\efj-backend\database\database\CLAUDE.md`
 first** — it is the authoritative DB workflow (never edit the generated `ffi2.sql`; edit the
@@ -55,7 +59,7 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 
 ## Goal
 
-- Poll up to 1400 US weather stations from MSSQL (`dbo.vwWeatherForecastToDay`).
+- Poll up to 1400 weather stations per country for US and CA from MSSQL (`dbo.vwWeatherForecastToDay`).
 - Fetch raw JSON forecast data from Open-Meteo for each station.
 - Store the raw JSON as-is into `dbo.ows_meteo` with source type `2`. **Do not parse JSON in Java.**
 - After each full pass, run post-processing stored procedures in order:
@@ -282,19 +286,19 @@ logging:
 ### Thread
 
 - Launched by `StationWorker` (`ApplicationRunner`).
-- Thread name: `weather-data-worker-open`.
-- **Non-daemon** thread.
-- If app starts with `--console`: **do not launch the background thread**.
+- Thread names: `weather-data-worker-open-us` and `weather-data-worker-open-ca`.
+- **Non-daemon** threads.
+- If app starts with `--console`: **do not launch background threads**.
 
 ### Graceful shutdown
 
-- `volatile running` flag + the loop's interrupt check stop the worker cleanly.
-- `@PreDestroy shutdown()`: set `running=false`, interrupt the thread, `join` up to 25 s.
+- `volatile running` flag + each loop's interrupt check stop workers cleanly.
+- `@PreDestroy shutdown()`: set `running=false`, interrupt each thread, `join` each up to 25 s.
 - A stop requested **mid-cycle** breaks the loop and **skips** post-processing.
 
 ### Per-cycle loop
 
-1. Load US stations from `dbo.vwWeatherForecastToDay` (max 1400).
+1. Load stations for the worker country (`US` or `CA`) from `dbo.vwWeatherForecastToDay` (max 1400 per country).
 2. Compute target delay: `max(8_hours_ms / stationCount, 2000)`. If count ≤ 1, use `2000 ms`.
 3. For each station (unless stopping): `process()` → tally `PROCESSED/SKIPPED/FAILED` → sleep `(targetDelay - actualProcessingTime)` (skip if negative).
 4. **Post-processing gate** (`maybeRunPostProcessing`): with `attempted = processed + failed`, if `attempted > 0 && failed/attempted > weather.worker.post-processing.max-failure-rate` → log **ERROR** and **skip** post-processing (don't recompute probabilities from partial data); otherwise run the procedures. Skipped (no-feed) stations never block post-processing.
@@ -334,7 +338,7 @@ logging:
 - **Detection mechanism:** a two-line marker file (`RUNNING|<startedAt>` / `CLEAN|<shutdownAt>`) is written on every startup (`@PostConstruct init()`) and rewritten to `CLEAN` on graceful shutdown (`@PreDestroy onShutdown()`, fired when Spring gets SIGTERM and has time to run its shutdown phase). If the **next** startup finds the marker still says `RUNNING`, the previous process never got that chance — it crashed (OOM-killed, uncaught JVM error, `kill -9`, host reboot, or a forceful container removal that skips SIGTERM).
 - **Incident description:** the last `ERROR`/`WARN` line found by tailing the previous run's log file (`weather.lifecycle.log-file`, JSON-per-line via the existing Logstash encoder, parsed with the Jackson `ObjectMapper` already on the classpath via `spring-boot-starter-web`). Falls back to `"no errors or warnings recorded before the restart"` if the tail has none, or `"no log data available"` if the log file itself is missing/unreadable.
 - **Downtime start:** the timestamp of the last parseable line in that log tail (closer to the true crash moment than "when the crashed process started"); falls back to the marker's own `startedAt`, then to `LocalDateTime.now()`.
-- **CRITICAL — depends on the deploy flow sending a graceful stop, not SIGKILL.** `docker rm -f` (the old deploy step) sends SIGKILL immediately, skipping `@PreDestroy` — every deploy would then be misreported as a crash. `docs/do-update.md` and the `update-service` skill's Step 8 now do `docker stop -t 30` (SIGTERM, wait) **then** `docker rm`, so a normal deploy is correctly not counted.
+- **CRITICAL — depends on the deploy flow sending a graceful stop, not SIGKILL.** `docker rm -f` (the old deploy step) sends SIGKILL immediately, skipping `@PreDestroy` — every deploy would then be misreported as a crash. `docs/do-update.md` and the `update-weather` skill's Step 8 now do `docker stop -t 30` (SIGTERM, wait) **then** `docker rm`, so a normal deploy is correctly not counted.
 - **Persistence:** state is a plain file under `weather.lifecycle.state-dir` (default `/app/logs/.lifecycle`, a subdirectory of the logs volume) — not a database table. Nothing here fails startup: an unwritable/missing state dir is logged and skipped, exactly like the SMTP-unconfigured case.
 - **Retention:** `recentIncidents()` returns and keeps only incidents detected within the last 7 days, trimming the backing file on read.
 
@@ -345,8 +349,12 @@ logging:
 ```sql
 SELECT TOP 1400 mli, lat, lon, state
 FROM dbo.vwWeatherForecastToDay
-WHERE country = 'US'
+WHERE country = ?
+ORDER BY stamp DESC
 ```
+
+`StationWorker` starts one pass loop for `US` and one for `CA`; the repository binds the
+country parameter for each loop.
 
 Model: `StationRef(String mli, double latitude, double longitude, String state)`
 
@@ -599,7 +607,7 @@ Do not add these unless explicitly requested:
 17. `application.yml` and `logback-spring.xml` (incl. `spring.mail.*`, `weather.report.*`, `weather.lifecycle.*`, all-blank-safe defaults).
 18. `.env.example` (`trustServerCertificate=false`; optional `SMTP_*` / `REPORT_EMAIL_*`), `.owasp-suppressions.xml`, `.dockerignore`.
 19. `Dockerfile`: non-root `appuser` (uid 1001), `exec java` entrypoint, `EXPOSE 8081` + `HEALTHCHECK`.
-20. Deploy tooling (`docs/do-update.md`, `update-service` skill): graceful `docker stop` before `docker rm` (never `-f`), plus a persistent `/app/logs` volume mount — both required for crash tracking to work across redeploys.
+20. Deploy tooling (`docs/do-update.md`, `update-weather` skill): graceful `docker stop` before `docker rm` (never `-f`), plus a persistent `/app/logs` volume mount — both required for crash tracking to work across redeploys.
 21. Unit tests for all functional classes (see **Testing**) via the sleep/exit/base-url seams.
 22. Verify: `mvn test`
 
@@ -609,7 +617,7 @@ Do not add these unless explicitly requested:
 
 This service mirrors only the `WeatherDataWorkerOpen` path of the legacy .NET `OWMService`:
 - Only the Open-Meteo worker is present.
-- Only US stations are processed.
+- US and CA station loops are processed.
 - Persistence is an `UPDATE` into existing `ows_meteo` rows (not an insert).
 - Post-processing order follows the legacy weather worker base implementation.
 - Daily cadence aligns to midnight, not top-of-hour.

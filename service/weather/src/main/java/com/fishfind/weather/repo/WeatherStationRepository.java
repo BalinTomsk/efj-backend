@@ -10,10 +10,10 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class WeatherStationRepository {
-    private static final String FIND_SUPPORTED_US_STATIONS = """
+    private static final String FIND_SUPPORTED_STATIONS = """
             SELECT TOP 1400 mli, lat, lon, state
             FROM dbo.vwWeatherForecastToDay
-            WHERE country = 'US'
+            WHERE country = ? ORDER BY stamp DESC
             """;
 
     private final JdbcTemplate jdbc;
@@ -23,14 +23,19 @@ public class WeatherStationRepository {
     }
 
     public List<StationRef> findSupportedUsStations() {
+        return findSupportedStations("US");
+    }
+
+    public List<StationRef> findSupportedStations(String country) {
         return jdbc.query(
-                FIND_SUPPORTED_US_STATIONS,
+                FIND_SUPPORTED_STATIONS,
                 (rs, rowNum) -> new StationRef(
                         rs.getString("mli"),
                         rs.getDouble("lat"),
                         rs.getDouble("lon"),
                         rs.getString("state")
-                )
+                ),
+                country
         );
     }
 }
