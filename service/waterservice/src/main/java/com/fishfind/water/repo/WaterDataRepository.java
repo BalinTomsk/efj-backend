@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.sql.Statement;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,17 +64,19 @@ public class WaterDataRepository {
         }
         final String upsertSql = "EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?";
 
-        for (Reading reading : deduplicateByTimestamp(readings)) {
-            Timestamp stamp = toTimestamp(reading.stamp().toInstant());
-
-            jdbc.update(
-                    upsertSql,
-                    mli,
-                    stamp,
-                    reading.waterLevel(),  // goes to legacy "elevation" column
-                    reading.discharge()
-            );
+        List<Reading> unique = deduplicateByTimestamp(readings);
+        if (unique.isEmpty()) {
+            return;
         }
+
+        // One JDBC batch instead of one round-trip per reading: the DB is remote, and a cycle can push
+        // tens of thousands of readings.
+        jdbc.batchUpdate(upsertSql, unique, unique.size(), (ps, reading) -> {
+            ps.setString(1, mli);
+            ps.setTimestamp(2, toTimestamp(reading.stamp().toInstant()));
+            ps.setObject(3, reading.waterLevel(), Types.DOUBLE);  // goes to legacy "elevation" column
+            ps.setObject(4, reading.discharge(), Types.DOUBLE);
+        });
     }
 
     /**

@@ -138,6 +138,8 @@ HTTP transport (shared)
 CSV fetch rules (`CsvFetcherCA`)
 - URL pattern:
   - `https://dd.weather.gc.ca/today/hydrometric/csv/{STATE}/hourly/{STATE}_{MLI}_hourly_hydrometric.csv`
+- SECURITY: build the URL as a RestClient URI template with `{state}`/`{mli}` variables so values are
+  strictly URL-encoded; never interpolate DB values into the URL string (second-order path injection).
 - `fetch` returns the raw CSV body as a `String`.
 - HTTP 404 -> `FileNotFoundException` so the station is skipped (ignored by retry and breaker).
 - Other non-2xx / network errors propagate (5xx and network errors are retried by `httpRetry`).
@@ -145,6 +147,8 @@ CSV fetch rules (`CsvFetcherCA`)
 US fetch rules (`XmlFetcherUS`)
 - URL pattern:
   - `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
+- SECURITY: build the URL as a RestClient URI template with a `{mli}` variable so the value is strictly
+  URL-encoded; never concatenate DB values into the query string (parameter injection).
 - `fetch` returns the raw XML body as a `String`.
 - HTTP 404 -> `FileNotFoundException` so the station is skipped.
 - Transient failures (premature EOF, socket timeouts, 5xx) are retried by `httpRetry` (the previous hand-rolled
@@ -168,7 +172,8 @@ CSV parse rules (`StationProcessorCA`, commons-csv)
 US parse rules
 - Parse USGS WaterML into one stored-procedure payload per variable
 - Preserve variable metadata and XML payload content in `UsSeriesReading`
-- Reduce values to daily entries before building the stored-procedure payload
+- Reduce values to daily entries before building the stored-procedure payload: for each day keep the
+  LATEST sample by timestamp (do not trust document order; USGS does not guarantee it)
 - SECURITY (XXE hardening): the WaterML payload is untrusted external input, so the `DocumentBuilderFactory`
   and `XPathFactory` MUST be hardened before parsing:
   - `FEATURE_SECURE_PROCESSING` = true (both factories)
@@ -195,7 +200,8 @@ WaterData persistence rules
 - Wrap save in one transaction
 - Apply Resilience4j retry and circuit breaker around SQL operations
 - Deduplicate readings by timestamp within the batch, keeping the last duplicate
-- Upsert each reading by executing legacy stored procedure `dbo.sp_UpdateWaterData`
+- Upsert each reading by executing legacy stored procedure `dbo.sp_UpdateWaterData` as ONE JDBC batch
+  (`JdbcTemplate.batchUpdate` with a ParameterizedPreparedStatementSetter), not one round-trip per reading
 - Mapping:
   - CSV water level -> `dbo.WaterData.elevation`
   - CSV discharge -> `dbo.WaterData.discharge`

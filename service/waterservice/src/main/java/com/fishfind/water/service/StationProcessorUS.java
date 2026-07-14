@@ -154,7 +154,9 @@ public class StationProcessorUS extends StationProcessorBase {
                 XPathConstants.NODESET
         );
 
-        Map<LocalDate, String> valuesByDay = new LinkedHashMap<>();
+        // USGS does not guarantee sample ordering, so keep the latest sample of each day by timestamp
+        // rather than whichever value happens to appear last in the document.
+        Map<LocalDate, DailySample> samplesByDay = new LinkedHashMap<>();
         for (int i = 0; i < valueNodes.getLength(); i++) {
             Node valueNode = valueNodes.item(i);
             Node dateTimeAttribute = valueNode.getAttributes() == null ? null : valueNode.getAttributes().getNamedItem("dateTime");
@@ -162,35 +164,42 @@ public class StationProcessorUS extends StationProcessorBase {
                 continue;
             }
 
-            LocalDate day = parseDate(dateTimeAttribute.getNodeValue());
+            OffsetDateTime stamp = parseTimestamp(dateTimeAttribute.getNodeValue());
             String value = normalizeNumericValue(valueNode.getTextContent());
-            if (day == null || value == null) {
+            if (stamp == null || value == null) {
                 continue;
             }
 
-            valuesByDay.put(day, value);
+            LocalDate day = stamp.toLocalDate();
+            DailySample existing = samplesByDay.get(day);
+            if (existing == null || stamp.isAfter(existing.stamp())) {
+                samplesByDay.put(day, new DailySample(stamp, value));
+            }
         }
 
         StringBuilder xml = new StringBuilder("<root>");
-        for (Map.Entry<LocalDate, String> entry : valuesByDay.entrySet()) {
+        for (Map.Entry<LocalDate, DailySample> entry : samplesByDay.entrySet()) {
             xml.append("<a d=\"")
                     .append(entry.getKey())
                     .append("\" v=\"")
-                    .append(escapeXml(entry.getValue()))
+                    .append(escapeXml(entry.getValue().value()))
                     .append("\" />");
         }
         xml.append("</root>");
         return xml.toString();
     }
 
-    private LocalDate parseDate(String text) {
+    private record DailySample(OffsetDateTime stamp, String value) {
+    }
+
+    private OffsetDateTime parseTimestamp(String text) {
         try {
-            return OffsetDateTime.parse(text).toLocalDate();
+            return OffsetDateTime.parse(text);
         } catch (Exception ignored) {
         }
 
         try {
-            return ZonedDateTime.parse(text).toLocalDate();
+            return ZonedDateTime.parse(text).toOffsetDateTime();
         } catch (Exception ignored) {
         }
 
