@@ -45,6 +45,18 @@ class CsvFetcherCATest {
     }
 
     @Test
+    void fetchEncodesStationValuesIntoTheUrlInsteadOfInterpolatingRaw() throws Exception {
+        // A hostile/corrupt DB row must not be able to rewrite the request path (second-order injection).
+        server.expect(requestTo(
+                        "https://dd.weather.gc.ca/today/hydrometric/csv/QC/hourly/QC_02JE025%2F..%2F..%2Fevil_hourly_hydrometric.csv"))
+                .andRespond(withSuccess("", MediaType.TEXT_PLAIN));
+
+        fetcher.fetch("QC", "02JE025/../../evil");
+
+        server.verify();
+    }
+
+    @Test
     void fetchThrowsFileNotFoundOn404() {
         server.expect(requestTo(URL)).andRespond(withStatus(NOT_FOUND));
 

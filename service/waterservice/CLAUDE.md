@@ -243,6 +243,8 @@ water:
 ## CA fetch (`CsvFetcherCA`)
 
 - URL: `https://dd.weather.gc.ca/today/hydrometric/csv/{STATE}/hourly/{STATE}_{MLI}_hourly_hydrometric.csv`
+- SECURITY: built as a RestClient **URI template** — `state`/`mli` are strictly URL-encoded, so a hostile
+  or corrupt DB row cannot rewrite the request path (second-order injection).
 - `fetch` returns the raw CSV body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("caFeed")`.
 - HTTP 404 → `FileNotFoundException` → station skipped (ignored by retry + breaker).
 - 5xx / network errors are retried; sustained failures open `caFeed`.
@@ -252,6 +254,8 @@ water:
 ## US fetch (`XmlFetcherUS`)
 
 - URL: `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
+- SECURITY: built as a RestClient **URI template** — `mli` is strictly URL-encoded, so a DB value cannot
+  append or override query parameters.
 - `fetch` returns the raw XML body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`.
 - HTTP 404 → `FileNotFoundException` → station skipped.
 - Transient failures (premature EOF, socket timeouts, 5xx) retried by `httpRetry` — the old hand-rolled retry
@@ -274,7 +278,8 @@ water:
 
 - Parse USGS WaterML into one stored-procedure payload per variable (`UsSeriesReading`).
 - Preserve variable metadata and XML payload content.
-- Reduce values to **daily entries** before building the stored-procedure payload.
+- Reduce values to **daily entries** before building the stored-procedure payload: for each day, keep the
+  **latest sample by timestamp** (document order is not trusted — USGS does not guarantee it).
 - **SECURITY (XXE):** WaterML is untrusted input. Harden `DocumentBuilderFactory` + `XPathFactory` before
   parsing — enable `FEATURE_SECURE_PROCESSING`, set `disallow-doctype-decl=true`, disable external
   general/parameter entities and external DTD loading, `setXIncludeAware(false)`,
@@ -299,7 +304,8 @@ water:
 - No-op if readings is null or empty.
 - Wrap in a single transaction.
 - Deduplicate readings by timestamp within the batch; **keep the last duplicate**.
-- Upsert via legacy SP: `dbo.sp_UpdateWaterData`
+- Upsert via legacy SP: `dbo.sp_UpdateWaterData`, executed as **one JDBC batch** (`jdbc.batchUpdate`)
+  instead of one round-trip per reading — the DB is remote and a cycle can push tens of thousands of rows.
   - `waterLevel` → `dbo.WaterData.elevation`
   - `discharge` → `dbo.WaterData.discharge`
   - Timestamp stored as SQL `datetime2`.

@@ -160,6 +160,37 @@ class StationProcessorUSTest {
     }
 
     @Test
+    void parseKeepsLatestSampleOfEachDayRegardlessOfDocumentOrder() throws Exception {
+        // USGS does not guarantee document ordering; the daily value must be the latest sample by
+        // timestamp, not whichever happens to appear last in the payload.
+        String xml = """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
+                  <ns1:timeSeries name="USGS:01519200:00060:00000">
+                    <ns1:variable>
+                      <ns1:variableName>Discharge, ft&amp;#179;/s</ns1:variableName>
+                    </ns1:variable>
+                    <ns1:values>
+                      <ns1:value qualifiers="P" dateTime="2026-03-23T20:00:00.000-04:00">999</ns1:value>
+                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:00:00.000-04:00">111</ns1:value>
+                    </ns1:values>
+                  </ns1:timeSeries>
+                </ns1:timeSeriesResponse>
+                """;
+
+        @SuppressWarnings("unchecked")
+        List<UsSeriesReading> series = (List<UsSeriesReading>) invokePrivate(
+                "parse",
+                new Class<?>[]{String.class},
+                xml
+        );
+
+        assertEquals(List.of(
+                new UsSeriesReading("Discharge", "ft^3/s", "<root><a d=\"2026-03-23\" v=\"999\" /></root>")
+        ), series);
+    }
+
+    @Test
     void parseRejectsXxePayloadInsteadOfExpandingEntities() throws Exception {
         // Classic XXE: a DOCTYPE declaring an external entity that, if expanded, would read a local file.
         String maliciousXml = """

@@ -40,6 +40,18 @@ class XmlFetcherUSTest {
     }
 
     @Test
+    void fetchEncodesStationValueIntoTheQueryInsteadOfInterpolatingRaw() throws Exception {
+        // A hostile/corrupt DB row must not be able to append or override query parameters.
+        server.expect(requestTo(
+                        "https://waterservices.usgs.gov/nwis/iv/?sites=08313000%26period%3DP1000Y&period=P3D&format=waterml"))
+                .andRespond(withSuccess("<root/>", MediaType.APPLICATION_XML));
+
+        fetcher.fetch("NY", "08313000&period=P1000Y");
+
+        server.verify();
+    }
+
+    @Test
     void fetchThrowsFileNotFoundOn404() {
         server.expect(requestTo(URL)).andRespond(withStatus(NOT_FOUND));
 

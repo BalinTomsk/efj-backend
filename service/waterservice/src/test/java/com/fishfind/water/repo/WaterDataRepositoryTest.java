@@ -3,11 +3,15 @@ package com.fishfind.water.repo;
 import com.fishfind.water.domain.Reading;
 import com.fishfind.water.domain.UsSeriesReading;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
 import org.springframework.jdbc.core.PreparedStatementCallback;
 
 import java.lang.reflect.Method;
+import java.sql.PreparedStatement;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -58,12 +62,11 @@ class WaterDataRepositoryTest {
 
         repository.saveStationData("02JE025", Arrays.asList(valid, null, missingStamp));
 
-        verify(jdbc, times(1)).update(
+        verify(jdbc, times(1)).batchUpdate(
                 eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
-                eq("02JE025"),
-                any(),
-                eq(1.2),
-                eq(3.4)
+                eq(List.of(valid)),
+                eq(1),
+                org.mockito.ArgumentMatchers.<ParameterizedPreparedStatementSetter<Reading>>any()
         );
     }
 
@@ -75,13 +78,44 @@ class WaterDataRepositoryTest {
 
         repository.saveStationData("02JE025", List.of(first, duplicate));
 
-        verify(jdbc, times(1)).update(
+        verify(jdbc, times(1)).batchUpdate(
                 eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
-                eq("02JE025"),
-                any(),
-                eq(9.9),
-                eq(8.8)
+                eq(List.of(duplicate)),
+                eq(1),
+                org.mockito.ArgumentMatchers.<ParameterizedPreparedStatementSetter<Reading>>any()
         );
+    }
+
+    @Test
+    void saveStationDataBatchesUpsertsAndBindsParametersPerReading() throws Exception {
+        Reading r1 = new Reading("02JE025",
+                OffsetDateTime.of(2024, 1, 2, 3, 0, 0, 0, ZoneOffset.UTC), 1.2, 3.4);
+        Reading r2 = new Reading("02JE025",
+                OffsetDateTime.of(2024, 1, 2, 4, 0, 0, 0, ZoneOffset.UTC), null, 5.6);
+
+        repository.saveStationData("02JE025", List.of(r1, r2));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<ParameterizedPreparedStatementSetter<Reading>> setterCaptor =
+                ArgumentCaptor.forClass(ParameterizedPreparedStatementSetter.class);
+        verify(jdbc).batchUpdate(
+                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
+                eq(List.of(r1, r2)),
+                eq(2),
+                setterCaptor.capture()
+        );
+
+        PreparedStatement ps = mock(PreparedStatement.class);
+        setterCaptor.getValue().setValues(ps, r1);
+        verify(ps).setString(1, "02JE025");
+        verify(ps).setTimestamp(2, Timestamp.from(r1.stamp().toInstant()));
+        verify(ps).setObject(3, 1.2, Types.DOUBLE);
+        verify(ps).setObject(4, 3.4, Types.DOUBLE);
+
+        PreparedStatement ps2 = mock(PreparedStatement.class);
+        setterCaptor.getValue().setValues(ps2, r2);
+        verify(ps2).setObject(3, null, Types.DOUBLE);
+        verify(ps2).setObject(4, 5.6, Types.DOUBLE);
     }
 
     @Test

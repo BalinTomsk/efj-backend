@@ -41,12 +41,13 @@ public class XmlFetcherUS {
     @Retry(name = "httpRetry")
     @CircuitBreaker(name = "usFeed")
     public String fetch(String state, String mli) throws IOException {
-        String url = "https://waterservices.usgs.gov/nwis/iv/?sites=" + mli + "&period=P3D&format=waterml";
+        // Template variables are strictly URL-encoded by RestClient, so DB values cannot inject query params.
+        String urlTemplate = "https://waterservices.usgs.gov/nwis/iv/?sites={mli}&period=P3D&format=waterml";
 
-        log.debug("Fetching USGS WaterML. station={} state={} url={}", mli, state, url);
+        log.debug("Fetching USGS WaterML. station={} state={}", mli, state);
 
         try {
-            String body = restClient.get().uri(url).retrieve().body(String.class);
+            String body = restClient.get().uri(urlTemplate, mli).retrieve().body(String.class);
             log.debug("Fetched USGS WaterML. station={} state={}", mli, state);
             return body == null ? "" : body;
         } catch (HttpClientErrorException.NotFound ex) {

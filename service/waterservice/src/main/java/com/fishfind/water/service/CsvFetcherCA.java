@@ -41,14 +41,14 @@ public class CsvFetcherCA {
     @Retry(name = "httpRetry")
     @CircuitBreaker(name = "caFeed")
     public String fetch(String state, String mli) throws IOException {
-        String url = String.format(
-                "https://dd.weather.gc.ca/today/hydrometric/csv/%s/hourly/%s_%s_hourly_hydrometric.csv",
-                state, state, mli);
+        // Template variables are strictly URL-encoded by RestClient, so DB values cannot rewrite the path.
+        String urlTemplate =
+                "https://dd.weather.gc.ca/today/hydrometric/csv/{state}/hourly/{state}_{mli}_hourly_hydrometric.csv";
 
-        log.debug("Fetching hydrometric CSV. station={} state={} url={}", mli, state, url);
+        log.debug("Fetching hydrometric CSV. station={} state={}", mli, state);
 
         try {
-            String body = restClient.get().uri(url).retrieve().body(String.class);
+            String body = restClient.get().uri(urlTemplate, state, state, mli).retrieve().body(String.class);
             log.debug("Fetched station CSV. station={} state={}", mli, state);
             return body == null ? "" : body;
         } catch (HttpClientErrorException.NotFound ex) {
