@@ -136,6 +136,16 @@ public class WaterDataRepository {
     }
 
     /**
+     * Deletes stale water data after each station-processing cycle completes.
+     */
+    @Transactional
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackProcedure")
+    public void cleanOldWaterData() {
+        executeProcedureAllowingResults("EXEC dbo.sp_clean_old_water_data");
+    }
+
+    /**
      * Collapses duplicate timestamps from a single CSV batch so each station/timestamp pair is saved once.
      *
      * @param readings raw parsed readings

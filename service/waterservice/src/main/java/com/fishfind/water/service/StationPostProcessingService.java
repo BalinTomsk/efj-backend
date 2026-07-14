@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Runs synchronous stored procedures that must happen after a station-processing pass completes.
+ * Runs synchronous stored procedures that must happen after a station-processing cycle completes.
  */
 @Service
 public class StationPostProcessingService {
@@ -24,5 +24,13 @@ public class StationPostProcessingService {
     public void runAfterStationProcessing() {
         log.info("Running post-processing procedure {}", "spPushSpeciesFromLakeToStation");
         waterDataRepository.pushSpeciesFromLakeToStation();
+    }
+
+    /**
+     * Executes cleanup that must run after every cycle, even if no station was processed successfully.
+     */
+    public void cleanOldWaterData() {
+        log.info("Running post-processing procedure {}", "sp_clean_old_water_data");
+        waterDataRepository.cleanOldWaterData();
     }
 }

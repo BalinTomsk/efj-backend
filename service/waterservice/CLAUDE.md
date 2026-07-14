@@ -50,9 +50,10 @@ Explicitly follows database schema at:
 - Download each **CA** station's hourly hydrometric CSV from Environment Canada.
 - Download each **US** station's WaterML payload from USGS.
 - Parse readings and upsert them into `dbo.WaterData`.
-- After each worker pass, synchronously run stored procedures in order:
-  1. `dbo.spCleanWeatherWaterData`
-  2. `dbo.spPushSpeciesFromLakeToStation`
+- After each worker cycle, synchronously run stale-data cleanup:
+  1. `dbo.sp_clean_old_water_data`
+- When at least one station succeeds in a cycle, also run:
+  1. `dbo.spPushSpeciesFromLakeToStation`
 - Log failures and skipped unpublished-source events; **do not disable stations automatically**.
 
 ---
@@ -189,7 +190,8 @@ spring:
 1. Run CA and US passes **in parallel** on `countryPassExecutor`; a failure of one country is isolated/logged.
 2. Each pass (`runOnce`) loads its stations, processes them one by one sleeping `pause-between-stations-ms`
    (interrupt-aware), and returns the count processed **successfully**.
-3. Run post-processing **exactly once per cycle**, and **only if ≥1 station succeeded**:
+3. Run species post-processing **exactly once per cycle**, and **only if ≥1 station succeeded**.
+4. Run stale-data cleanup **exactly once after every cycle** through `dbo.sp_clean_old_water_data`.
    - `dbo.spPushSpeciesFromLakeToStation`
    - (Previously each worker thread ran this independently ⇒ the SP executed twice, concurrently. Fixed.)
 - `StationProcessorBase.process(...)` returns `boolean` so the cycle knows whether anything succeeded.
@@ -306,7 +308,7 @@ water:
 ### Post-processing methods
 
 ```java
-cleanWeatherWaterData()        // → dbo.spCleanWeatherWaterData
+cleanOldWaterData()            // → dbo.sp_clean_old_water_data
 pushSpeciesFromLakeToStation() // → dbo.spPushSpeciesFromLakeToStation
 ```
 
@@ -316,7 +318,7 @@ pushSpeciesFromLakeToStation() // → dbo.spPushSpeciesFromLakeToStation
 
 - There was earlier intent to delete `WaterData` rows older than 15 days per station.
 - **That delete is not active in the current state.** Do not restore it unless explicitly asked.
-- Cleanup happens only through `dbo.spCleanWeatherWaterData`.
+- Cleanup happens only through `dbo.sp_clean_old_water_data`.
 
 ---
 

@@ -7,7 +7,7 @@
 - downloads WaterML payloads from USGS for US stations
 - parses the readings
 - upserts them into `dbo.WaterData`
-- runs post-processing stored procedures after each worker pass
+- runs post-processing stored procedures after each worker cycle
 - logs station failures and skipped unpublished source feeds without disabling stations automatically
 
 This service has no HTTP API. It runs as a worker process.
@@ -28,7 +28,7 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/ConsoleDebugRunner.java`
   Runs exactly one processing pass for both country workers in parallel when `--console` is used.
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
-  Runs synchronous post-processing procedures after a worker finishes its station pass.
+  Runs synchronous post-processing procedures after a worker finishes its station cycle.
 - `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
   Fetches, parses, saves, and handles shared exception logging for Canadian stations.
 - `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
@@ -92,7 +92,8 @@ Worker behavior:
 - loads all supported CA and US stations from `vwWaterStation`
 - processes each country list one station at a time
 - sleeps 1 second between station retrievals
-- after each worker pass finishes, synchronously runs `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`
+- after each worker cycle finishes, synchronously runs stale-data cleanup through `dbo.sp_clean_old_water_data`
+- when at least one station succeeds in a cycle, also runs `dbo.spPushSpeciesFromLakeToStation`
 - after a full cycle, waits until the next top-of-hour before starting again only if the cycle finished early
 - starts the next cycle immediately if processing already ran past that hour boundary
 - keeps running until the process is stopped
@@ -125,7 +126,7 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--console --station=02JE025"
 
 Console mode runs the CA and US workers in parallel for that single pass. If the requested station id only exists in one country, the other worker simply processes zero stations.
 
-Each worker still runs its own post-processing sequence after its pass completes. In console mode that means the procedures can run once after the CA pass and once after the US pass.
+Console mode delegates to the same cycle path as scheduled mode, so post-processing and cleanup run once after the combined CA/US pass.
 
 Console mode is the easiest way to debug one station without waiting for the full worker loop.
 
@@ -501,7 +502,7 @@ The current implementation uses legacy SQL Server procedures for persistence and
 
 - `dbo.sp_UpdateWaterData` for CA reading upserts
 - `dbo.sp_push_us_water_data` for USGS variable payload saves
-- `dbo.spCleanWeatherWaterData` after each worker pass - delete water station data if older then 15 days
+- `dbo.sp_clean_old_water_data` after each worker cycle - delete stale water station data
 - `dbo.spPushSpeciesFromLakeToStation` push fish probabilistic data if more fish assigned to water item 
 
 Notes:

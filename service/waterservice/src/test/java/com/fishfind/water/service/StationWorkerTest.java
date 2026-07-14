@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -96,10 +98,11 @@ class StationWorkerTest {
         verify(processorCA).process("A", "QC", -5);
         verify(processorUS).process("08312000", "NM", -7);
         verify(postProcessingService, times(1)).runAfterStationProcessing();
+        verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
     @Test
-    void runCycleSkipsPostProcessingWhenNoStationSucceeds() {
+    void runCycleSkipsSpeciesPostProcessingButCleansOldWaterDataWhenNoStationSucceeds() {
         when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
         when(repo.findSupported("US")).thenReturn(List.of());
         when(processorCA.process("A", "QC", -5)).thenReturn(false);
@@ -108,6 +111,7 @@ class StationWorkerTest {
 
         assertEquals(0, processed);
         verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
     @Test
@@ -138,5 +142,20 @@ class StationWorkerTest {
         // CA pass failed, US pass still ran and post-processing still happened.
         assertEquals(1, processed);
         verify(postProcessingService, times(1)).runAfterStationProcessing();
+        verify(postProcessingService, times(1)).cleanOldWaterData();
+    }
+
+    @Test
+    void runCycleStillCleansOldWaterDataWhenSpeciesPostProcessingFails() {
+        when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
+        when(repo.findSupported("US")).thenReturn(List.of());
+        when(processorCA.process("A", "QC", -5)).thenReturn(true);
+        doThrow(new RuntimeException("species push failed"))
+                .when(postProcessingService).runAfterStationProcessing();
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> worker.runCycle(null));
+
+        assertEquals("species push failed", ex.getMessage());
+        verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 }

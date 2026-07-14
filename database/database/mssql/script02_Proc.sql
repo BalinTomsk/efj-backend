@@ -3210,23 +3210,6 @@ BEGIN
 END
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
-IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'spCleanWeatherWaterData' AND type = 'P')
-    DROP PROCEDURE dbo.spCleanWeatherWaterData
-GO
-
-CREATE PROCEDURE [dbo].[spCleanWeatherWaterData]  
-AS
-SET NOCOUNT ON
-	BEGIN TRY 
-	 delete from [dbo].[WaterData] where stamp < CAST(DATEADD(day, -15, GETDATE()) AS DATE);
-	 SELECT @@ROWCOUNT 
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER()    AS ErrorNumber,    ERROR_SEVERITY() AS ErrorSeverity, ERROR_STATE()   AS ErrorState
-         , ERROR_PROCEDURE() AS ErrorProcedure, ERROR_LINE()     AS ErrorLine,     ERROR_MESSAGE() AS ErrorMessage;
-END CATCH;          
-GO
-------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Drop existing procedure if it exists
 IF OBJECT_ID('dbo.sp_upsert_fish_catch_probability', 'P') IS NOT NULL
@@ -4018,6 +4001,118 @@ BEGIN
         catch_pending_fish_decided    = SYSUTCDATETIME(),
         catch_pending_fish_decided_by = @admin_userid
     WHERE catch_pending_fish_id = @id;
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_clean_old_water_data' AND type = 'P')
+    DROP PROCEDURE dbo.sp_clean_old_water_data
+GO
+-- exec [sp_clean_old_water_data]
+ 
+CREATE OR ALTER PROCEDURE [dbo].[sp_clean_old_water_data]
+    @DaysToKeep INT = 15,
+    @BatchSize INT = 1000,
+    @DelayBetweenBatchesMs INT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @RowsDeleted INT = 1;
+    DECLARE @TotalDeleted INT = 0;
+    DECLARE @CutoffDate DATE = CAST(DATEADD(day, -@DaysToKeep, GETDATE()) AS DATE);
+    DECLARE @StartTime DATETIME2 = SYSDATETIME();
+    DECLARE @DelayString CHAR(12);
+
+    WHILE @RowsDeleted > 0
+    BEGIN
+        BEGIN TRY
+            DELETE TOP (@BatchSize)
+            FROM [dbo].[WaterData]
+            WHERE stamp < @CutoffDate;
+
+            SET @RowsDeleted = @@ROWCOUNT;
+            SET @TotalDeleted = @TotalDeleted + @RowsDeleted;
+
+            IF @RowsDeleted > 0
+            BEGIN
+                -- PRINT 'Deleted ' + CAST(@RowsDeleted AS VARCHAR(10)) + ' rows. Total: ' + CAST(@TotalDeleted AS VARCHAR(10));
+                
+                -- Optional delay between batches
+                IF @DelayBetweenBatchesMs > 0 AND @RowsDeleted = @BatchSize
+                BEGIN
+                    WAITFOR DELAY @DelayString;
+                END
+            END
+        END TRY
+        BEGIN CATCH
+            DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+            DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+            DECLARE @ErrorState INT = ERROR_STATE();
+            
+            PRINT 'Error occurred after deleting ' + CAST(@TotalDeleted AS VARCHAR(10)) + ' rows';
+            PRINT 'Error: ' + @ErrorMessage;
+            
+            RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+            RETURN;
+        END CATCH
+    END
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_clean_old_weather_data' AND type = 'P')
+    DROP PROCEDURE dbo.sp_clean_old_water_data
+GO
+-- exec [sp_clean_old_weather_data]
+ 
+CREATE OR ALTER PROCEDURE [dbo].sp_clean_old_weather_data
+    @DaysToKeep INT = 15,
+    @BatchSize INT = 1000,
+    @DelayBetweenBatchesMs INT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @RowsDeleted INT = 1;
+    DECLARE @TotalDeleted INT = 0;
+    DECLARE @CutoffDate DATE = CAST(DATEADD(day, -@DaysToKeep, GETDATE()) AS DATE);
+    DECLARE @StartTime DATETIME2 = SYSDATETIME();
+    DECLARE @DelayString CHAR(12);
+
+    WHILE @RowsDeleted > 0
+    BEGIN
+        BEGIN TRY
+            DELETE TOP (@BatchSize)
+            FROM [dbo].weather_Forecast
+            WHERE dt < @CutoffDate;
+
+            SET @RowsDeleted = @@ROWCOUNT;
+            SET @TotalDeleted = @TotalDeleted + @RowsDeleted;
+
+            IF @RowsDeleted > 0
+            BEGIN
+                -- PRINT 'Deleted ' + CAST(@RowsDeleted AS VARCHAR(10)) + ' rows. Total: ' + CAST(@TotalDeleted AS VARCHAR(10));
+                
+                -- Optional delay between batches
+                IF @DelayBetweenBatchesMs > 0 AND @RowsDeleted = @BatchSize
+                BEGIN
+                    WAITFOR DELAY @DelayString;
+                END
+            END
+        END TRY
+        BEGIN CATCH
+            DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+            DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+            DECLARE @ErrorState INT = ERROR_STATE();
+            
+            PRINT 'Error occurred after deleting ' + CAST(@TotalDeleted AS VARCHAR(10)) + ' rows';
+            PRINT 'Error: ' + @ErrorMessage;
+            
+            RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+            RETURN;
+        END CATCH
+    END
 END
 GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------

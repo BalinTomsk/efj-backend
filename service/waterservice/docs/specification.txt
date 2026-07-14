@@ -5,7 +5,8 @@ Goal
 - Download each CA station's hourly hydrometric CSV from Environment Canada.
 - Download each US station's WaterML payload from USGS.
 - Parse readings and upsert them into `dbo.WaterData`.
-- After each worker pass, synchronously run `dbo.spCleanWeatherWaterData` and then `dbo.spPushSpeciesFromLakeToStation`.
+- After each worker cycle, synchronously run `dbo.sp_clean_old_water_data`.
+- When at least one station succeeds in a cycle, also run `dbo.spPushSpeciesFromLakeToStation`.
 - Log processing failures and skipped unpublished-source events, but do not disable stations automatically.
 
 Tech stack
@@ -82,10 +83,11 @@ Worker behavior
 - `StationWorker.runCycle(requestedMli)` (used by BOTH the scheduler and console mode):
   - Run the CA and US passes in parallel on `countryPassExecutor`.
   - A failure of one country's pass is isolated (logged) and does not abort the other.
-  - Run post-processing EXACTLY ONCE per cycle, and ONLY when at least one station was processed
-    successfully (`dbo.spPushSpeciesFromLakeToStation`). This replaces the previous design where each of the
-    two worker threads ran post-processing independently — i.e. the same stored procedure executed twice,
-    concurrently, every hour.
+  - Run species post-processing EXACTLY ONCE per cycle, and ONLY when at least one station was processed
+    successfully.
+  - Run stale-data cleanup EXACTLY ONCE after every cycle by executing `dbo.sp_clean_old_water_data`.
+  - This replaces the previous design where each of the two worker threads ran post-processing independently,
+    causing the same stored procedure to execute twice concurrently every hour.
 - `StationWorker.runOnce(country, requestedMli)`:
   - Load supported stations for the country, process matching stations one by one, sleeping
     `pause-between-stations-ms` between each (interrupt-aware: stops the pass early if interrupted).
@@ -195,14 +197,14 @@ WaterData persistence rules
 - Also implement `saveUsStationData(String mli, String state, List<UsSeriesReading> seriesList)`
 - Use the legacy stored procedure `dbo.sp_push_us_water_data`
 - Also implement post-processing repository methods:
-  - `cleanWeatherWaterData()` -> `dbo.spCleanWeatherWaterData`
+  - `cleanOldWaterData()` -> `dbo.sp_clean_old_water_data`
   - `pushSpeciesFromLakeToStation()` -> `dbo.spPushSpeciesFromLakeToStation`
 
 Important note about delete logic
 - There was earlier intent to delete old `WaterData` rows older than 15 days for a station.
 - In the current project state that delete is not active.
 - Recreate the current behavior as-is unless explicitly told to restore the cleanup query.
-- The cleanup now happens only through the post-processing procedure `dbo.spCleanWeatherWaterData`.
+- The cleanup now happens only through the post-cycle procedure `dbo.sp_clean_old_water_data`.
 
 Resilience4j settings
 - Aspect order: `circuit-breaker-aspect-order: 2` and `retry-aspect-order: 1` so the circuit breaker is the
@@ -320,7 +322,7 @@ Do not include
 If rebuilding from this specification, reproduce current behavior faithfully rather than improving architecture unless asked.
 
 Current implementation notes
-- `WaterDataRepository.cleanWeatherWaterData()` and `pushSpeciesFromLakeToStation()` must tolerate procedures that emit incidental result sets or update counts.
+- `WaterDataRepository.cleanOldWaterData()` and `pushSpeciesFromLakeToStation()` must tolerate procedures that emit incidental result sets or update counts.
 - `saveStationData` deduplicates readings by timestamp within a batch and keeps the last duplicate.
 - `saveUsStationData` ignores empty variable payloads instead of failing the full station save.
 - Cycle threads use the prefixes `water-cycle-` (scheduler) and `water-pass-` (parallel country passes).

@@ -114,10 +114,14 @@ public class StationWorker implements ApplicationRunner {
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
-            if (succeeded > 0) {
-                postProcessingService.runAfterStationProcessing();
-            } else {
-                log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
+            try {
+                if (succeeded > 0) {
+                    postProcessingService.runAfterStationProcessing();
+                } else {
+                    log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
+                }
+            } finally {
+                postProcessingService.cleanOldWaterData();
             }
             log.info("Station cycle completed. successfulStations={} failedStations={} "
                             + "caLastProcessedStation={} usLastProcessedStation={} "

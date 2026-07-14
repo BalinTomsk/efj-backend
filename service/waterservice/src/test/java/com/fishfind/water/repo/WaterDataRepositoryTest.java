@@ -150,6 +150,16 @@ class WaterDataRepositoryTest {
     }
 
     @Test
+    void cleanOldWaterDataExecutesStoredProcedure() {
+        repository.cleanOldWaterData();
+
+        verify(jdbc).execute(
+                eq("EXEC dbo.sp_clean_old_water_data"),
+                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
+        );
+    }
+
+    @Test
     void fallbackProcedureWrapsOriginalException() {
         RuntimeException ex = assertThrows(
                 RuntimeException.class,
