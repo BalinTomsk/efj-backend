@@ -2071,26 +2071,17 @@ GO
 ALTER TABLE dbo.WaterStation add constraint df_WaterStation_supported default(1) for supported;
 GO
     
-CREATE UNIQUE NONCLUSTERED INDEX UK_WaterStation ON WaterStation(mli)    
+CREATE UNIQUE NONCLUSTERED INDEX UK_WaterStation ON [dbo].WaterStation(mli)    
 GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_lat] ON WaterStation (lat ASC ) ON [PRIMARY]
+CREATE NONCLUSTERED INDEX [idx_WaterStation_state] ON [dbo].WaterStation (state) ON [PRIMARY]
 GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_lon] ON WaterStation (lon ASC ) ON [PRIMARY]
+CREATE NONCLUSTERED INDEX [idx_WaterStation_city] ON [dbo].WaterStation (city) ON [PRIMARY]
 GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_state] ON WaterStation (state) ON [PRIMARY]
-GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_city] ON WaterStation (city) ON [PRIMARY]
-GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_sid] ON WaterStation (sid) ON [PRIMARY]
-GO
-CREATE NONCLUSTERED INDEX [idx_WaterStation_mli] ON WaterStation (mli) ON [PRIMARY]
+CREATE NONCLUSTERED INDEX [idx_WaterStation_sid] ON [dbo].WaterStation (sid) ON [PRIMARY]
 GO
 CREATE NONCLUSTERED INDEX [idx_WaterStation_lake] ON [dbo].[WaterStation] ([country],[supported]) INCLUDE ([mli],[state],[lat],[lon],[lakeId])
 GO
-CREATE NONCLUSTERED INDEX idx_WaterStation_cll ON WaterStation (country,lat,lon) INCLUDE (id)
-GO
--- select top 1 * from WaterStation
-CREATE NONCLUSTERED INDEX idx_WaterStation_latlon ON [dbo].[WaterStation] ([lat],[lon]) INCLUDE ([lakeId])
+CREATE NONCLUSTERED INDEX [idx_WaterStation_support] ON [dbo].[WaterStation] ([supported]) INCLUDE ([mli],[state],[country],[tz])
 GO
 
 ALTER TABLE dbo.WaterStation  ADD CONSTRAINT FK_WaterStation_Lake FOREIGN KEY(lakeId) REFERENCES dbo.Lake (lake_id)

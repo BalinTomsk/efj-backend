@@ -593,7 +593,8 @@ GO
 CREATE VIEW [dbo].[vwWaterStation] 
 WITH SCHEMABINDING
 AS
-  SELECT mli, country, state, ISNULL(tz,0) AS tz from dbo.WaterStation  WHERE supported = 1  
+  SELECT w.mli, w.country, w.state, ISNULL(w.tz,0) AS tz, c.stamp from dbo.WaterStation w LEFT JOIN dbo.CurrentWaterState c ON w.mli = c.mli
+      WHERE supported = 1  
 GO
 ----------------------------------------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vGetOntarioList' AND xtype = 'V')

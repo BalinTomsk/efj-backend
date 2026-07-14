@@ -31,7 +31,7 @@ public class WaterStationRepository {
      */
     public List<StationRef> findSupported(String country) {
         return jdbc.query(
-            "SELECT mli, state, tz FROM vwWaterStation WHERE country = ?",
+            "SELECT mli, state, tz FROM vwWaterStation WHERE country = ? ORDER BY stamp DESC",
             (ps) -> ps.setString(1, country),
             (rs, i) -> new StationRef(
                 rs.getString("mli"),
