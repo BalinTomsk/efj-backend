@@ -2,6 +2,7 @@ package com.fishfind.weather.repo;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -29,32 +30,32 @@ class WeatherStationRepositoryTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void queriesSupportedUsStationsWithExpectedSql() {
+    void queriesSupportedStationsWithExpectedSqlAndCountryParameter() {
         StationRef expected = new StationRef("MLI-1", 1.0, 2.0, "WA");
-        when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of(expected));
+        when(jdbc.query(anyString(), any(RowMapper.class), eq("CA"))).thenReturn(List.of(expected));
 
-        List<StationRef> result = repository.findSupportedUsStations();
+        List<StationRef> result = repository.findSupportedStations("CA");
 
         assertThat(result).containsExactly(expected);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<RowMapper<StationRef>> mapper = ArgumentCaptor.forClass(RowMapper.class);
-        org.mockito.Mockito.verify(jdbc).query(sql.capture(), mapper.capture());
+        org.mockito.Mockito.verify(jdbc).query(sql.capture(), mapper.capture(), eq("CA"));
 
         assertThat(sql.getValue())
                 .contains("SELECT TOP 1400")
                 .contains("dbo.vwWeatherForecastToDay")
-                .contains("country = 'US'");
+                .contains("country = ?");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void rowMapperMapsAllColumns() throws Exception {
-        when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
+        when(jdbc.query(anyString(), any(RowMapper.class), eq("US"))).thenReturn(List.of());
         repository.findSupportedUsStations();
 
         ArgumentCaptor<RowMapper<StationRef>> mapper = ArgumentCaptor.forClass(RowMapper.class);
-        org.mockito.Mockito.verify(jdbc).query(anyString(), mapper.capture());
+        org.mockito.Mockito.verify(jdbc).query(anyString(), mapper.capture(), eq("US"));
 
         ResultSet rs = mock(ResultSet.class);
         when(rs.getString("mli")).thenReturn("MLI-9");

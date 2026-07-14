@@ -2,6 +2,7 @@ package com.fishfind.weather.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -62,17 +63,17 @@ class StationWorkerTest {
 
     @Test
     void runOnceProcessesAllStationsThenPostProcesses() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(any())).thenReturn(ProcessingOutcome.PROCESSED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
 
         StationWorker.RunResult result = worker.runOnce(null);
 
         assertThat(result.processedStations()).isEqualTo(3);
         assertThat(result.failedStations()).isZero();
         InOrder inOrder = Mockito.inOrder(processor, postProcessing);
-        inOrder.verify(processor).process(THREE_STATIONS.get(0));
-        inOrder.verify(processor).process(THREE_STATIONS.get(1));
-        inOrder.verify(processor).process(THREE_STATIONS.get(2));
+        inOrder.verify(processor).process(THREE_STATIONS.get(0), "US");
+        inOrder.verify(processor).process(THREE_STATIONS.get(1), "US");
+        inOrder.verify(processor).process(THREE_STATIONS.get(2), "US");
         inOrder.verify(postProcessing).runAfterStationProcessing();
         assertThat(recordedSleeps).allMatch(ms -> ms <= 60 * 60 * 1000L);
         assertThat(recordedSleeps.stream().mapToLong(Long::longValue).sum()).isEqualTo(EIGHT_HOURS_MS);
@@ -80,22 +81,22 @@ class StationWorkerTest {
 
     @Test
     void runOnceFiltersToRequestedStation() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(any())).thenReturn(ProcessingOutcome.PROCESSED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
 
         StationWorker.RunResult result = worker.runOnce("MLI-2");
 
         assertThat(result.processedStations()).isEqualTo(1);
-        verify(processor).process(THREE_STATIONS.get(1));
-        verify(processor, never()).process(THREE_STATIONS.get(0));
-        verify(processor, never()).process(THREE_STATIONS.get(2));
+        verify(processor).process(THREE_STATIONS.get(1), "US");
+        verify(processor, never()).process(THREE_STATIONS.get(0), "US");
+        verify(processor, never()).process(THREE_STATIONS.get(2), "US");
         verify(postProcessing).runAfterStationProcessing();
     }
 
     @Test
     void skippedStationsDoNotBlockPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(any())).thenReturn(ProcessingOutcome.SKIPPED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(any(), anyString())).thenReturn(ProcessingOutcome.SKIPPED);
 
         StationWorker.RunResult result = worker.runOnce(null);
 
@@ -105,8 +106,8 @@ class StationWorkerTest {
 
     @Test
     void degradedCycleSkipsPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(any())).thenReturn(ProcessingOutcome.FAILED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(any(), anyString())).thenReturn(ProcessingOutcome.FAILED);
 
         StationWorker.RunResult result = worker.runOnce(null);
 
@@ -117,10 +118,10 @@ class StationWorkerTest {
 
     @Test
     void runOnceLogsCountryPassAndFullCycleStationSummaries() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(THREE_STATIONS.get(0))).thenReturn(ProcessingOutcome.PROCESSED);
-        when(processor.process(THREE_STATIONS.get(1))).thenReturn(ProcessingOutcome.FAILED);
-        when(processor.process(THREE_STATIONS.get(2))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(THREE_STATIONS.get(0), "US")).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processor.process(THREE_STATIONS.get(1), "US")).thenReturn(ProcessingOutcome.FAILED);
+        when(processor.process(THREE_STATIONS.get(2), "US")).thenReturn(ProcessingOutcome.PROCESSED);
         ch.qos.logback.classic.Logger logger = stationWorkerLogger();
         ListAppender<ILoggingEvent> appender = attachLogAppender(logger);
 
@@ -145,10 +146,10 @@ class StationWorkerTest {
 
     @Test
     void runOnceLogsHourlyProgressBeforeFinalCycleSummary() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
-        when(processor.process(THREE_STATIONS.get(0))).thenReturn(ProcessingOutcome.PROCESSED);
-        when(processor.process(THREE_STATIONS.get(1))).thenReturn(ProcessingOutcome.FAILED);
-        when(processor.process(THREE_STATIONS.get(2))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
+        when(processor.process(THREE_STATIONS.get(0), "US")).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processor.process(THREE_STATIONS.get(1), "US")).thenReturn(ProcessingOutcome.FAILED);
+        when(processor.process(THREE_STATIONS.get(2), "US")).thenReturn(ProcessingOutcome.PROCESSED);
         ch.qos.logback.classic.Logger logger = stationWorkerLogger();
         ListAppender<ILoggingEvent> appender = attachLogAppender(logger);
 
@@ -179,13 +180,13 @@ class StationWorkerTest {
 
     @Test
     void stopRequestedBeforeCycleSkipsProcessingAndPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
+        when(stationRepository.findSupportedStations("US")).thenReturn(THREE_STATIONS);
         ReflectionTestUtils.setField(worker, "running", false);
 
         StationWorker.RunResult result = worker.runOnce(null);
 
         assertThat(result.processedStations()).isZero();
-        verify(processor, never()).process(any());
+        verify(processor, never()).process(any(), anyString());
         verify(postProcessing, never()).runAfterStationProcessing();
     }
 
@@ -194,6 +195,24 @@ class StationWorkerTest {
         worker.run(new DefaultApplicationArguments("--console"));
 
         verifyNoInteractions(stationRepository, processor, postProcessing);
+    }
+
+    @Test
+    void backgroundModeStartsUsAndCaWorkers() {
+        when(stationRepository.findSupportedStations(anyString())).thenReturn(List.of());
+        StationWorker backgroundWorker = new StationWorker(
+                stationRepository, processor, postProcessing, new CycleReportRecorder());
+        ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
+
+        backgroundWorker.run(new DefaultApplicationArguments());
+
+        @SuppressWarnings("unchecked")
+        List<Thread> threads = (List<Thread>) ReflectionTestUtils.getField(backgroundWorker, "workerThreads");
+        assertThat(threads)
+                .extracting(Thread::getName)
+                .containsExactly("weather-data-worker-open-us", "weather-data-worker-open-ca");
+
+        backgroundWorker.shutdown();
     }
 
     @Test
