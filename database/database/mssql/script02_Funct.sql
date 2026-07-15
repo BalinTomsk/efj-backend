@@ -4251,3 +4251,23 @@ GO
 -----------------------------------------------------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
+IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'fn_lake_water_stations' AND xtype = 'IF')
+    DROP function dbo.fn_lake_water_stations
+GO
+-- fn_lake_water_stations : monitoring stations attached to a water body, keyed by
+-- WaterStation.lakeId. One water body may carry several stations. Used to draw the 'X'
+-- station markers on the river-viewer map.
+-- Called by: FishTracker Resources/wfRiverViewer.aspx.cs (GetWaterStationPoints).
+--     SELECT * FROM dbo.fn_lake_water_stations('c21a89df-2892-e811-9104-00155d007b12');
+CREATE FUNCTION dbo.fn_lake_water_stations (@lake_id UNIQUEIDENTIFIER)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT sid, mli, lat, lon, locName
+    FROM dbo.vWaterStation
+    WHERE lakeId = @lake_id
+);
+GO
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
