@@ -29,6 +29,7 @@ class StationWorkerTest {
     private WeatherStationRepository stationRepository;
     private StationProcessorOpen processor;
     private StationProcessorWeatherGov weatherGovProcessor;
+    private StationProcessorVisualCrossing visualCrossingProcessor;
     private StationPostProcessingService postProcessing;
 
     private final List<Long> recordedSleeps = new ArrayList<>();
@@ -44,6 +45,7 @@ class StationWorkerTest {
         stationRepository = Mockito.mock(WeatherStationRepository.class);
         processor = Mockito.mock(StationProcessorOpen.class);
         weatherGovProcessor = Mockito.mock(StationProcessorWeatherGov.class);
+        visualCrossingProcessor = Mockito.mock(StationProcessorVisualCrossing.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
         worker = new RecordingWorker();
         ReflectionTestUtils.setField(worker, "maxFailureRate", 0.5);
@@ -196,15 +198,20 @@ class StationWorkerTest {
     void consoleModeDoesNotStartBackgroundWork() {
         worker.run(new DefaultApplicationArguments("--console"));
 
-        verifyNoInteractions(stationRepository, processor, weatherGovProcessor, postProcessing);
+        verifyNoInteractions(stationRepository, processor, weatherGovProcessor, visualCrossingProcessor, postProcessing);
     }
 
     @Test
-    void backgroundModeStartsWeatherGovUsAndOpenMeteoCaWorkers() {
+    void backgroundModeStartsWeatherGovUsOpenMeteoCaAndVisualCrossingUsWorkers() {
         when(stationRepository.findSupportedStations(anyString())).thenReturn(List.of());
         when(stationRepository.findSupportedUsStations()).thenReturn(List.of());
         StationWorker backgroundWorker = new StationWorker(
-                stationRepository, processor, weatherGovProcessor, postProcessing, new CycleReportRecorder());
+                stationRepository,
+                processor,
+                weatherGovProcessor,
+                visualCrossingProcessor,
+                postProcessing,
+                new CycleReportRecorder());
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
 
         backgroundWorker.run(new DefaultApplicationArguments());
@@ -213,7 +220,10 @@ class StationWorkerTest {
         List<Thread> threads = (List<Thread>) ReflectionTestUtils.getField(backgroundWorker, "workerThreads");
         assertThat(threads)
                 .extracting(Thread::getName)
-                .containsExactly("weather-data-worker-weather-gov-us", "weather-data-worker-open-ca");
+                .containsExactly(
+                        "weather-data-worker-weather-gov-us",
+                        "weather-data-worker-open-ca",
+                        "weather-data-worker-visual-crossing-us");
 
         backgroundWorker.shutdown();
     }
@@ -240,7 +250,12 @@ class StationWorkerTest {
         private long currentTimeMs;
 
         RecordingWorker() {
-            super(stationRepository, processor, weatherGovProcessor, postProcessing, new CycleReportRecorder());
+            super(stationRepository,
+                    processor,
+                    weatherGovProcessor,
+                    visualCrossingProcessor,
+                    postProcessing,
+                    new CycleReportRecorder());
         }
 
         @Override

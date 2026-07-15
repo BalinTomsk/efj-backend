@@ -62,6 +62,19 @@ resilience4j:
           - java.io.FileNotFoundException
           - com.fishfind.weather.service.RateLimitedException
           - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      visualCrossing:
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
 
   circuitbreaker:
     instances:
@@ -90,6 +103,16 @@ resilience4j:
           - java.io.IOException
         ignore-exceptions:
           - java.io.FileNotFoundException
+      visualCrossing:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
 
   ratelimiter:
     instances:
@@ -101,6 +124,10 @@ resilience4j:
         limit-for-period: 1
         limit-refresh-period: 1s
         timeout-duration: 10s
+      visualCrossing:
+        limit-for-period: 1
+        limit-refresh-period: 1s
+        timeout-duration: 10s
 
 weather:
   worker:
@@ -109,6 +136,8 @@ weather:
     open-meteo-base-url: https://api.open-meteo.com/v1/forecast
     weather-gov-base-url: https://api.weather.gov
     weather-gov-user-agent: ${WEATHER_GOV_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
+    visual-crossing-base-url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
+    visual-crossing-api-key: ${VISUAL_CROSSING_API_KEY:}
     rate-limit:
       max-retries: 2
       default-wait-ms: 5000
