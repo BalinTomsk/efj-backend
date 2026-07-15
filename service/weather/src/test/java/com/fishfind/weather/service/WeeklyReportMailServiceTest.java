@@ -85,9 +85,9 @@ class WeeklyReportMailServiceTest {
         assertThat(sent.getSubject()).contains("Weekly Report");
         assertThat(sent.getText())
                 .contains("2026-07-06")
-                .contains("worker=Weather.gov country=US")
+                .contains("worker=WEATHER.GOV country=US")
                 .contains("processed=5")
-                .contains("worker=Open-Meteo country=CA")
+                .contains("worker=OPEN-METEO country=CA")
                 .contains("failed=2")
                 .contains("lastFailedStation=MLI-4")
                 .contains("no crashes or unexpected restarts detected");

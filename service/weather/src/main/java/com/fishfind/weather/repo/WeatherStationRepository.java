@@ -15,7 +15,7 @@ public class WeatherStationRepository {
     private static final String FIND_SUPPORTED_STATIONS = """
             SELECT TOP (?) mli, lat, lon, state
             FROM dbo.vwWeatherForecastToDay
-            WHERE country = ? ORDER BY stamp DESC
+            WHERE country = ?
             """;
 
     private final JdbcTemplate jdbc;

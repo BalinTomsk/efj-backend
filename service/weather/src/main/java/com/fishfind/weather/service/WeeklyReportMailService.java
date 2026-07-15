@@ -2,6 +2,7 @@ package com.fishfind.weather.service;
 
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -85,7 +86,7 @@ public class WeeklyReportMailService {
 
         for (CycleReportEntry entry : entries) {
             body.append(entry.date().format(DATE_FORMAT)).append(": ")
-                    .append("worker=").append(display(entry.worker()))
+                    .append("worker=").append(displayWorker(entry.worker()))
                     .append(" country=").append(display(entry.country())).append(' ')
                     .append("processed=").append(entry.successfulStations())
                     .append(" failed=").append(entry.failedStations())
@@ -114,6 +115,10 @@ public class WeeklyReportMailService {
 
     private static String displayStation(String station) {
         return station == null || station.isBlank() ? "<none>" : station;
+    }
+
+    private static String displayWorker(String worker) {
+        return worker == null || worker.isBlank() ? "<unknown>" : worker.toUpperCase(Locale.ROOT);
     }
 
     private static String display(String value) {

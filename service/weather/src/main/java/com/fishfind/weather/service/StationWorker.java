@@ -27,11 +27,19 @@ public class StationWorker implements ApplicationRunner {
     private static final Duration TIME_BUDGET = Duration.ofHours(8);
     private static final long SHUTDOWN_JOIN_MS = 25_000L;
     private static final String DEFAULT_COUNTRY = "US";
-    private static final List<String> COUNTRIES = List.of("US", "CA");
+    private static final WorkerDefinition WEATHER_GOV_US = new WorkerDefinition(
+            "weather-gov", "Weather.gov", "US");
+    private static final WorkerDefinition OPEN_METEO_CA = new WorkerDefinition(
+            "open", "Open-Meteo", "CA");
+    private static final WorkerDefinition VISUAL_CROSSING_US = new WorkerDefinition(
+            "visual-crossing", "Visual Crossing", "US");
+    private static final List<WorkerDefinition> WORKERS = List.of(
+            WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US);
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
     private final StationProcessorWeatherGov stationProcessorWeatherGov;
+    private final StationProcessorVisualCrossing stationProcessorVisualCrossing;
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
 
@@ -44,11 +52,13 @@ public class StationWorker implements ApplicationRunner {
     public StationWorker(WeatherStationRepository stationRepository,
                          StationProcessorOpen stationProcessorOpen,
                          StationProcessorWeatherGov stationProcessorWeatherGov,
+                         StationProcessorVisualCrossing stationProcessorVisualCrossing,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
         this.stationProcessorWeatherGov = stationProcessorWeatherGov;
+        this.stationProcessorVisualCrossing = stationProcessorVisualCrossing;
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
     }
@@ -59,12 +69,13 @@ public class StationWorker implements ApplicationRunner {
             return;
         }
 
-        for (String country : COUNTRIES) {
-            Thread thread = new Thread(() -> loop(country), workerThreadName(country));
+        for (WorkerDefinition worker : WORKERS) {
+            Thread thread = new Thread(() -> loop(worker), workerThreadName(worker));
             thread.setDaemon(false);
             workerThreads.add(thread);
             thread.start();
-            log.info("Started background weather worker thread. country={} thread={}", country, thread.getName());
+            log.info("Started background weather worker thread. provider={} country={} thread={}",
+                    worker.reportName(), worker.country(), thread.getName());
         }
     }
 
@@ -98,21 +109,24 @@ public class StationWorker implements ApplicationRunner {
     }
 
     public RunResult runOnce(String country, String requestedMli) throws InterruptedException {
-        CountryPassSummary summary = runCycle(country, requestedMli);
+        CountryPassSummary summary = runCycle(workerForCountry(country), requestedMli);
         return new RunResult(summary.successfulStations(), summary.failedStations());
     }
 
-    private CountryPassSummary runCycle(String country, String requestedMli) throws InterruptedException {
+    private CountryPassSummary runCycle(WorkerDefinition worker, String requestedMli) throws InterruptedException {
+        String country = worker.country();
         List<StationRef> stations = "US".equalsIgnoreCase(country)
                 ? stationRepository.findSupportedUsStations()
                 : stationRepository.findSupportedStations(country);
-        log.info("Loaded supported stations. country={} count={} requestedStation={}",
+        log.info("Loaded supported stations. provider={} country={} count={} requestedStation={}",
+                worker.reportName(),
                 country,
                 stations.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
         long targetDelayMs = calculateDelayMs(stations.size());
-        log.info("Weather worker time budget. country={} budgetHours={} delayPerStationMs={}",
+        log.info("Weather worker time budget. provider={} country={} budgetHours={} delayPerStationMs={}",
+                worker.reportName(),
                 country,
                 TIME_BUDGET.toHours(),
                 targetDelayMs);
@@ -135,7 +149,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             long startedAt = currentTimeMillis();
-            switch (processorFor(country).process(station, country)) {
+            switch (processorFor(worker).process(station, country)) {
                 case PROCESSED -> {
                     processed++;
                     lastProcessedStation = station.mli();
@@ -149,13 +163,13 @@ public class StationWorker implements ApplicationRunner {
 
             long remainingDelayMs = targetDelayMs - (currentTimeMillis() - startedAt);
             CountryPassSummary progressSummary = new CountryPassSummary(
-                    country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
+                    worker.reportName(), country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
             nextSummaryLogAt = sleepUntilNextStationWithHourlySummaries(remainingDelayMs, nextSummaryLogAt,
                     progressSummary);
         }
 
         CountryPassSummary summary = new CountryPassSummary(
-                country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
+                worker.reportName(), country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
         logCountryPassSummary(summary);
 
         if (stoppedEarly) {
@@ -170,22 +184,24 @@ public class StationWorker implements ApplicationRunner {
 
     private void logCountryPassSummary(CountryPassSummary summary) {
         log.info("Country pass completed. country={} successfulStations={} failedStations={} "
-                        + "lastProcessedStation={} lastFailedStation={}",
+                        + "lastProcessedStation={} lastFailedStation={} provider={}",
                 summary.country(),
                 summary.successfulStations(),
                 summary.failedStations(),
                 logStation(summary.lastProcessedStation()),
-                logStation(summary.lastFailedStation()));
+                logStation(summary.lastFailedStation()),
+                summary.provider());
     }
 
     private void logCountryPassProgress(CountryPassSummary summary) {
         log.info("Country pass hourly progress. country={} successfulStations={} failedStations={} "
-                        + "lastProcessedStation={} lastFailedStation={}",
+                        + "lastProcessedStation={} lastFailedStation={} provider={}",
                 summary.country(),
                 summary.successfulStations(),
                 summary.failedStations(),
                 logStation(summary.lastProcessedStation()),
-                logStation(summary.lastFailedStation()));
+                logStation(summary.lastFailedStation()),
+                summary.provider());
     }
 
     private long sleepUntilNextStationWithHourlySummaries(long remainingDelayMs,
@@ -242,24 +258,25 @@ public class StationWorker implements ApplicationRunner {
         postProcessingService.runAfterStationProcessing();
     }
 
-    private void loop(String country) {
+    private void loop(WorkerDefinition worker) {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
-                CountryPassSummary summary = runCycle(country, null);
+                CountryPassSummary summary = runCycle(worker, null);
                 cycleReportRecorder.record(new CycleReportEntry(
                         LocalDate.now(),
-                        workerName(country),
-                        country,
+                        worker.reportName(),
+                        worker.country(),
                         summary.successfulStations(),
                         summary.failedStations(),
                         summary.lastProcessedStation(),
                         summary.lastFailedStation()));
                 long sleepMs = millisUntilNextMidnight();
                 ZonedDateTime nextRunAt = ZonedDateTime.now().plus(Duration.ofMillis(sleepMs));
-                log.info("Worker cycle completed. country={} successfulStations={} failedStations={} "
+                log.info("Worker cycle completed. provider={} country={} successfulStations={} failedStations={} "
                                 + "lastProcessedStation={} lastFailedStation={} "
                                 + "nextRunAt={} sleepMs={}",
-                        country,
+                        worker.reportName(),
+                        worker.country(),
                         summary.successfulStations(),
                         summary.failedStations(),
                         logStation(summary.lastProcessedStation()),
@@ -277,7 +294,8 @@ public class StationWorker implements ApplicationRunner {
                 log.info("Weather worker interrupted. thread={}", Thread.currentThread().getName());
                 return;
             } catch (Exception ex) {
-                log.error("Weather worker loop failed. country={}", country, ex);
+                log.error("Weather worker loop failed. provider={} country={}",
+                        worker.reportName(), worker.country(), ex);
             }
         }
         log.info("Weather worker loop exited. thread={}", Thread.currentThread().getName());
@@ -309,25 +327,32 @@ public class StationWorker implements ApplicationRunner {
         return Math.max(0L, Duration.between(now, nextMidnight).toMillis());
     }
 
-    private StationProcessorBase processorFor(String country) {
-        return "US".equalsIgnoreCase(country) ? stationProcessorWeatherGov : stationProcessorOpen;
+    private WorkerDefinition workerForCountry(String country) {
+        return "US".equalsIgnoreCase(country) ? WEATHER_GOV_US : OPEN_METEO_CA;
     }
 
-    private String workerThreadName(String country) {
-        String provider = "US".equalsIgnoreCase(country) ? "weather-gov" : "open";
-        return "weather-data-worker-" + provider + "-" + country.toLowerCase();
+    private StationProcessorBase processorFor(WorkerDefinition worker) {
+        return switch (worker.provider()) {
+            case "weather-gov" -> stationProcessorWeatherGov;
+            case "visual-crossing" -> stationProcessorVisualCrossing;
+            default -> stationProcessorOpen;
+        };
     }
 
-    private String workerName(String country) {
-        return "US".equalsIgnoreCase(country) ? "Weather.gov" : "Open-Meteo";
+    private String workerThreadName(WorkerDefinition worker) {
+        return "weather-data-worker-" + worker.provider() + "-" + worker.country().toLowerCase();
     }
 
     private record CountryPassSummary(
+            String provider,
             String country,
             int successfulStations,
             int skippedStations,
             int failedStations,
             String lastProcessedStation,
             String lastFailedStation) {
+    }
+
+    private record WorkerDefinition(String provider, String reportName, String country) {
     }
 }

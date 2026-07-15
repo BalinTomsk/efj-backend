@@ -424,7 +424,6 @@ STATION QUERY (WeatherStationRepository)
   SELECT TOP (?) mli, lat, lon, state
   FROM dbo.vwWeatherForecastToDay
   WHERE country = ?
-  ORDER BY stamp DESC
 
 StationWorker starts one pass loop for US and one for CA. US calls findSupportedUsStations()
 with a 900-station limit for Weather.gov. Other countries call findSupportedStations(country)

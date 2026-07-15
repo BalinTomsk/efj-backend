@@ -351,7 +351,6 @@ logging:
 SELECT TOP 1400 mli, lat, lon, state
 FROM dbo.vwWeatherForecastToDay
 WHERE country = ?
-ORDER BY stamp DESC
 ```
 
 `StationWorker` starts one pass loop for `US` and one for `CA`; the repository binds the
