@@ -282,6 +282,25 @@ BEGIN TRY
     ELSE
         PRINT 'TEST 12 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: firstOk=' + CAST(@FirstOk12 AS varchar) + ' isNew=' + ISNULL(CAST(@IsNew12 AS varchar),'NULL') + ' sameId=' + CASE WHEN @SecondId12=@FirstId12 THEN '1' ELSE '0' END;
 
+    -- ----------------------------------------------------------------
+    -- TEST 13: Facebook provider is accepted (CH_UEL_provider) and creates a user + link
+    -- ----------------------------------------------------------------
+    SET @tStart = SYSUTCDATETIME();
+    DECLARE @Sub13 nvarchar(256) = N'UT_FB_0013';
+    DECLARE @Email13 nvarchar(255) = N'ut_facebook@example.com';
+    DECLARE @Uid13 uniqueidentifier, @Un13 nvarchar(256), @New13 bit;
+    DELETE l FROM dbo.UserExternalLogin l WHERE l.providerUserId = @Sub13;
+    DELETE FROM dbo.Users WHERE email = @Email13;
+    EXEC dbo.spOAuthLoginOrCreateUser
+          @provider=N'Facebook', @providerUserId=@Sub13, @email=@Email13, @givenName=N'Fred', @familyName=N'Booker',
+          @userId=@Uid13 OUTPUT, @userName=@Un13 OUTPUT, @isNewUser=@New13 OUTPUT;
+    SET @ElapsedMs = DATEDIFF(millisecond, @tStart, SYSUTCDATETIME());
+    IF @New13 = 1 AND @Un13 = N'Fred Booker'
+       AND EXISTS (SELECT 1 FROM dbo.UserExternalLogin WHERE userId = @Uid13 AND provider = N'Facebook' AND providerUserId = @Sub13)
+        PRINT 'TEST 13 PASS [' + CAST(@ElapsedMs AS varchar) + 'ms]: Facebook provider accepted, user + link created';
+    ELSE
+        PRINT 'TEST 13 FAIL [' + CAST(@ElapsedMs AS varchar) + 'ms]: isNew=' + ISNULL(CAST(@New13 AS varchar),'NULL') + ' userName=' + ISNULL(@Un13,'NULL');
+
     ROLLBACK TRANSACTION;
 
 END TRY
