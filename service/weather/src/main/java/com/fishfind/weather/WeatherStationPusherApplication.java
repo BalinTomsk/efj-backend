@@ -56,7 +56,9 @@ public class WeatherStationPusherApplication {
         addIfMissing(dotenv, fallback, "REPORT_EMAIL_TO");
         addIfMissing(dotenv, fallback, "REPORT_EMAIL_FROM");
         addIfMissing(dotenv, fallback, "WEATHER_GOV_USER_AGENT");
+        addIfMissing(dotenv, fallback, "WEATHER_CANADA_USER_AGENT");
         addIfMissing(dotenv, fallback, "VISUAL_CROSSING_API_KEY");
+        addIfMissing(dotenv, fallback, "GOOGLE_WEATHER_API_KEY");
         return fallback;
     }
 
