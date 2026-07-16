@@ -33,13 +33,19 @@ public class StationWorker implements ApplicationRunner {
             "open", "Open-Meteo", "CA");
     private static final WorkerDefinition VISUAL_CROSSING_US = new WorkerDefinition(
             "visual-crossing", "Visual Crossing", "US");
+    private static final WorkerDefinition GOOGLE_WEATHER_US = new WorkerDefinition(
+            "google-weather", "Google Weather", "US");
+    private static final WorkerDefinition WEATHER_CANADA_CA = new WorkerDefinition(
+            "weather-canada", "Weather Canada", "CA");
     private static final List<WorkerDefinition> WORKERS = List.of(
-            WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US);
+            WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US, GOOGLE_WEATHER_US, WEATHER_CANADA_CA);
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
     private final StationProcessorWeatherGov stationProcessorWeatherGov;
     private final StationProcessorVisualCrossing stationProcessorVisualCrossing;
+    private final StationProcessorGoogleWeather stationProcessorGoogleWeather;
+    private final StationProcessorWeatherCanada stationProcessorWeatherCanada;
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
     private final WeatherApiUsageTracker usageTracker;
@@ -56,6 +62,12 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.daily-limit.visual-crossing:1000}")
     private int visualCrossingDailyLimit;
 
+    @Value("${weather.worker.daily-limit.google-weather:161}")
+    private int googleWeatherDailyLimit;
+
+    @Value("${weather.worker.daily-limit.weather-canada:900}")
+    private int weatherCanadaDailyLimit;
+
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
 
@@ -63,6 +75,8 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorOpen stationProcessorOpen,
                          StationProcessorWeatherGov stationProcessorWeatherGov,
                          StationProcessorVisualCrossing stationProcessorVisualCrossing,
+                         StationProcessorGoogleWeather stationProcessorGoogleWeather,
+                         StationProcessorWeatherCanada stationProcessorWeatherCanada,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder,
                          WeatherApiUsageTracker usageTracker) {
@@ -70,6 +84,8 @@ public class StationWorker implements ApplicationRunner {
         this.stationProcessorOpen = stationProcessorOpen;
         this.stationProcessorWeatherGov = stationProcessorWeatherGov;
         this.stationProcessorVisualCrossing = stationProcessorVisualCrossing;
+        this.stationProcessorGoogleWeather = stationProcessorGoogleWeather;
+        this.stationProcessorWeatherCanada = stationProcessorWeatherCanada;
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
         this.usageTracker = usageTracker;
@@ -370,6 +386,8 @@ public class StationWorker implements ApplicationRunner {
         return switch (worker.provider()) {
             case "weather-gov" -> stationProcessorWeatherGov;
             case "visual-crossing" -> stationProcessorVisualCrossing;
+            case "google-weather" -> stationProcessorGoogleWeather;
+            case "weather-canada" -> stationProcessorWeatherCanada;
             default -> stationProcessorOpen;
         };
     }
@@ -378,6 +396,8 @@ public class StationWorker implements ApplicationRunner {
         return switch (worker.provider()) {
             case "weather-gov" -> weatherGovDailyLimit;
             case "visual-crossing" -> visualCrossingDailyLimit;
+            case "google-weather" -> googleWeatherDailyLimit;
+            case "weather-canada" -> weatherCanadaDailyLimit;
             default -> openMeteoDailyLimit;
         };
     }

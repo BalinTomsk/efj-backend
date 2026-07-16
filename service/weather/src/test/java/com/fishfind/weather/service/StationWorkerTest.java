@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -33,6 +34,8 @@ class StationWorkerTest {
     private StationProcessorOpen processor;
     private StationProcessorWeatherGov weatherGovProcessor;
     private StationProcessorVisualCrossing visualCrossingProcessor;
+    private StationProcessorGoogleWeather googleWeatherProcessor;
+    private StationProcessorWeatherCanada weatherCanadaProcessor;
     private StationPostProcessingService postProcessing;
     private WeatherApiUsageTracker usageTracker;
 
@@ -50,6 +53,8 @@ class StationWorkerTest {
         processor = Mockito.mock(StationProcessorOpen.class);
         weatherGovProcessor = Mockito.mock(StationProcessorWeatherGov.class);
         visualCrossingProcessor = Mockito.mock(StationProcessorVisualCrossing.class);
+        googleWeatherProcessor = Mockito.mock(StationProcessorGoogleWeather.class);
+        weatherCanadaProcessor = Mockito.mock(StationProcessorWeatherCanada.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
         usageTracker = Mockito.mock(WeatherApiUsageTracker.class);
         when(stationRepository.countSupportedStations(anyString())).thenReturn(THREE_STATIONS.size());
@@ -67,6 +72,8 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(worker, "weatherGovDailyLimit", 900);
         ReflectionTestUtils.setField(worker, "openMeteoDailyLimit", 10000);
         ReflectionTestUtils.setField(worker, "visualCrossingDailyLimit", 1000);
+        ReflectionTestUtils.setField(worker, "googleWeatherDailyLimit", 161);
+        ReflectionTestUtils.setField(worker, "weatherCanadaDailyLimit", 900);
     }
 
     @Test
@@ -238,17 +245,20 @@ class StationWorkerTest {
     void consoleModeDoesNotStartBackgroundWork() {
         worker.run(new DefaultApplicationArguments("--console"));
 
-        verifyNoInteractions(processor, weatherGovProcessor, visualCrossingProcessor, postProcessing);
+        verifyNoInteractions(processor, weatherGovProcessor, visualCrossingProcessor, googleWeatherProcessor,
+                weatherCanadaProcessor, postProcessing);
     }
 
     @Test
-    void backgroundModeStartsWeatherGovUsOpenMeteoCaAndVisualCrossingUsWorkers() {
+    void backgroundModeStartsWeatherGovUsOpenMeteoCaVisualCrossingUsGoogleWeatherUsAndWeatherCanadaCaWorkers() {
         when(stationRepository.countSupportedStations(anyString())).thenReturn(0);
         StationWorker backgroundWorker = new StationWorker(
                 stationRepository,
                 processor,
                 weatherGovProcessor,
                 visualCrossingProcessor,
+                googleWeatherProcessor,
+                weatherCanadaProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
                 usageTracker);
@@ -256,6 +266,8 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
         ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
         ReflectionTestUtils.setField(backgroundWorker, "visualCrossingDailyLimit", 1000);
+        ReflectionTestUtils.setField(backgroundWorker, "googleWeatherDailyLimit", 161);
+        ReflectionTestUtils.setField(backgroundWorker, "weatherCanadaDailyLimit", 900);
 
         backgroundWorker.run(new DefaultApplicationArguments());
 
@@ -266,7 +278,12 @@ class StationWorkerTest {
                 .containsExactly(
                         "weather-data-worker-weather-gov-us",
                         "weather-data-worker-open-ca",
-                        "weather-data-worker-visual-crossing-us");
+                        "weather-data-worker-visual-crossing-us",
+                        "weather-data-worker-google-weather-us",
+                        "weather-data-worker-weather-canada-ca");
+
+        verify(usageTracker, timeout(2000)).reserve(eq("google-weather"), any(LocalDate.class), eq(0), eq(161));
+        verify(usageTracker, timeout(2000)).reserve(eq("weather-canada"), any(LocalDate.class), eq(0), eq(900));
 
         backgroundWorker.shutdown();
     }
@@ -297,6 +314,8 @@ class StationWorkerTest {
                     processor,
                     weatherGovProcessor,
                     visualCrossingProcessor,
+                    googleWeatherProcessor,
+                    weatherCanadaProcessor,
                     postProcessing,
                     new CycleReportRecorder(),
                     usageTracker);

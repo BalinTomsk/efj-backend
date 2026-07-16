@@ -75,6 +75,32 @@ resilience4j:
           - java.io.FileNotFoundException
           - com.fishfind.weather.service.RateLimitedException
           - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      googleWeather:
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      weatherCanada:
+        max-attempts: 4
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+          - com.fishfind.weather.service.RateLimitedException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
 
   circuitbreaker:
     instances:
@@ -113,6 +139,26 @@ resilience4j:
           - java.io.IOException
         ignore-exceptions:
           - java.io.FileNotFoundException
+      googleWeather:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
+      weatherCanada:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - java.io.IOException
+        ignore-exceptions:
+          - java.io.FileNotFoundException
 
   ratelimiter:
     instances:
@@ -128,6 +174,14 @@ resilience4j:
         limit-for-period: 1
         limit-refresh-period: 1s
         timeout-duration: 10s
+      googleWeather:
+        limit-for-period: 1
+        limit-refresh-period: 1s
+        timeout-duration: 10s
+      weatherCanada:
+        limit-for-period: 1
+        limit-refresh-period: 5s
+        timeout-duration: 10s
 
 weather:
   worker:
@@ -136,8 +190,13 @@ weather:
     open-meteo-base-url: https://api.open-meteo.com/v1/forecast
     weather-gov-base-url: https://api.weather.gov
     weather-gov-user-agent: ${WEATHER_GOV_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
+    weather-canada-base-url: https://api.weather.gc.ca
+    weather-canada-user-agent: ${WEATHER_CANADA_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
+    weather-canada-bbox-radius-degrees: ${WEATHER_CANADA_BBOX_RADIUS_DEGREES:0.05}
     visual-crossing-base-url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
     visual-crossing-api-key: ${VISUAL_CROSSING_API_KEY:}
+    google-weather-base-url: https://weather.googleapis.com/v1/currentConditions:lookup
+    google-weather-api-key: ${GOOGLE_WEATHER_API_KEY:}
     rate-limit:
       max-retries: 2
       default-wait-ms: 5000
@@ -146,6 +205,8 @@ weather:
       weather-gov: ${WEATHER_GOV_DAILY_LIMIT:900}
       open-meteo: ${OPEN_METEO_DAILY_LIMIT:1400}
       visual-crossing: ${VISUAL_CROSSING_DAILY_LIMIT:900}
+      google-weather: ${GOOGLE_WEATHER_DAILY_LIMIT:161}
+      weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:900}
     post-processing:
       max-failure-rate: 0.5
   report:
