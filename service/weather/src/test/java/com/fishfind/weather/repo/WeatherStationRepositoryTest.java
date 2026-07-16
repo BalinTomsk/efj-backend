@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fishfind.weather.domain.StationRef;
@@ -76,5 +77,19 @@ class WeatherStationRepositoryTest {
         StationRef mapped = mapper.getValue().mapRow(rs, 0);
 
         assertThat(mapped).isEqualTo(new StationRef("MLI-9", 47.5, -122.3, "WA"));
+    }
+
+    @Test
+    void countsSupportedStationsByCountry() {
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), eq("US"))).thenReturn(123);
+
+        assertThat(repository.countSupportedStations("US")).isEqualTo(123);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForObject(sql.capture(), eq(Integer.class), eq("US"));
+        assertThat(sql.getValue())
+                .contains("COUNT(1)")
+                .contains("dbo.vwWeatherForecastToDay")
+                .contains("country = ?");
     }
 }

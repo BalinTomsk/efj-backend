@@ -142,6 +142,10 @@ weather:
       max-retries: 2
       default-wait-ms: 5000
       max-wait-ms: 60000
+    daily-limit:
+      weather-gov: ${WEATHER_GOV_DAILY_LIMIT:900}
+      open-meteo: ${OPEN_METEO_DAILY_LIMIT:1400}
+      visual-crossing: ${VISUAL_CROSSING_DAILY_LIMIT:900}
     post-processing:
       max-failure-rate: 0.5
   report:
