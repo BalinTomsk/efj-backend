@@ -17,6 +17,11 @@ public class WeatherStationRepository {
             FROM dbo.vwWeatherForecastToDay
             WHERE country = ?
             """;
+    private static final String COUNT_SUPPORTED_STATIONS = """
+            SELECT COUNT(1)
+            FROM dbo.vwWeatherForecastToDay
+            WHERE country = ?
+            """;
 
     private final JdbcTemplate jdbc;
 
@@ -47,5 +52,10 @@ public class WeatherStationRepository {
                 limit,
                 country
         );
+    }
+
+    public int countSupportedStations(String country) {
+        Integer count = jdbc.queryForObject(COUNT_SUPPORTED_STATIONS, Integer.class, country);
+        return count == null ? 0 : count;
     }
 }

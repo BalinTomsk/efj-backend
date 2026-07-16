@@ -42,9 +42,19 @@ public class StationWorker implements ApplicationRunner {
     private final StationProcessorVisualCrossing stationProcessorVisualCrossing;
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
+    private final WeatherApiUsageTracker usageTracker;
 
     @Value("${weather.worker.post-processing.max-failure-rate:0.5}")
     private double maxFailureRate;
+
+    @Value("${weather.worker.daily-limit.weather-gov:900}")
+    private int weatherGovDailyLimit;
+
+    @Value("${weather.worker.daily-limit.open-meteo:10000}")
+    private int openMeteoDailyLimit;
+
+    @Value("${weather.worker.daily-limit.visual-crossing:1000}")
+    private int visualCrossingDailyLimit;
 
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
@@ -54,13 +64,15 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorWeatherGov stationProcessorWeatherGov,
                          StationProcessorVisualCrossing stationProcessorVisualCrossing,
                          StationPostProcessingService postProcessingService,
-                         CycleReportRecorder cycleReportRecorder) {
+                         CycleReportRecorder cycleReportRecorder,
+                         WeatherApiUsageTracker usageTracker) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
         this.stationProcessorWeatherGov = stationProcessorWeatherGov;
         this.stationProcessorVisualCrossing = stationProcessorVisualCrossing;
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
+        this.usageTracker = usageTracker;
     }
 
     @Override
@@ -115,9 +127,32 @@ public class StationWorker implements ApplicationRunner {
 
     private CountryPassSummary runCycle(WorkerDefinition worker, String requestedMli) throws InterruptedException {
         String country = worker.country();
-        List<StationRef> stations = "US".equalsIgnoreCase(country)
-                ? stationRepository.findSupportedUsStations()
-                : stationRepository.findSupportedStations(country);
+        int totalSupportedStations = stationRepository.countSupportedStations(country);
+        int dailyLimit = dailyLimitFor(worker);
+        int requestedStations = requestedMli == null || requestedMli.isBlank()
+                ? Math.min(totalSupportedStations, dailyLimit)
+                : Math.min(1, totalSupportedStations);
+        WeatherApiUsageTracker.UsageReservation reservation = usageTracker.reserve(
+                worker.provider(), LocalDate.now(), requestedStations, dailyLimit);
+        int stationLimit = requestedMli == null || requestedMli.isBlank()
+                ? reservation.reserved()
+                : (reservation.reserved() > 0 ? Math.min(totalSupportedStations, dailyLimit) : 0);
+
+        log.info("Weather API daily budget. provider={} country={} totalSupportedStations={} "
+                        + "dailyLimit={} alreadyReservedToday={} requestedForCycle={} reservedForCycle={} "
+                        + "persisted={}",
+                worker.reportName(),
+                country,
+                totalSupportedStations,
+                reservation.dailyLimit(),
+                reservation.usedBefore(),
+                reservation.requested(),
+                reservation.reserved(),
+                reservation.persisted());
+
+        List<StationRef> stations = stationLimit > 0
+                ? stationRepository.findSupportedStations(country, stationLimit)
+                : List.of();
         log.info("Loaded supported stations. provider={} country={} count={} requestedStation={}",
                 worker.reportName(),
                 country,
@@ -336,6 +371,14 @@ public class StationWorker implements ApplicationRunner {
             case "weather-gov" -> stationProcessorWeatherGov;
             case "visual-crossing" -> stationProcessorVisualCrossing;
             default -> stationProcessorOpen;
+        };
+    }
+
+    private int dailyLimitFor(WorkerDefinition worker) {
+        return switch (worker.provider()) {
+            case "weather-gov" -> weatherGovDailyLimit;
+            case "visual-crossing" -> visualCrossingDailyLimit;
+            default -> openMeteoDailyLimit;
         };
     }
 

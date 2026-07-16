@@ -2,7 +2,9 @@ package com.fishfind.weather.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -12,6 +14,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherStationRepository;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +34,7 @@ class StationWorkerTest {
     private StationProcessorWeatherGov weatherGovProcessor;
     private StationProcessorVisualCrossing visualCrossingProcessor;
     private StationPostProcessingService postProcessing;
+    private WeatherApiUsageTracker usageTracker;
 
     private final List<Long> recordedSleeps = new ArrayList<>();
     private RecordingWorker worker;
@@ -47,8 +51,22 @@ class StationWorkerTest {
         weatherGovProcessor = Mockito.mock(StationProcessorWeatherGov.class);
         visualCrossingProcessor = Mockito.mock(StationProcessorVisualCrossing.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
+        usageTracker = Mockito.mock(WeatherApiUsageTracker.class);
+        when(stationRepository.countSupportedStations(anyString())).thenReturn(THREE_STATIONS.size());
+        when(stationRepository.findSupportedStations(anyString(), anyInt())).thenAnswer(invocation -> {
+            int limit = invocation.getArgument(1);
+            return THREE_STATIONS.subList(0, Math.min(limit, THREE_STATIONS.size()));
+        });
+        when(usageTracker.reserve(anyString(), any(LocalDate.class), anyInt(), anyInt())).thenAnswer(invocation -> {
+            int requested = invocation.getArgument(2);
+            int dailyLimit = invocation.getArgument(3);
+            return new WeatherApiUsageTracker.UsageReservation(0, dailyLimit, requested, requested, true);
+        });
         worker = new RecordingWorker();
         ReflectionTestUtils.setField(worker, "maxFailureRate", 0.5);
+        ReflectionTestUtils.setField(worker, "weatherGovDailyLimit", 900);
+        ReflectionTestUtils.setField(worker, "openMeteoDailyLimit", 10000);
+        ReflectionTestUtils.setField(worker, "visualCrossingDailyLimit", 1000);
     }
 
     @Test
@@ -67,7 +85,6 @@ class StationWorkerTest {
 
     @Test
     void runOnceProcessesAllStationsThenPostProcesses() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
 
         StationWorker.RunResult result = worker.runOnce(null);
@@ -85,7 +102,6 @@ class StationWorkerTest {
 
     @Test
     void runOnceFiltersToRequestedStation() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
 
         StationWorker.RunResult result = worker.runOnce("MLI-2");
@@ -99,7 +115,6 @@ class StationWorkerTest {
 
     @Test
     void skippedStationsDoNotBlockPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.SKIPPED);
 
         StationWorker.RunResult result = worker.runOnce(null);
@@ -110,7 +125,6 @@ class StationWorkerTest {
 
     @Test
     void degradedCycleSkipsPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.FAILED);
 
         StationWorker.RunResult result = worker.runOnce(null);
@@ -121,8 +135,36 @@ class StationWorkerTest {
     }
 
     @Test
+    void dailyReservationCapsStationsLoadedAndProcessed() throws Exception {
+        when(usageTracker.reserve(eq("weather-gov"), any(LocalDate.class), anyInt(), anyInt()))
+                .thenReturn(new WeatherApiUsageTracker.UsageReservation(898, 900, 2, 3, true));
+        when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
+
+        StationWorker.RunResult result = worker.runOnce(null);
+
+        assertThat(result.processedStations()).isEqualTo(2);
+        verify(stationRepository).findSupportedStations("US", 2);
+        verify(weatherGovProcessor).process(THREE_STATIONS.get(0), "US");
+        verify(weatherGovProcessor).process(THREE_STATIONS.get(1), "US");
+        verify(weatherGovProcessor, never()).process(THREE_STATIONS.get(2), "US");
+    }
+
+    @Test
+    void exhaustedDailyReservationSkipsProviderWithoutApiCalls() throws Exception {
+        when(usageTracker.reserve(eq("weather-gov"), any(LocalDate.class), anyInt(), anyInt()))
+                .thenReturn(new WeatherApiUsageTracker.UsageReservation(900, 900, 0, 3, true));
+
+        StationWorker.RunResult result = worker.runOnce(null);
+
+        assertThat(result.processedStations()).isZero();
+        assertThat(result.failedStations()).isZero();
+        verify(stationRepository, never()).findSupportedStations(anyString(), anyInt());
+        verify(weatherGovProcessor, never()).process(any(), anyString());
+        verify(postProcessing).runAfterStationProcessing();
+    }
+
+    @Test
     void runOnceLogsCountryPassAndFullCycleStationSummaries() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(THREE_STATIONS.get(0), "US")).thenReturn(ProcessingOutcome.PROCESSED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(1), "US")).thenReturn(ProcessingOutcome.FAILED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(2), "US")).thenReturn(ProcessingOutcome.PROCESSED);
@@ -150,7 +192,6 @@ class StationWorkerTest {
 
     @Test
     void runOnceLogsHourlyProgressBeforeFinalCycleSummary() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         when(weatherGovProcessor.process(THREE_STATIONS.get(0), "US")).thenReturn(ProcessingOutcome.PROCESSED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(1), "US")).thenReturn(ProcessingOutcome.FAILED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(2), "US")).thenReturn(ProcessingOutcome.PROCESSED);
@@ -184,7 +225,6 @@ class StationWorkerTest {
 
     @Test
     void stopRequestedBeforeCycleSkipsProcessingAndPostProcessing() throws Exception {
-        when(stationRepository.findSupportedUsStations()).thenReturn(THREE_STATIONS);
         ReflectionTestUtils.setField(worker, "running", false);
 
         StationWorker.RunResult result = worker.runOnce(null);
@@ -198,21 +238,24 @@ class StationWorkerTest {
     void consoleModeDoesNotStartBackgroundWork() {
         worker.run(new DefaultApplicationArguments("--console"));
 
-        verifyNoInteractions(stationRepository, processor, weatherGovProcessor, visualCrossingProcessor, postProcessing);
+        verifyNoInteractions(processor, weatherGovProcessor, visualCrossingProcessor, postProcessing);
     }
 
     @Test
     void backgroundModeStartsWeatherGovUsOpenMeteoCaAndVisualCrossingUsWorkers() {
-        when(stationRepository.findSupportedStations(anyString())).thenReturn(List.of());
-        when(stationRepository.findSupportedUsStations()).thenReturn(List.of());
+        when(stationRepository.countSupportedStations(anyString())).thenReturn(0);
         StationWorker backgroundWorker = new StationWorker(
                 stationRepository,
                 processor,
                 weatherGovProcessor,
                 visualCrossingProcessor,
                 postProcessing,
-                new CycleReportRecorder());
+                new CycleReportRecorder(),
+                usageTracker);
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
+        ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
+        ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
+        ReflectionTestUtils.setField(backgroundWorker, "visualCrossingDailyLimit", 1000);
 
         backgroundWorker.run(new DefaultApplicationArguments());
 
@@ -255,7 +298,8 @@ class StationWorkerTest {
                     weatherGovProcessor,
                     visualCrossingProcessor,
                     postProcessing,
-                    new CycleReportRecorder());
+                    new CycleReportRecorder(),
+                    usageTracker);
         }
 
         @Override
