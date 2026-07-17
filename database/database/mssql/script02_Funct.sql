@@ -2553,12 +2553,12 @@ GO
 -- get fish for station science view related or any first
 --     SELECT * FROM dbo.fn_EditLakeFish('fcdf62d3-f1b3-4715-bfca-78dcf0e3a4c5');
 CREATE function dbo.fn_EditLakeFish(@lake uniqueidentifier)
-RETURNS @TBL TABLE ( sid int not null primary key, fish_name sysname, fish_id uniqueidentifier, link nvarchar(2048), source_type int )
+RETURNS @TBL TABLE ( sid int not null primary key, fish_name sysname, fish_id uniqueidentifier, link nvarchar(2048), source_type int, status tinyint )
 WITH SCHEMABINDING
 AS
 BEGIN
     INSERT INTO @tbl
-    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type
+    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type, t.status
         FROM dbo.lake_fish  t
         JOIN dbo.Lake l ON l.lake_id = t.Lake_id 
             JOIN dbo.fish v ON v.fish_id = t.fish_id
@@ -2606,16 +2606,17 @@ RETURNS XML
 WITH SCHEMABINDING
 AS
 BEGIN
-    DECLARE @TBL TABLE ( 
+    DECLARE @TBL TABLE (
       sid int not null primary key
     , fish_name sysname
     , fish_id uniqueidentifier
     , link nvarchar(2048)
     , source_type int
-    , type int, last_catch date );
+    , type int, last_catch date
+    , status tinyint );
 
     INSERT INTO @tbl
-    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type, null, CAST(t.last_catch AS DATE)
+    SELECT t.sid, fish_name, t.fish_id, t.link, probability_source_type, null, CAST(t.last_catch AS DATE), t.status
         FROM dbo.lake_fish  t
         JOIN dbo.Lake l ON l.lake_id = t.Lake_id 
             JOIN dbo.fish v ON v.fish_id = t.fish_id
@@ -2641,7 +2642,7 @@ BEGIN
 
     DECLARE @result XML =
     (SELECT noFish, is_fishing_prohibited, isFish, fishing, lake_name, Lake_id, Reviewed, 
-        (SELECT sid, fish_name, fish_id, link, source_type, type, last_catch FROM @TBL [fish] ORDER BY fish_name ASC FOR XML AUTO, TYPE)
+        (SELECT sid, fish_name, fish_id, link, source_type, type, last_catch, status FROM @TBL [fish] ORDER BY fish_name ASC FOR XML AUTO, TYPE)
         FROM dbo.lake WHERE lake_id = @lake FOR XML AUTO); 
 
     RETURN @result;        
@@ -3788,10 +3789,12 @@ RETURN
                  AND ( CASE WHEN m.catch_memo_weight_unit = 'lb' THEN m.catch_memo_weight * 0.45359237 ELSE m.catch_memo_weight END )
                      = pb.best_weight_kg
             THEN 1 ELSE 0
-        END AS BIT) AS catch_memo_is_pb
+        END AS BIT) AS catch_memo_is_pb,
+        COALESCE(lf.status, 0) AS catch_memo_fish_status
     FROM dbo.catch_memo m
     LEFT JOIN dbo.fish  f ON f.fish_id = m.catch_memo_fish_id
     LEFT JOIN dbo.Users u ON u.id      = m.catch_memo_userid
+    LEFT JOIN dbo.lake_fish lf ON lf.lake_Id = m.catch_memo_lake_id AND lf.fish_Id = m.catch_memo_fish_id
     OUTER APPLY (
         SELECT MAX(CASE WHEN m2.catch_memo_weight_unit = 'lb' THEN m2.catch_memo_weight * 0.45359237 ELSE m2.catch_memo_weight END) AS best_weight_kg
         FROM dbo.catch_memo m2
