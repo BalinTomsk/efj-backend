@@ -47,7 +47,7 @@ and [Structure unit tests](#structure-unit-tests) for how, and `mssql\UNIT_TESTS
 6. `script08_Data.sql`        — seed/reference data
 7. `script09_fish_data.sql`   — fish seed data
 8. `script10_Data_limit.sql`  — rate-limit / misc data
-9. `script20_Migration.sql`   — migrations applied after the base schema
+9. `script20_Migration.sql`   — used for data syncronization between database nodes
 
 Because concatenation is **append-only and ordered**, put each object in the right file
 and respect dependencies (a proc that uses a new table must come after that table — i.e.

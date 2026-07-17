@@ -2252,7 +2252,7 @@ Constraints:
     Enforces relation to WaterStation.mli
 
 Trigger:
-- TR_ows_meteo (AFTER UPDATE):
+-    (AFTER UPDATE):
     Invokes sp_ows_meteo stored procedure on update,
     passing updated JSON payload and station identifiers.
     Used for parsing, validation, or propagation of weather data.
@@ -2274,6 +2274,11 @@ CREATE TABLE ows_meteo
     , type                int                       -- 1 - WG, 2-- Open
 	, ows                 nvarchar(max)				-- JSON doc with weater
     , stamp               datetime
+    , backoffstate        int NOT NULL              -- 0 normal, 1 daily, 2 weekly, 3 monthly HTTP 503 backoff
+    , backoff_daily_503_count  int NOT NULL
+    , backoff_weekly_503_count int NOT NULL
+    , backoff_last_503_date    date NULL
+    , backoff_next_date        date NULL
 )
 GO
 
@@ -2284,6 +2289,21 @@ ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_stamp DEFAULT (getdate
 GO
 
 ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_type DEFAULT (1) FOR type
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_backoffstate DEFAULT (0) FOR backoffstate
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_backoff_daily DEFAULT (0) FOR backoff_daily_503_count
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD constraint DF_ows_meteo_backoff_weekly DEFAULT (0) FOR backoff_weekly_503_count
+GO
+
+ALTER TABLE [dbo].[ows_meteo] ADD constraint CH_ows_meteo_backoffstate CHECK (backoffstate IN (0, 1, 2, 3))
+GO
+
+CREATE NONCLUSTERED INDEX IX_ows_meteo_backoff_next ON dbo.ows_meteo (backoff_next_date, backoffstate)
 GO
 
 ALTER TABLE [dbo].[ows_meteo]  WITH CHECK ADD  CONSTRAINT [FK_ows_meteo_id] FOREIGN KEY([WaterStation_id])
@@ -2307,10 +2327,22 @@ SET NOCOUNT ON
 BEGIN
 	DECLARE @type int,  @json nvarchar(max), @mli varchar(64), @WaterStation_id uniqueidentifier
 	SELECT TOP 1 @json = ows, @mli = mli, @WaterStation_id = WaterStation_id, @type = type FROM INSERTED
-	IF @type = 1
-      EXEC sp_ows_meteo      @json, @mli, @WaterStation_id
-    ELSE IF @type = 2
-      EXEC sp_ows_meteo_open @json, @mli, @WaterStation_id
+
+	UPDATE w
+	   SET supported = CASE
+	       WHEN i.backoffstate = 0 THEN 1
+	       ELSE 0
+	   END
+	  FROM dbo.WaterStation w
+	  JOIN INSERTED i ON i.mli = w.mli
+
+	IF @json IS NOT NULL
+	BEGIN
+		IF @type = 1
+		  EXEC sp_ows_meteo      @json, @mli, @WaterStation_id
+		ELSE IF @type = 2
+		  EXEC sp_ows_meteo_open @json, @mli, @WaterStation_id
+	END
 END
 GO
 

@@ -7,6 +7,13 @@ This document is the single source of truth for recreating the service from scra
 It must be kept in sync with every source file change.
 
 
+PROJECT SKILLS
+--------------
+Local project skills live under .claude/skills inside this service. When a user asks to run or use
+a skill by name, first look for and use .claude/skills/<skill-name>/SKILL.md. Only search broader
+repo-level skill directories or global skill registries if that project-level file does not exist.
+
+
 PROJECT IDENTITY
 ----------------
 Service name : debian-weather
@@ -70,6 +77,7 @@ com.fishfind.weather
 ├── domain
 │   └── StationRef.java                   record: mli, latitude, longitude, state
 ├── repo
+│   ├── StationHttp503BackoffRepository.java
 │   ├── WeatherDataRepository.java
 │   └── WeatherStationRepository.java
 └── service
@@ -78,7 +86,7 @@ com.fishfind.weather
     ├── CycleReportRecorder.java           in-memory rolling buffer (last 7 days per worker), not persisted
     ├── IncidentEntry.java                 record: one detected crash/unclean-restart incident
     ├── OpenMeteoFetcher.java              Open-Meteo HTTP client (resilience4j + 429 Retry-After)
-    ├── ProcessingOutcome.java             enum PROCESSED / SKIPPED / FAILED
+    ├── ProcessingOutcome.java             enum PROCESSED / SKIPPED / FAILED_HTTP_503 / FAILED
     ├── RateLimitedException.java          IOException raised on exhausted 429 retries
     ├── ServiceLifecycleTracker.java       crash detection via marker file + log-tail description
     ├── StationPostProcessingService.java  stored procedure runner
@@ -95,6 +103,7 @@ REQUIRED FILES
 pom.xml
 src/main/java/com/fishfind/weather/WeatherStationPusherApplication.java
 src/main/java/com/fishfind/weather/domain/StationRef.java
+src/main/java/com/fishfind/weather/repo/StationHttp503BackoffRepository.java
 src/main/java/com/fishfind/weather/repo/WeatherDataRepository.java
 src/main/java/com/fishfind/weather/repo/WeatherStationRepository.java
 src/main/java/com/fishfind/weather/service/ConsoleDebugRunner.java
@@ -526,15 +535,45 @@ Post-processing procedures:
   Each runs in a transaction; each protected by Resilience4j retry + circuit breaker.
   Procedures may emit incidental result sets — drain with PreparedStatementCallback + getMoreResults.
 
+HTTP 503 station backoff:
+  StationHttp503BackoffRepository is the Java SQL gateway for 503 backoff state.
+  It calls stored procedures and does not directly read or write weather tables:
+    refreshDue(today)
+      → EXEC dbo.sp_weather_station_503_refresh_due ?
+    recordHttp503(provider,country,stationMli,state,today)
+      → EXEC dbo.sp_weather_station_503_record ?, ?, ?, ?, ?
+    reset(provider,country,stationMli)
+      → EXEC dbo.sp_weather_station_503_reset ?, ?, ?
+    summaryByState()
+      → EXEC dbo.sp_weather_station_503_summary_by_state
+
+  Database schema:
+    dbo.ows_meteo stores station HTTP 503 backoff fields:
+      backoffstate, backoff_daily_503_count, backoff_weekly_503_count,
+      backoff_last_503_date, backoff_next_date
+    TR_ows_meteo mirrors backoff state into dbo.WaterStation.supported.
+
+  Backoff rules:
+    - backoffstate 0 = normal, 1 = daily tracking, 2 = weekly retry, 3 = monthly retry.
+    - 3 consecutive daily HTTP 503 final failures → backoffstate 2; backoff_next_date = today + 7 days.
+    - 4 weekly HTTP 503 final failures → backoffstate 3; backoff_next_date = today + 1 month.
+    - MONTHLY keeps backoff_next_date at today + 1 month after each 503.
+    - Repeated 503 recording on the same date is idempotent for the counter.
+    - Any successful PROCESSED station result resets the station to backoffstate 0.
+    - refreshDue() resets due weekly/monthly rows to backoffstate 0 before loading stations.
+    - summaryByState groups backed-off station counts by state and stage for operations.
+
 
 PROCESSING PIPELINE
 -------------------
 StationProcessorBase (template method):
   process(StationRef) is final; calls processStation() inside try/catch and returns a
-  ProcessingOutcome (PROCESSED / SKIPPED / FAILED) the worker uses for the post-processing gate:
+  ProcessingOutcome (PROCESSED / SKIPPED / FAILED_HTTP_503 / FAILED) the worker uses for the post-processing gate:
     success              → PROCESSED
     FileNotFoundException → SKIPPED; log info "Skipping {country} station with no published {source}. ..."
-    any other exception   → FAILED;  log warning "US station processing failed. station={mli} state={state}"
+    IOException with "HTTP 503" → FAILED_HTTP_503; log concise warning without stack trace
+    other IOException     → FAILED; log concise warning without stack trace
+    any other exception   → FAILED; log warning with stack trace
 
 StationProcessorOpen:
   1. Fetch JSON from Open-Meteo using station lat/lon.
@@ -571,6 +610,8 @@ ERROR HANDLING
   HTTP 429 from Open-Meteo                   → honour Retry-After inline; if exhausted RateLimitedException → FAILED
   Interrupted during Retry-After wait        → RateLimitedException (no further retry); interrupt flag re-set
   200 body oversized or not a JSON object    → IOException; retried (backoff); if exhausted → FAILED
+  Final HTTP 503 from a station provider     → outcome FAILED_HTTP_503; update ows_meteo backoff state
+  Station inside 503 backoff window          → WaterStation.supported=0 until refreshDue() or a successful reset
   UPDATE matches 0 ows_meteo rows            → log WARNING (payload dropped); still counts as PROCESSED
   HTTP non-200 other than 404 / timeout      → IOException; retried (backoff); if exhausted → FAILED
   Per-station processing exception           → log warning; outcome FAILED; continue
@@ -666,13 +707,16 @@ functional classes. No Spring context is started; collaborators are mocked.
   WeatherStationRepositoryTest         query SQL + RowMapper column mapping
   WeatherDataRepositoryTest            save SQL/args, blank-mli reject, blank-payload skip,
                                        procedure execution + result-set drain, fallback wrappers
-  StationProcessorBaseTest             template-method outcome (PROCESSED/SKIPPED/FAILED) via
+  StationHttp503BackoffRepositoryTest  stored procedure SQL calls and summary row mapping
+  StationHttp503BackoffServiceTest     service delegation, success reset, summary delegation
+  StationProcessorBaseTest             template-method outcome (PROCESSED/SKIPPED/FAILED_HTTP_503/FAILED) via
                                        captured log events
   StationProcessorOpenTest             fetch+persist→PROCESSED, FileNotFound→SKIPPED, IOException→FAILED
-  StationPostProcessingServiceTest     stored-procedure invocation order
+  StationPostProcessingServiceTest     stored-procedure invocation order and serialized concurrent runs
   StationWorkerTest                    delay budget math, millisUntilNextMidnight bounds, runOnce
                                        all/filtered, skipped-don't-block + degraded-cycle post-proc
-                                       gate, stop-requested short-circuit, shutdown flag, console
+                                       gate, 503 backoff refresh/record/reset, stop-requested
+                                       short-circuit, shutdown flag, console
   ConsoleDebugRunnerTest               no-op without --console; runs + exits with/without --station;
                                        exit code 1 iff every attempted station failed
   CycleReportRecorderTest              insertion order; evicts oldest beyond 7 entries
@@ -724,28 +768,32 @@ RECREATION CHECKLIST
  5. StationRef record: mli, latitude, longitude, state
  6. WeatherStationRepository — vwWeatherForecastToDay US query
  7. OpenMeteoFetcher — HttpURLConnection; honest User-Agent; verbatim UTF-8 body (no replace)
- 8. WeatherDataRepository — UPDATE dbo.ows_meteo, two stored procedure methods, Resilience4j
- 9. StationProcessorBase — template method exception handling
-10. StationProcessorOpen — fetch + save flow
-11. StationPostProcessingService — exact procedure order
-12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep, records a
+ 8. WeatherDataRepository — UPDATE dbo.ows_meteo, stored procedure methods, Resilience4j
+ 9. StationHttp503BackoffRepository + StationHttp503BackoffService — SQL-backed HTTP 503
+    station backoff via dbo.sp_weather_station_503_* procedures and summary-by-state support
+10. StationProcessorBase — template method exception handling, including FAILED_HTTP_503
+11. StationProcessorOpen — fetch + save flow
+12. StationPostProcessingService — exact procedure order
+13. StationWorker — background thread, 8-hour dynamic delay, midnight sleep, records a
     CycleReportEntry per completed cycle
-13. ConsoleDebugRunner — --console + --station one-shot mode
-14. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days-per-worker buffer (not persisted)
-15. IncidentEntry record + ServiceLifecycleTracker — marker-file crash detection + log-tail
+14. ConsoleDebugRunner — --console + --station one-shot mode
+15. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days-per-worker buffer (not persisted)
+16. IncidentEntry record + ServiceLifecycleTracker — marker-file crash detection + log-tail
     description; degrades gracefully if its state dir is unwritable
-16. WeeklyReportMailService — @Scheduled Friday email built from the recorder AND the
+17. WeeklyReportMailService — @Scheduled Friday email built from the recorder AND the
     lifecycle tracker; skips (not fails) only when BOTH are empty; catches MailException
-17. application.yml (datasource, mail, resilience4j, weather.worker, weather.report,
+18. application.yml (datasource, mail, resilience4j, weather.worker, weather.report,
     weather.lifecycle, management, logging — mail/report/lifecycle all blank-safe defaults)
-18. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
-19. .env.example with trustServerCertificate=false; optional SMTP_*/REPORT_EMAIL_* placeholders
-20. .owasp-suppressions.xml stub
-21. .dockerignore
-22. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
+19. logback-spring.xml (CONSOLE + FILE appenders, LogstashEncoder, service=debian-weather)
+20. .env.example with trustServerCertificate=false; optional SMTP_*/REPORT_EMAIL_* placeholders
+21. .owasp-suppressions.xml stub
+22. .dockerignore
+23. Dockerfile: non-root appuser (uid 1001), curl installed for HEALTHCHECK,
     exec java entrypoint, EXPOSE 8081 + HEALTHCHECK (curl -sf)
-23. Deploy tooling (docs/do-update.md, update-weather skill): graceful "docker stop -t 30"
+24. Deploy tooling (docs/do-update.md, update-weather skill): graceful "docker stop -t 30"
     before "docker rm" (never "-f"), plus a persistent /app/logs volume mount — both required
     for crash tracking to survive redeploys and not misreport every deploy as a crash
-24. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
-25. Verify: mvn test
+25. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
+26. Database schema changes in database/database/mssql script source files, plus
+    UNIT_TESTS/unit_test@WeatherStation503Backoff.sql and autorun.bat verification
+27. Verify: mvn test
