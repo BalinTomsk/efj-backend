@@ -4118,3 +4118,175 @@ GO
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_weather_station_503_refresh_due' AND type = 'P')
+    DROP PROCEDURE dbo.sp_weather_station_503_refresh_due
+GO
+/*
+    Called by service/weather StationHttp503BackoffRepository.refreshDue before loading stations.
+    Any station whose weekly/monthly retry date has arrived is re-enabled by resetting backoffstate.
+    TR_ows_meteo mirrors this change to WaterStation.supported = 1.
+*/
+CREATE PROCEDURE dbo.sp_weather_station_503_refresh_due
+      @today date
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE dbo.ows_meteo
+       SET backoffstate = 0
+         , backoff_next_date = NULL
+     WHERE backoffstate IN (2, 3)
+       AND backoff_next_date IS NOT NULL
+       AND backoff_next_date <= @today;
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_weather_station_503_record' AND type = 'P')
+    DROP PROCEDURE dbo.sp_weather_station_503_record
+GO
+/*
+    Called by service/weather StationHttp503BackoffRepository.recordHttp503.
+    Advances HTTP 503 backoff on dbo.ows_meteo:
+      - backoffstate 0/1 are daily tracking states.
+      - 3 consecutive daily 503 dates => backoffstate 2 (weekly), WaterStation.supported=0.
+      - 4 weekly 503 dates => backoffstate 3 (monthly), WaterStation.supported=0.
+      - repeated 503 on the same date is idempotent.
+*/
+CREATE PROCEDURE dbo.sp_weather_station_503_record
+      @provider    sysname
+    , @country     char(2)
+    , @station_mli varchar(64)
+    , @state       char(2)
+    , @today       date
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE
+          @backoffstate int
+        , @daily int
+        , @weekly int
+        , @last date
+        , @next date;
+
+    SELECT
+          @backoffstate = backoffstate
+        , @daily = backoff_daily_503_count
+        , @weekly = backoff_weekly_503_count
+        , @last = backoff_last_503_date
+      FROM dbo.ows_meteo WITH (UPDLOCK, HOLDLOCK)
+     WHERE country = @country
+       AND mli = @station_mli;
+
+    IF @backoffstate IS NULL
+    BEGIN
+        RETURN;
+    END
+
+    IF @backoffstate IN (0, 1)
+    BEGIN
+        SET @daily = CASE
+            WHEN @last IS NULL THEN 1
+            WHEN @last = @today THEN @daily
+            WHEN @last = DATEADD(day, -1, @today) THEN @daily + 1
+            ELSE 1
+        END;
+        SET @weekly = 0;
+
+        IF @daily >= 3
+        BEGIN
+            SET @backoffstate = 2;
+            SET @next = DATEADD(day, 7, @today);
+        END
+        ELSE
+        BEGIN
+            SET @backoffstate = 1;
+            SET @next = NULL;
+        END
+    END
+    ELSE IF @backoffstate = 2
+    BEGIN
+        SET @weekly = CASE WHEN @last = @today THEN @weekly ELSE @weekly + 1 END;
+
+        IF @weekly >= 4
+        BEGIN
+            SET @backoffstate = 3;
+            SET @next = DATEADD(month, 1, @today);
+        END
+        ELSE
+        BEGIN
+            SET @next = DATEADD(day, 7, @today);
+        END
+    END
+    ELSE
+    BEGIN
+        SET @backoffstate = 3;
+        SET @next = DATEADD(month, 1, @today);
+    END
+
+    UPDATE dbo.ows_meteo
+       SET state = @state
+         , backoffstate = @backoffstate
+         , backoff_daily_503_count = @daily
+         , backoff_weekly_503_count = @weekly
+         , backoff_last_503_date = @today
+         , backoff_next_date = @next
+     WHERE country = @country
+       AND mli = @station_mli;
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_weather_station_503_reset' AND type = 'P')
+    DROP PROCEDURE dbo.sp_weather_station_503_reset
+GO
+/*
+    Called by service/weather StationHttp503BackoffRepository.recordProcessed.
+    A successful station processing run removes any HTTP 503 backoff state.
+*/
+CREATE PROCEDURE dbo.sp_weather_station_503_reset
+      @provider    sysname
+    , @country     char(2)
+    , @station_mli varchar(64)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE dbo.ows_meteo
+       SET backoffstate = 0
+         , backoff_daily_503_count = 0
+         , backoff_weekly_503_count = 0
+         , backoff_last_503_date = NULL
+         , backoff_next_date = NULL
+     WHERE country = @country
+       AND mli = @station_mli;
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT * FROM sys.procedures WHERE NAME = 'sp_weather_station_503_summary_by_state' AND type = 'P')
+    DROP PROCEDURE dbo.sp_weather_station_503_summary_by_state
+GO
+/*
+    Called by operations/reporting to reduce HTTP 503 backoff stations by state and stage.
+*/
+CREATE PROCEDURE dbo.sp_weather_station_503_summary_by_state
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT
+          state
+        , CASE backoffstate WHEN 1 THEN 'DAILY' WHEN 2 THEN 'WEEKLY' WHEN 3 THEN 'MONTHLY' ELSE 'NORMAL' END AS backoff_stage
+        , COUNT_BIG(*) AS station_count
+      FROM dbo.ows_meteo
+     WHERE backoffstate <> 0
+     GROUP BY state, backoffstate
+     ORDER BY state, backoff_stage;
+END
+GO
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
