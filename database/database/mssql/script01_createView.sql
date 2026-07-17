@@ -888,35 +888,6 @@ AS
         LEFT JOIN dbo.lake l ON l.lake_id = r.lake_id
         LEFT JOIN dbo.fish f ON f.fish_id = r.fish_id
 GO
--- SELECT * FROM vw_regulations order by stamp
------------------------------------------------------------------------------------------------------------------------
-IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vw_zone_regulation' AND type = 'V')
-    DROP VIEW dbo.vw_zone_regulation
-GO
-
----     SELECT * FROM vw_zone_regulation WHERE zone_id = 2 ORDER BY regulations_stamp DESC;
-create VIEW vw_zone_regulation
-  WITH SCHEMABINDING
-AS
-    SELECT f.fish_name, f.fish_id, z.zone_id, z.reg_year
-        , CASE
-            WHEN regulations_code = 4 THEN 'No close time'
-            WHEN regulations_code = 8 THEN
-                ISNULL(CAST(regulations_date_start AS varchar(16)), regulations_start)
-                + ' to '
-                + ISNULL(CAST(regulations_date_end AS varchar(16)), regulations_end)
-          END AS close_time
-        , regulations_sport, regulations_sport_text
-        , regulations_consr, regulations_consr_text
-        , possession_sport,  possession_consr
-        , min_length_cm
-        , slot_min_cm, slot_max_cm, slot_over_limit
-        , method_flags
-        , regulations_code, regulations_link, regulations_stamp
-        , regulations_date_start, regulations_date_end
-        FROM dbo.zone_regulations z
-            LEFT JOIN dbo.fish f ON z.fish_id = f.fish_id   -- LEFT JOIN: NULL fish_id = zone-wide rule
-GO
 ---------------------------------------------------------------------------------------------
 IF EXISTS (SELECT * FROM sysobjects WHERE NAME = 'vLastCurrentWaterState' AND type = 'V')
     DROP VIEW dbo.vLastCurrentWaterState
