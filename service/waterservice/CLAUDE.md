@@ -28,7 +28,7 @@ It must always reflect the current state of the code.
 
 ##IMPORTANT
 Explicitly follows database schema at:
-- @srv/../database/database/mssql/ffi2.sql  
+- @srv/../../database/database/mssql
 
 ## Local Claude skills
 

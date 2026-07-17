@@ -29,7 +29,7 @@ It must always reflect the current state of the code.
 
 ##IMPORTANT
 Explicitly follows database schema at:
-- @srv/../efj-backend/database/database/mssql/ffi2.sql  
+- @srv/../../database/database/mssql
 
 - Local project skills live under `.claude/skills` inside this service. When the user asks to run or
   use a skill by name, you MUST first look for and use `.claude/skills/<skill-name>/SKILL.md`.
