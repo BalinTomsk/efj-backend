@@ -6,6 +6,23 @@
 
 ---
 
+## Dual-service redundancy (Java + C#) — do NOT retire either
+
+**Two independent implementations of this service run in parallel in production, by design.** This Java
+(Spring Boot) service and a **C# / .NET 10 port** (`efcs-backend/service/waterservice`) both poll the same
+Environment Canada / USGS feeds *independently* and upsert into the **same** database. This is an
+**intentional "double warranty"** on incoming data — redundancy, **not** a migration. **Keep both running;
+do not decommission either one to "avoid double-writes."**
+
+Why running both is safe: writes go through `dbo.sp_UpdateWaterData`, keyed by `(mli, stamp)` as an upsert,
+so concurrent writes from the two services collapse to the same rows. If one pipeline is down, slow, or a
+feed fetch fails on one side, the other still lands the data. The post-processing procs
+(`dbo.sp_clean_old_water_data`, `dbo.spPushSpeciesFromLakeToStation`) therefore run once per service per
+cycle; that duplication is expected and tolerated.
+
+Deployments: this Java service runs on droplet **`debian-jnode`** (`68.183.196.166`); the C# port runs on
+**`debian-csnode`** (`137.184.218.128`). Each repo has its own `docs/do-update.md`.
+
 ## Keeping docs in sync — IMPORTANT
 
 `docs/specification.txt` is the **single source of truth** used to recreate this service from scratch.
