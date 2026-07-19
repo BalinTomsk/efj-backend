@@ -29,7 +29,7 @@ It must always reflect the current state of the code.
 
 ##IMPORTANT
 Explicitly follows database schema at:
-- @srv/../../database/database/mssql
+- @srv/../../envfish-db
 
 - Local project skills live under `.claude/skills` inside this service. When the user asks to run or
   use a skill by name, you MUST first look for and use `.claude/skills/<skill-name>/SKILL.md`.
@@ -37,7 +37,7 @@ Explicitly follows database schema at:
   does not exist.
 
 - **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
-bug fix that touches the DB), **read `c:\envoinx\fishfind\efj-backend\database\database\CLAUDE.md`
+bug fix that touches the DB), **read `c:\envoinx\fishfind\envfish-db\CLAUDE.md `
 first** — it is the authoritative DB workflow (never edit the generated `ffi2.sql`; edit the
 `scriptNN_*.sql` sources; test-first: a FAILING unit test to confirm the bug, then a PASSING one
 to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the separate
