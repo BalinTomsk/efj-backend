@@ -14,6 +14,7 @@ import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.time.LocalDate;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -33,6 +34,8 @@ public class StationWorker implements ApplicationRunner {
     private static final String MDC_CORRELATION_ID = "correlationId";
     private static final String MDC_STATION = "station";
     private static final String STATION_PROCESSED_METRIC = "water.station.processed";
+    private static final String PROVIDER_CA = "environment-canada";
+    private static final String PROVIDER_US = "usgs";
 
     private final WaterStationRepository repo;
     private final StationProcessorCA processorCA;
@@ -41,6 +44,7 @@ public class StationWorker implements ApplicationRunner {
     private final ThreadPoolTaskScheduler cycleScheduler;
     private final Executor countryPassExecutor;
     private final MeterRegistry meterRegistry;
+    private final StationHttp503BackoffService http503BackoffService;
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -57,7 +61,8 @@ public class StationWorker implements ApplicationRunner {
                          StationPostProcessingService postProcessingService,
                          ThreadPoolTaskScheduler cycleScheduler,
                          @Qualifier("countryPassExecutor") Executor countryPassExecutor,
-                         MeterRegistry meterRegistry) {
+                         MeterRegistry meterRegistry,
+                         StationHttp503BackoffService http503BackoffService) {
         this.repo = repo;
         this.processorCA = processorCA;
         this.processorUS = processorUS;
@@ -65,6 +70,7 @@ public class StationWorker implements ApplicationRunner {
         this.cycleScheduler = cycleScheduler;
         this.countryPassExecutor = countryPassExecutor;
         this.meterRegistry = meterRegistry;
+        this.http503BackoffService = http503BackoffService;
     }
 
     /**
@@ -248,6 +254,8 @@ public class StationWorker implements ApplicationRunner {
     }
 
     private PassStats runOnceStats(String country, String requestedMli) {
+        LocalDate today = LocalDate.now();
+        http503BackoffService.refreshDue(today);
         var stations = repo.findSupported(country);
         log.info("Loaded supported stations. country={} count={} requestedStation={}",
                 country, stations.size(),
@@ -275,32 +283,44 @@ public class StationWorker implements ApplicationRunner {
             }
             anyProcessed = true;
 
-            boolean ok;
+            ProcessingOutcome outcome;
             MDC.put(MDC_STATION, station.mli());
             try {
-                ok = processStation(country, station.mli(), station.state(), station.tz());
+                outcome = processStation(country, station.mli(), station.state(), station.tz());
             } finally {
                 MDC.remove(MDC_STATION);
             }
             meterRegistry.counter(STATION_PROCESSED_METRIC,
                     "country", country,
-                    "outcome", ok ? "success" : "failure").increment();
+                    "outcome", outcome == ProcessingOutcome.PROCESSED ? "success" : "failure").increment();
             lastProcessedStation = station.mli();
-            if (ok) {
+            if (outcome == ProcessingOutcome.PROCESSED) {
                 succeeded++;
+                http503BackoffService.recordProcessed(providerFor(country), country, station);
             } else {
                 failed++;
                 lastFailedStation = station.mli();
+                if (outcome == ProcessingOutcome.FAILED_HTTP_503) {
+                    http503BackoffService.recordHttp503(providerFor(country), country, station, today);
+                }
             }
             log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());
         }
         return new PassStats(country, succeeded, failed, lastProcessedStation, lastFailedStation);
     }
 
-    private boolean processStation(String country, String mli, String state, int tz) {
+    private ProcessingOutcome processStation(String country, String mli, String state, int tz) {
         return switch (country) {
-            case "CA" -> processorCA.process(mli, state, tz);
-            case "US" -> processorUS.process(mli, state, tz);
+            case "CA" -> processorCA.processWithOutcome(mli, state, tz);
+            case "US" -> processorUS.processWithOutcome(mli, state, tz);
+            default -> throw new IllegalArgumentException("Unsupported country " + country);
+        };
+    }
+
+    private String providerFor(String country) {
+        return switch (country) {
+            case "CA" -> PROVIDER_CA;
+            case "US" -> PROVIDER_US;
             default -> throw new IllegalArgumentException("Unsupported country " + country);
         };
     }

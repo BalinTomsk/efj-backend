@@ -1,8 +1,10 @@
 package com.fishfind.water.service;
 
 import org.slf4j.Logger;
+import org.springframework.web.client.HttpStatusCodeException;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 
 /**
  * Shared processing template for station processors.
@@ -16,12 +18,18 @@ public abstract class StationProcessorBase {
      *         was handled (e.g. a failure or an unpublished/skipped source)
      */
     public final boolean process(String mli, String state, int tz) {
+        return processWithOutcome(mli, state, tz) == ProcessingOutcome.PROCESSED;
+    }
+
+    /**
+     * Processes a single station and returns the handled outcome.
+     */
+    public final ProcessingOutcome processWithOutcome(String mli, String state, int tz) {
         try {
             processStation(mli, state, tz);
-            return true;
+            return ProcessingOutcome.PROCESSED;
         } catch (Exception ex) {
-            handleProcessingException(mli, state, tz, ex);
-            return false;
+            return handleProcessingException(mli, state, tz, ex);
         }
     }
 
@@ -33,7 +41,7 @@ public abstract class StationProcessorBase {
 
     protected abstract String missingSourceDescription();
 
-    protected void handleProcessingException(String mli, String state, int tz, Exception ex) {
+    protected ProcessingOutcome handleProcessingException(String mli, String state, int tz, Exception ex) {
         if (ex instanceof FileNotFoundException) {
             logger().debug(
                     "Skipping {} with no published {}. station={} state={}",
@@ -42,12 +50,36 @@ public abstract class StationProcessorBase {
                     mli,
                     state
             );
-            return;
+            return ProcessingOutcome.SKIPPED;
         }
+
+        if (ex instanceof IOException || isHttp503(ex)) {
+            logger().warn(
+                    "{} processing failed. station={} state={} error={}: {}",
+                    stationLabel(),
+                    mli,
+                    state,
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage()
+            );
+            return isHttp503(ex) ? ProcessingOutcome.FAILED_HTTP_503 : ProcessingOutcome.FAILED;
+        }
+
         logger().warn("{} processing failed. station={} state={}.", stationLabel(), mli, state, ex);
+        return ProcessingOutcome.FAILED;
     }
 
     private String stationLabel() {
         return country() + " station";
+    }
+
+    private static boolean isHttp503(Exception ex) {
+        if (ex instanceof HttpStatusCodeException statusException
+                && statusException.getStatusCode().value() == 503) {
+            return true;
+        }
+
+        String message = ex.getMessage();
+        return message != null && message.contains("HTTP 503");
     }
 }

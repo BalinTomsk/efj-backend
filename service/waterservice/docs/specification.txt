@@ -193,6 +193,32 @@ Failure handling
   - do not disable the station
 - Do not execute `dbo.sp_DisableWaterStation` in the current project state
 
+HTTP 503 station backoff
+- `StationProcessorBase` maps upstream HTTP 503 failures to `ProcessingOutcome.FAILED_HTTP_503`.
+- `StationWorker` records those failures through `StationHttp503BackoffService.recordHttp503(...)` and resets
+  backoff through `recordProcessed(...)` after a successful station processing result.
+- `StationHttp503BackoffRepository` is the Java SQL gateway. It calls stored procedures and does not directly
+  update station tables:
+  - `refreshDue(today)` -> `EXEC dbo.sp_water_station_503_refresh_due ?`
+  - `recordHttp503(provider,country,stationMli,state,today)` -> `EXEC dbo.sp_water_station_503_record ?, ?, ?, ?, ?`
+  - `reset(provider,country,stationMli)` -> `EXEC dbo.sp_water_station_503_reset ?, ?, ?`
+  - `summaryByState()` -> `EXEC dbo.sp_water_station_503_summary_by_state`
+- Database schema lives in `envfish-db/mssql`:
+  - `dbo.WaterStation` stores `backoffstate`, `backoff_daily_503_count`, `backoff_weekly_503_count`,
+    `backoff_last_503_date`, `backoff_next_date`, and `supported`.
+  - `vwWaterStation` returns only `supported = 1`, so weekly/monthly backoff rows are skipped by the worker.
+  - Procedure definitions are in `mssql/script02_Proc.sql`; tests are in
+    `mssql/UNIT_TESTS/unit_test@WaterStation503Backoff.sql`.
+- Backoff rules:
+  - `backoffstate`: 0 normal, 1 daily tracking, 2 weekly retry, 3 monthly retry.
+  - 3 consecutive daily HTTP 503 final failures -> weekly retry, `backoff_next_date = today + 7 days`,
+    `supported = 0`.
+  - 4 weekly HTTP 503 final failures -> monthly retry, `backoff_next_date = today + 1 month`,
+    `supported = 0`.
+  - Repeated 503 recording on the same date is idempotent for counters.
+  - Any successful station result resets counters/state and restores `supported = 1`.
+  - `refreshDue()` restores due weekly/monthly rows before loading stations.
+
 WaterData persistence rules
 - Implement repository method `saveStationData(String mli, List<Reading> readings)`
 - Reject blank `mli`
