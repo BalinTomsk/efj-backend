@@ -45,7 +45,21 @@ It must always reflect the current state of the code.
 
 ##IMPORTANT
 Explicitly follows database schema at:
-- @srv/../../database/database/mssql
+- @srv/../../envfish-db
+
+- Local project skills live under `.claude/skills` inside this service. When the user asks to run or
+  use a skill by name, you MUST first look for and use `.claude/skills/<skill-name>/SKILL.md`.
+  Only search repo-level `Skills` directories or global skill registries if that project-level file
+  does not exist.
+
+- **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
+bug fix that touches the DB), **read `c:\envoinx\fishfind\envfish-db\CLAUDE.md `
+first** — it is the authoritative DB workflow (never edit the generated `ffi2.sql`; edit the
+`scriptNN_*.sql` sources; test-first: a FAILING unit test to confirm the bug, then a PASSING one
+to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the separate
+`efj-backend` repo and does NOT auto-load in this project, so it must be opened explicitly.
+
+
 
 ## Local Claude skills
 
@@ -318,6 +332,34 @@ water:
 - HTTP 404: log "source feed not published"; do not disable station.
 - **Do not call** `dbo.sp_DisableWaterStation`.
 - Log message format: `{country} station` (e.g., `"CA station"`, `"US station"`).
+
+---
+
+## HTTP 503 Station Backoff
+
+- `StationProcessorBase` maps upstream HTTP 503 failures to `ProcessingOutcome.FAILED_HTTP_503`.
+- `StationWorker` records HTTP 503 outcomes through `StationHttp503BackoffService.recordHttp503(...)` and
+  resets backoff through `recordProcessed(...)` after a successful station result.
+- `StationHttp503BackoffRepository` calls SQL Server stored procedures only:
+  - `refreshDue(today)` -> `EXEC dbo.sp_water_station_503_refresh_due ?`
+  - `recordHttp503(provider,country,stationMli,state,today)` -> `EXEC dbo.sp_water_station_503_record ?, ?, ?, ?, ?`
+  - `reset(provider,country,stationMli)` -> `EXEC dbo.sp_water_station_503_reset ?, ?, ?`
+  - `summaryByState()` -> `EXEC dbo.sp_water_station_503_summary_by_state`
+- Database schema lives in `envfish-db/mssql`:
+  - `dbo.WaterStation` stores `backoffstate`, `backoff_daily_503_count`, `backoff_weekly_503_count`,
+    `backoff_last_503_date`, `backoff_next_date`, and `supported`.
+  - `vwWaterStation` returns only `supported = 1`, so weekly/monthly backoff rows are skipped.
+  - Stored procedure definitions are in `mssql/script02_Proc.sql`; tests are in
+    `mssql/UNIT_TESTS/unit_test@WaterStation503Backoff.sql`.
+- Backoff rules:
+  - `backoffstate`: 0 normal, 1 daily tracking, 2 weekly retry, 3 monthly retry.
+  - 3 consecutive daily HTTP 503 final failures -> weekly retry, `backoff_next_date = today + 7 days`,
+    `supported = 0`.
+  - 4 weekly HTTP 503 final failures -> monthly retry, `backoff_next_date = today + 1 month`,
+    `supported = 0`.
+  - Repeated 503 recording on the same date is idempotent for counters.
+  - Any successful station result resets counters/state and restores `supported = 1`.
+  - `refreshDue()` restores due weekly/monthly rows before loading stations.
 
 ---
 
