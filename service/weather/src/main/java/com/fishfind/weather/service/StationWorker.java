@@ -49,7 +49,6 @@ public class StationWorker implements ApplicationRunner {
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
     private final WeatherApiUsageTracker usageTracker;
-    private final StationHttp503BackoffService http503BackoffService;
 
     @Value("${weather.worker.post-processing.max-failure-rate:0.5}")
     private double maxFailureRate;
@@ -80,8 +79,7 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorWeatherCanada stationProcessorWeatherCanada,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder,
-                         WeatherApiUsageTracker usageTracker,
-                         StationHttp503BackoffService http503BackoffService) {
+                         WeatherApiUsageTracker usageTracker) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
         this.stationProcessorWeatherGov = stationProcessorWeatherGov;
@@ -91,7 +89,6 @@ public class StationWorker implements ApplicationRunner {
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
         this.usageTracker = usageTracker;
-        this.http503BackoffService = http503BackoffService;
     }
 
     @Override
@@ -146,15 +143,13 @@ public class StationWorker implements ApplicationRunner {
 
     private CountryPassSummary runCycle(WorkerDefinition worker, String requestedMli) throws InterruptedException {
         String country = worker.country();
-        LocalDate today = LocalDate.now();
-        http503BackoffService.refreshDue(today);
         int totalSupportedStations = stationRepository.countSupportedStations(country);
         int dailyLimit = dailyLimitFor(worker);
         int requestedStations = requestedMli == null || requestedMli.isBlank()
                 ? Math.min(totalSupportedStations, dailyLimit)
                 : Math.min(1, totalSupportedStations);
         WeatherApiUsageTracker.UsageReservation reservation = usageTracker.reserve(
-                worker.provider(), today, requestedStations, dailyLimit);
+                worker.provider(), LocalDate.now(), requestedStations, dailyLimit);
         int stationLimit = requestedMli == null || requestedMli.isBlank()
                 ? reservation.reserved()
                 : (reservation.reserved() > 0 ? Math.min(totalSupportedStations, dailyLimit) : 0);
@@ -210,15 +205,11 @@ public class StationWorker implements ApplicationRunner {
                 case PROCESSED -> {
                     processed++;
                     lastProcessedStation = station.mli();
-                    http503BackoffService.recordProcessed(worker.provider(), country, station);
                 }
                 case SKIPPED -> skipped++;
                 case FAILED, FAILED_HTTP_503 -> {
                     failed++;
                     lastFailedStation = station.mli();
-                    if (outcome == ProcessingOutcome.FAILED_HTTP_503) {
-                        http503BackoffService.recordHttp503(worker.provider(), country, station, today);
-                    }
                 }
             }
 

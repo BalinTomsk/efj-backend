@@ -46,19 +46,17 @@ public abstract class StationProcessorBase {
             );
             return ProcessingOutcome.SKIPPED;
         }
-
-        if (ex instanceof IOException) {
+        if (ex instanceof IOException && isHttp503(ex)) {
             logger().warn(
-                    "{} processing failed. station={} state={} error={}: {}",
+                    "{} processing failed with upstream HTTP 503. station={} state={} error={}: {}",
                     stationLabel(country),
                     station.mli(),
                     station.state(),
                     ex.getClass().getSimpleName(),
                     ex.getMessage()
             );
-            return isHttp503(ex) ? ProcessingOutcome.FAILED_HTTP_503 : ProcessingOutcome.FAILED;
+            return ProcessingOutcome.FAILED_HTTP_503;
         }
-
         logger().warn(
                 "{} processing failed. station={} state={}",
                 stationLabel(country),

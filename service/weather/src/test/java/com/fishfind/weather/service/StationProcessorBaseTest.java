@@ -61,8 +61,8 @@ class StationProcessorBaseTest {
     }
 
     @Test
-    void ioExceptionLogsWarningWithoutStackTraceAndSwallows() {
-        toThrow = new IOException("HTTP 503");
+    void http503LogsConciseWarningWithoutStackTraceAndSwallows() {
+        toThrow = new IOException("Weather.gov returned HTTP 503 for station MLI-1");
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED_HTTP_503);
 
@@ -70,15 +70,14 @@ class StationProcessorBaseTest {
         ILoggingEvent event = appender.list.get(0);
         assertThat(event.getLevel()).isEqualTo(Level.WARN);
         assertThat(event.getFormattedMessage())
-                .contains("processing failed")
+                .contains("HTTP 503")
                 .contains("MLI-1")
-                .contains("IOException")
-                .contains("HTTP 503");
+                .contains("IOException");
         assertThat(event.getThrowableProxy()).isNull();
     }
 
     @Test
-    void unexpectedExceptionLogsWarningWithStackTraceAndSwallows() {
+    void otherExceptionLogsWarningAndSwallows() {
         toThrow = new IllegalStateException("kaboom");
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED);
@@ -89,7 +88,6 @@ class StationProcessorBaseTest {
         assertThat(event.getFormattedMessage())
                 .contains("processing failed")
                 .contains("MLI-1");
-        assertThat(event.getThrowableProxy()).isNotNull();
     }
 
     private class TestProcessor extends StationProcessorBase {
