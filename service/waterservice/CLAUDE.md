@@ -2,7 +2,7 @@
 
 > This file captures the full specification and architectural rules needed to recreate,
 > extend, or debug the `water-station-pusher` Spring Boot service.
-> Source: `efj-backend/service/waterservice/docs/specification.txt`
+> Source: `efj-backend/service/waterservice/docs/specification.md`
 
 ---
 
@@ -25,20 +25,20 @@ Deployments: this Java service runs on droplet **`debian-jnode`** (`68.183.196.1
 
 ## Keeping docs in sync — IMPORTANT
 
-`docs/specification.txt` is the **single source of truth** used to recreate this service from scratch.
+`docs/specification.md` is the **single source of truth** used to recreate this service from scratch.
 It must always reflect the current state of the code.
 
 **Rules:**
 
 - Whenever **any source file** (`*.java`, `pom.xml`, `application.yml`, `logback-spring.xml`,
-  `Dockerfile`, etc.) is created, modified, or deleted — update `docs/specification.txt` to match.
-- Whenever **this `claude.md`** is updated — apply the same change to `docs/specification.txt`
+  `Dockerfile`, etc.) is created, modified, or deleted — update `docs/specification.md` to match.
+- Whenever **this `claude.md`** is updated — apply the same change to `docs/specification.md`
   if it affects behaviour, structure, or configuration.
-- `docs/specification.txt` must be sufficient on its own for a developer (or Claude) to
+- `docs/specification.md` must be sufficient on its own for a developer (or Claude) to
   **fully recreate the service from scratch** with no other context. Keep it complete and accurate.
-- Do not leave `docs/specification.txt` describing behaviour that no longer exists, or omitting
+- Do not leave `docs/specification.md` describing behaviour that no longer exists, or omitting
   behaviour that was added.
-- Treat every code change as a two-step commit: ① change the code, ② update `docs/specification.txt`.
+- Treat every code change as a two-step commit: ① change the code, ② update `docs/specification.md`.
 
 
 ---
