@@ -289,6 +289,43 @@ class StationWorkerTest {
     }
 
     @Test
+    void backgroundModeRunsStartupVerificationForEveryProviderWhenEnabled() {
+        when(stationRepository.countSupportedStations(anyString())).thenReturn(0);
+        when(weatherGovProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processor.verifyStartup(any(), eq("CA"))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(visualCrossingProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(googleWeatherProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(weatherCanadaProcessor.verifyStartup(any(), eq("CA"))).thenReturn(ProcessingOutcome.PROCESSED);
+        StationWorker backgroundWorker = new StationWorker(
+                stationRepository,
+                processor,
+                weatherGovProcessor,
+                visualCrossingProcessor,
+                googleWeatherProcessor,
+                weatherCanadaProcessor,
+                postProcessing,
+                new CycleReportRecorder(),
+                usageTracker);
+        ReflectionTestUtils.setField(backgroundWorker, "startupVerificationEnabled", true);
+        ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
+        ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
+        ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
+        ReflectionTestUtils.setField(backgroundWorker, "visualCrossingDailyLimit", 1000);
+        ReflectionTestUtils.setField(backgroundWorker, "googleWeatherDailyLimit", 161);
+        ReflectionTestUtils.setField(backgroundWorker, "weatherCanadaDailyLimit", 900);
+
+        backgroundWorker.run(new DefaultApplicationArguments());
+
+        verify(weatherGovProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
+        verify(processor, timeout(5000)).verifyStartup(any(), eq("CA"));
+        verify(visualCrossingProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
+        verify(googleWeatherProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
+        verify(weatherCanadaProcessor, timeout(5000)).verifyStartup(any(), eq("CA"));
+
+        backgroundWorker.shutdown();
+    }
+
+    @Test
     void shutdownClearsRunningFlagWhenNoThreadStarted() {
         worker.shutdown();
 

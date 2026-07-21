@@ -32,6 +32,13 @@ public class StationProcessorVisualCrossing extends StationProcessorBase {
     }
 
     @Override
+    protected void verifyStation(StationRef station) throws Exception {
+        String json = fetcher.fetchCurrent(station.latitude(), station.longitude());
+        log.info("Startup Visual Crossing verification fetched payload. station={} state={} bytes={}",
+                station.mli(), station.state(), json.length());
+    }
+
+    @Override
     protected Logger logger() {
         return log;
     }

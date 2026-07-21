@@ -28,15 +28,20 @@ public class StationWorker implements ApplicationRunner {
     private static final long SHUTDOWN_JOIN_MS = 25_000L;
     private static final String DEFAULT_COUNTRY = "US";
     private static final WorkerDefinition WEATHER_GOV_US = new WorkerDefinition(
-            "weather-gov", "Weather.gov", "US");
+            "weather-gov", "Weather.gov", "US",
+            new StationRef("KNYC", 40.7128, -74.0060, "NY"));
     private static final WorkerDefinition OPEN_METEO_CA = new WorkerDefinition(
-            "open", "Open-Meteo", "CA");
+            "open", "Open-Meteo", "CA",
+            new StationRef("STARTUP-OPEN-CA", 43.6532, -79.3832, "ON"));
     private static final WorkerDefinition VISUAL_CROSSING_US = new WorkerDefinition(
-            "visual-crossing", "Visual Crossing", "US");
+            "visual-crossing", "Visual Crossing", "US",
+            new StationRef("STARTUP-VISUAL-US", 48.3060, -120.6543, "WA"));
     private static final WorkerDefinition GOOGLE_WEATHER_US = new WorkerDefinition(
-            "google-weather", "Google Weather", "US");
+            "google-weather", "Google Weather", "US",
+            new StationRef("STARTUP-GOOGLE-US", 48.3060, -120.6543, "WA"));
     private static final WorkerDefinition WEATHER_CANADA_CA = new WorkerDefinition(
-            "weather-canada", "Weather Canada", "CA");
+            "weather-canada", "Weather Canada", "CA",
+            new StationRef("STARTUP-WEATHER-CANADA-CA", 43.6532, -79.3832, "ON"));
     private static final List<WorkerDefinition> WORKERS = List.of(
             WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US, GOOGLE_WEATHER_US, WEATHER_CANADA_CA);
 
@@ -68,6 +73,9 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.daily-limit.weather-canada:900}")
     private int weatherCanadaDailyLimit;
 
+    @Value("${weather.worker.startup-verification.enabled:true}")
+    private boolean startupVerificationEnabled;
+
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
 
@@ -98,7 +106,7 @@ public class StationWorker implements ApplicationRunner {
         }
 
         for (WorkerDefinition worker : WORKERS) {
-            Thread thread = new Thread(() -> loop(worker), workerThreadName(worker));
+            Thread thread = new Thread(() -> runStartupVerificationThenLoop(worker), workerThreadName(worker));
             thread.setDaemon(false);
             workerThreads.add(thread);
             thread.start();
@@ -232,6 +240,34 @@ public class StationWorker implements ApplicationRunner {
 
         maybeRunPostProcessing(summary);
         return summary;
+    }
+
+    private void runStartupVerificationThenLoop(WorkerDefinition worker) {
+        runStartupVerification(worker);
+        loop(worker);
+    }
+
+    private void runStartupVerification(WorkerDefinition worker) {
+        if (!startupVerificationEnabled || !running || Thread.currentThread().isInterrupted()) {
+            return;
+        }
+
+        StationRef station = worker.startupStation();
+        long startedAt = currentTimeMillis();
+        log.info("Startup weather worker verification started. provider={} country={} station={} state={}",
+                worker.reportName(), worker.country(), station.mli(), station.state());
+        ProcessingOutcome outcome = processorFor(worker).verifyStartup(station, worker.country());
+        long elapsedMs = Math.max(0L, currentTimeMillis() - startedAt);
+        if (outcome == ProcessingOutcome.PROCESSED) {
+            log.info("Startup weather worker verification succeeded. provider={} country={} station={} state={} "
+                            + "outcome={} elapsedMs={}",
+                    worker.reportName(), worker.country(), station.mli(), station.state(), outcome, elapsedMs);
+            return;
+        }
+
+        log.error("Startup weather worker verification failed. provider={} country={} station={} state={} "
+                        + "outcome={} elapsedMs={}",
+                worker.reportName(), worker.country(), station.mli(), station.state(), outcome, elapsedMs);
     }
 
     private void logCountryPassSummary(CountryPassSummary summary) {
@@ -422,6 +458,6 @@ public class StationWorker implements ApplicationRunner {
             String lastFailedStation) {
     }
 
-    private record WorkerDefinition(String provider, String reportName, String country) {
+    private record WorkerDefinition(String provider, String reportName, String country, StationRef startupStation) {
     }
 }

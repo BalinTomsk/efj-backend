@@ -30,6 +30,13 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
     }
 
     @Override
+    protected void verifyStation(StationRef station) throws Exception {
+        String json = fetcher.fetchLatestObservation(station.mli());
+        log.info("Startup Weather.gov verification fetched payload. station={} state={} bytes={}",
+                station.mli(), station.state(), json.length());
+    }
+
+    @Override
     protected Logger logger() {
         return log;
     }
