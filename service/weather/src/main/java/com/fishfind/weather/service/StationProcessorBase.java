@@ -23,7 +23,20 @@ public abstract class StationProcessorBase {
         }
     }
 
+    public final ProcessingOutcome verifyStartup(StationRef station, String country) {
+        try {
+            verifyStation(station);
+            return ProcessingOutcome.PROCESSED;
+        } catch (Exception ex) {
+            return handleProcessingException(station, ex, country);
+        }
+    }
+
     protected abstract void processStation(StationRef station) throws Exception;
+
+    protected void verifyStation(StationRef station) throws Exception {
+        processStation(station);
+    }
 
     protected abstract Logger logger();
 

@@ -32,6 +32,13 @@ public class StationProcessorWeatherCanada extends StationProcessorBase {
     }
 
     @Override
+    protected void verifyStation(StationRef station) throws Exception {
+        String json = fetcher.fetchLatestObservation(station.latitude(), station.longitude());
+        log.info("Startup Weather Canada verification fetched payload. station={} state={} bytes={}",
+                station.mli(), station.state(), json.length());
+    }
+
+    @Override
     protected Logger logger() {
         return log;
     }
