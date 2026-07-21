@@ -2,6 +2,7 @@ package com.fishfind.weather.service;
 
 import com.fishfind.weather.domain.StationRef;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import org.slf4j.Logger;
 
 /**
@@ -45,7 +46,17 @@ public abstract class StationProcessorBase {
             );
             return ProcessingOutcome.SKIPPED;
         }
-
+        if (ex instanceof IOException && isHttp503(ex)) {
+            logger().warn(
+                    "{} processing failed with upstream HTTP 503. station={} state={} error={}: {}",
+                    stationLabel(country),
+                    station.mli(),
+                    station.state(),
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage()
+            );
+            return ProcessingOutcome.FAILED_HTTP_503;
+        }
         logger().warn(
                 "{} processing failed. station={} state={}",
                 stationLabel(country),
@@ -58,5 +69,10 @@ public abstract class StationProcessorBase {
 
     private String stationLabel(String country) {
         return country + " station";
+    }
+
+    private static boolean isHttp503(Exception ex) {
+        String message = ex.getMessage();
+        return message != null && message.contains("HTTP 503");
     }
 }

@@ -200,13 +200,14 @@ public class StationWorker implements ApplicationRunner {
             }
 
             long startedAt = currentTimeMillis();
-            switch (processorFor(worker).process(station, country)) {
+            ProcessingOutcome outcome = processorFor(worker).process(station, country);
+            switch (outcome) {
                 case PROCESSED -> {
                     processed++;
                     lastProcessedStation = station.mli();
                 }
                 case SKIPPED -> skipped++;
-                case FAILED -> {
+                case FAILED, FAILED_HTTP_503 -> {
                     failed++;
                     lastFailedStation = station.mli();
                 }
@@ -306,7 +307,12 @@ public class StationWorker implements ApplicationRunner {
 
         log.info("Cycle healthy; running post-processing. country={} processed={} skipped={} failed={}",
                 summary.country(), processed, skipped, failed);
-        postProcessingService.runAfterStationProcessing();
+        try {
+            postProcessingService.runAfterStationProcessing();
+        } catch (RuntimeException ex) {
+            log.error("Post-processing failed after healthy cycle. country={} processed={} skipped={} failed={}",
+                    summary.country(), processed, skipped, failed, ex);
+        }
     }
 
     private void loop(WorkerDefinition worker) {

@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fishfind.weather.domain.StationRef;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -57,6 +58,22 @@ class StationProcessorBaseTest {
                 .contains("Open-Meteo source")
                 .contains("MLI-1")
                 .contains("WA");
+    }
+
+    @Test
+    void http503LogsConciseWarningWithoutStackTraceAndSwallows() {
+        toThrow = new IOException("Weather.gov returned HTTP 503 for station MLI-1");
+
+        assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED_HTTP_503);
+
+        assertThat(appender.list).hasSize(1);
+        ILoggingEvent event = appender.list.get(0);
+        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+        assertThat(event.getFormattedMessage())
+                .contains("HTTP 503")
+                .contains("MLI-1")
+                .contains("IOException");
+        assertThat(event.getThrowableProxy()).isNull();
     }
 
     @Test
