@@ -31,6 +31,12 @@ It must always reflect the current state of the code.
 Explicitly follows database schema at:
 - @srv/../../envfish-db
 
+- **DO NOT COMMIT without explicit user permission.**
+- **DO NOT PUSH without explicit user permission.**
+- **DO NOT CREATE, MERGE, OR CLOSE PULL REQUESTS without explicit user permission.**
+- When code changes are requested, make the file edits and stop with a status summary unless the
+  user explicitly asks for Git actions.
+
 - Local project skills live under `.claude/skills` inside this service. When the user asks to run a
   skill by name, check `.claude/skills/<skill-name>/SKILL.md` before searching repo-level `Skills`
   directories or global skill registries.
