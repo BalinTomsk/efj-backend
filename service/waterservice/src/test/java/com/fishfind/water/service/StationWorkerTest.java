@@ -53,10 +53,47 @@ class StationWorkerTest {
         worker.run(new DefaultApplicationArguments("--console"));
 
         verify(scheduler, never()).schedule(any(Runnable.class), any(Trigger.class));
+        verify(repo, never()).findSupported(any());
     }
 
     @Test
     void normalModeSchedulesCronCycle() {
+        when(repo.findSupported("CA")).thenReturn(List.of());
+        when(repo.findSupported("US")).thenReturn(List.of());
+
+        worker.run(new DefaultApplicationArguments());
+
+        verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+    }
+
+    @Test
+    void normalModeVerifiesOneStationPerCountryBeforeScheduling() {
+        when(repo.findSupported("CA")).thenReturn(List.of(
+                new StationRef("A", "QC", -5),
+                new StationRef("B", "ON", -5)
+        ));
+        when(repo.findSupported("US")).thenReturn(List.of(
+                new StationRef("08312000", "NM", -7),
+                new StationRef("08313000", "NY", -5)
+        ));
+        when(processorCA.processWithOutcome("A", "QC", -5)).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processorUS.processWithOutcome("08312000", "NM", -7)).thenReturn(ProcessingOutcome.PROCESSED);
+
+        worker.run(new DefaultApplicationArguments());
+
+        var ordered = inOrder(processorCA, processorUS, scheduler);
+        ordered.verify(processorCA).processWithOutcome("A", "QC", -5);
+        ordered.verify(processorUS).processWithOutcome("08312000", "NM", -7);
+        ordered.verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+        verify(processorCA, never()).processWithOutcome("B", "ON", -5);
+        verify(processorUS, never()).processWithOutcome("08313000", "NY", -5);
+    }
+
+    @Test
+    void startupVerificationFailureDoesNotPreventScheduling() {
+        when(repo.findSupported("CA")).thenThrow(new RuntimeException("db down"));
+        when(repo.findSupported("US")).thenReturn(List.of());
+
         worker.run(new DefaultApplicationArguments());
 
         verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));

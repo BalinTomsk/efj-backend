@@ -1,5 +1,6 @@
 package com.fishfind.water.service;
 
+import com.fishfind.water.domain.StationRef;
 import com.fishfind.water.repo.WaterStationRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -13,8 +14,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -36,6 +38,7 @@ public class StationWorker implements ApplicationRunner {
     private static final String STATION_PROCESSED_METRIC = "water.station.processed";
     private static final String PROVIDER_CA = "environment-canada";
     private static final String PROVIDER_US = "usgs";
+    private static final List<String> WORKER_COUNTRIES = List.of("CA", "US");
 
     private final WaterStationRepository repo;
     private final StationProcessorCA processorCA;
@@ -89,8 +92,48 @@ public class StationWorker implements ApplicationRunner {
             return;
         }
 
+        verifyWorkersOnStartup();
         cycleScheduler.schedule(this::runScheduledCycle, new CronTrigger(cron));
         log.info("Scheduled hourly station cycle. cron=\"{}\"", cron);
+    }
+
+    /**
+     * Verifies each country worker can process one station before the recurring scheduler starts.
+     */
+    private void verifyWorkersOnStartup() {
+        String correlationId = UUID.randomUUID().toString().substring(0, 8);
+        MDC.put(MDC_CORRELATION_ID, correlationId);
+        try {
+            for (String country : WORKER_COUNTRIES) {
+                verifyWorkerOnStartup(country);
+            }
+        } finally {
+            MDC.remove(MDC_CORRELATION_ID);
+        }
+    }
+
+    private void verifyWorkerOnStartup(String country) {
+        LocalDate today = LocalDate.now();
+        try {
+            http503BackoffService.refreshDue(today);
+            var stations = repo.findSupported(country);
+            if (stations.isEmpty()) {
+                log.warn("Startup station verification failed. country={} reason=no-supported-stations", country);
+                return;
+            }
+
+            var station = stations.get(0);
+            ProcessingOutcome outcome = processSingleStation(country, station, today);
+            if (outcome == ProcessingOutcome.PROCESSED) {
+                log.info("Startup station verification succeeded. country={} station={} state={}",
+                        country, station.mli(), station.state());
+            } else {
+                log.warn("Startup station verification failed. country={} station={} state={} outcome={}",
+                        country, station.mli(), station.state(), outcome);
+            }
+        } catch (RuntimeException ex) {
+            log.error("Startup station verification failed. country={}", country, ex);
+        }
     }
 
     /**
@@ -283,30 +326,36 @@ public class StationWorker implements ApplicationRunner {
             }
             anyProcessed = true;
 
-            ProcessingOutcome outcome;
-            MDC.put(MDC_STATION, station.mli());
-            try {
-                outcome = processStation(country, station.mli(), station.state(), station.tz());
-            } finally {
-                MDC.remove(MDC_STATION);
-            }
-            meterRegistry.counter(STATION_PROCESSED_METRIC,
-                    "country", country,
-                    "outcome", outcome == ProcessingOutcome.PROCESSED ? "success" : "failure").increment();
+            ProcessingOutcome outcome = processSingleStation(country, station, today);
             lastProcessedStation = station.mli();
             if (outcome == ProcessingOutcome.PROCESSED) {
                 succeeded++;
-                http503BackoffService.recordProcessed(providerFor(country), country, station);
             } else {
                 failed++;
                 lastFailedStation = station.mli();
-                if (outcome == ProcessingOutcome.FAILED_HTTP_503) {
-                    http503BackoffService.recordHttp503(providerFor(country), country, station, today);
-                }
             }
-            log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());
         }
         return new PassStats(country, succeeded, failed, lastProcessedStation, lastFailedStation);
+    }
+
+    private ProcessingOutcome processSingleStation(String country, StationRef station, LocalDate today) {
+        ProcessingOutcome outcome;
+        MDC.put(MDC_STATION, station.mli());
+        try {
+            outcome = processStation(country, station.mli(), station.state(), station.tz());
+        } finally {
+            MDC.remove(MDC_STATION);
+        }
+        meterRegistry.counter(STATION_PROCESSED_METRIC,
+                "country", country,
+                "outcome", outcome == ProcessingOutcome.PROCESSED ? "success" : "failure").increment();
+        if (outcome == ProcessingOutcome.PROCESSED) {
+            http503BackoffService.recordProcessed(providerFor(country), country, station);
+        } else if (outcome == ProcessingOutcome.FAILED_HTTP_503) {
+            http503BackoffService.recordHttp503(providerFor(country), country, station, today);
+        }
+        log.debug("Processed station. country={} station={} state={}", country, station.mli(), station.state());
+        return outcome;
     }
 
     private ProcessingOutcome processStation(String country, String mli, String state, int tz) {
