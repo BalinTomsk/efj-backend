@@ -7,7 +7,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fishfind.weather.domain.StationRef;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -61,24 +60,7 @@ class StationProcessorBaseTest {
     }
 
     @Test
-    void ioExceptionLogsWarningWithoutStackTraceAndSwallows() {
-        toThrow = new IOException("HTTP 503");
-
-        assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED_HTTP_503);
-
-        assertThat(appender.list).hasSize(1);
-        ILoggingEvent event = appender.list.get(0);
-        assertThat(event.getLevel()).isEqualTo(Level.WARN);
-        assertThat(event.getFormattedMessage())
-                .contains("processing failed")
-                .contains("MLI-1")
-                .contains("IOException")
-                .contains("HTTP 503");
-        assertThat(event.getThrowableProxy()).isNull();
-    }
-
-    @Test
-    void unexpectedExceptionLogsWarningWithStackTraceAndSwallows() {
+    void otherExceptionLogsWarningAndSwallows() {
         toThrow = new IllegalStateException("kaboom");
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED);
@@ -89,7 +71,6 @@ class StationProcessorBaseTest {
         assertThat(event.getFormattedMessage())
                 .contains("processing failed")
                 .contains("MLI-1");
-        assertThat(event.getThrowableProxy()).isNotNull();
     }
 
     private class TestProcessor extends StationProcessorBase {

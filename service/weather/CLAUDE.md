@@ -31,10 +31,9 @@ It must always reflect the current state of the code.
 Explicitly follows database schema at:
 - @srv/../../envfish-db
 
-- Local project skills live under `.claude/skills` inside this service. When the user asks to run or
-  use a skill by name, you MUST first look for and use `.claude/skills/<skill-name>/SKILL.md`.
-  Only search repo-level `Skills` directories or global skill registries if that project-level file
-  does not exist.
+- Local project skills live under `.claude/skills` inside this service. When the user asks to run a
+  skill by name, check `.claude/skills/<skill-name>/SKILL.md` before searching repo-level `Skills`
+  directories or global skill registries.
 
 - **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
 bug fix that touches the DB), **read `c:\envoinx\fishfind\envfish-db\CLAUDE.md `

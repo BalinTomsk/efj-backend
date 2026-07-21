@@ -18,7 +18,7 @@ public class StationPostProcessingService {
         this.weatherDataRepository = weatherDataRepository;
     }
 
-    public synchronized void runAfterStationProcessing() {
+    public void runAfterStationProcessing() {
         log.info("Running post-processing procedure {}", "spPushSpeciesFromLakeToStation");
         weatherDataRepository.pushSpeciesFromLakeToStation();
 

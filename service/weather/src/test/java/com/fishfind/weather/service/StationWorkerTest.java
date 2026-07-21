@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.timeout;
@@ -39,7 +38,6 @@ class StationWorkerTest {
     private StationProcessorWeatherCanada weatherCanadaProcessor;
     private StationPostProcessingService postProcessing;
     private WeatherApiUsageTracker usageTracker;
-    private StationHttp503BackoffService http503BackoffService;
 
     private final List<Long> recordedSleeps = new ArrayList<>();
     private RecordingWorker worker;
@@ -59,7 +57,6 @@ class StationWorkerTest {
         weatherCanadaProcessor = Mockito.mock(StationProcessorWeatherCanada.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
         usageTracker = Mockito.mock(WeatherApiUsageTracker.class);
-        http503BackoffService = Mockito.mock(StationHttp503BackoffService.class);
         when(stationRepository.countSupportedStations(anyString())).thenReturn(THREE_STATIONS.size());
         when(stationRepository.findSupportedStations(anyString(), anyInt())).thenAnswer(invocation -> {
             int limit = invocation.getArgument(1);
@@ -130,51 +127,6 @@ class StationWorkerTest {
         StationWorker.RunResult result = worker.runOnce(null);
 
         assertThat(result.processedStations()).isZero();
-        verify(postProcessing).runAfterStationProcessing();
-    }
-
-    @Test
-    void refreshesDueHttp503BackoffBeforeLoadingStations() throws Exception {
-        when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
-
-        StationWorker.RunResult result = worker.runOnce(null);
-
-        assertThat(result.processedStations()).isEqualTo(3);
-        verify(http503BackoffService).refreshDue(any(LocalDate.class));
-        org.mockito.InOrder inOrder = Mockito.inOrder(http503BackoffService, stationRepository);
-        inOrder.verify(http503BackoffService).refreshDue(any(LocalDate.class));
-        inOrder.verify(stationRepository).countSupportedStations("US");
-    }
-
-    @Test
-    void recordsHttp503FailureAndResetsBackoffOnSuccess() throws Exception {
-        when(weatherGovProcessor.process(THREE_STATIONS.get(0), "US"))
-                .thenReturn(ProcessingOutcome.FAILED_HTTP_503);
-        when(weatherGovProcessor.process(THREE_STATIONS.get(1), "US"))
-                .thenReturn(ProcessingOutcome.PROCESSED);
-        when(weatherGovProcessor.process(THREE_STATIONS.get(2), "US"))
-                .thenReturn(ProcessingOutcome.SKIPPED);
-
-        StationWorker.RunResult result = worker.runOnce(null);
-
-        assertThat(result.processedStations()).isEqualTo(1);
-        assertThat(result.failedStations()).isEqualTo(1);
-        verify(http503BackoffService).recordHttp503(eq("weather-gov"), eq("US"), eq(THREE_STATIONS.get(0)),
-                any(LocalDate.class));
-        verify(http503BackoffService).recordProcessed("weather-gov", "US", THREE_STATIONS.get(1));
-        verify(http503BackoffService, never()).recordProcessed("weather-gov", "US", THREE_STATIONS.get(2));
-    }
-
-    @Test
-    void postProcessingFailureDoesNotFailCycle() throws Exception {
-        when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
-        doThrow(new RuntimeException("SQL stored procedure execution failed"))
-                .when(postProcessing).runAfterStationProcessing();
-
-        StationWorker.RunResult result = worker.runOnce(null);
-
-        assertThat(result.processedStations()).isEqualTo(3);
-        assertThat(result.failedStations()).isZero();
         verify(postProcessing).runAfterStationProcessing();
     }
 
@@ -309,8 +261,7 @@ class StationWorkerTest {
                 weatherCanadaProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
-                usageTracker,
-                http503BackoffService);
+                usageTracker);
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
         ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
@@ -331,8 +282,8 @@ class StationWorkerTest {
                         "weather-data-worker-google-weather-us",
                         "weather-data-worker-weather-canada-ca");
 
-        verify(usageTracker, timeout(5000)).reserve(eq("google-weather"), any(LocalDate.class), eq(0), eq(161));
-        verify(usageTracker, timeout(5000)).reserve(eq("weather-canada"), any(LocalDate.class), eq(0), eq(900));
+        verify(usageTracker, timeout(2000)).reserve(eq("google-weather"), any(LocalDate.class), eq(0), eq(161));
+        verify(usageTracker, timeout(2000)).reserve(eq("weather-canada"), any(LocalDate.class), eq(0), eq(900));
 
         backgroundWorker.shutdown();
     }
@@ -367,8 +318,7 @@ class StationWorkerTest {
                     weatherCanadaProcessor,
                     postProcessing,
                     new CycleReportRecorder(),
-                    usageTracker,
-                    http503BackoffService);
+                    usageTracker);
         }
 
         @Override

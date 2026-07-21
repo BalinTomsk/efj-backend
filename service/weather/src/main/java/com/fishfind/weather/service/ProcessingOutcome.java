@@ -9,8 +9,6 @@ public enum ProcessingOutcome {
     PROCESSED,
     /** Station has no published Open-Meteo feed (HTTP 404); a normal, expected skip. */
     SKIPPED,
-    /** Processing failed because the upstream provider returned HTTP 503. */
-    FAILED_HTTP_503,
     /** Processing failed (network error, rate limit, SQL failure, open circuit, ...). */
     FAILED
 }
