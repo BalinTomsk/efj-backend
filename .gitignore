@@ -41,7 +41,8 @@ OWMService/Res/OWMService.reg
 ############################
 # Application secrets
 ############################
-secret/waterservice.secret
+# The whole secret/ directory is local-only (waterservice.secret, .env, ghcr.token, ...).
+secret/
 application.yml
 # weather's application.yml holds only ${ENV_VAR} placeholders — safe to track.
 # (Negation must come AFTER the "application.yml" exclude above to take effect.)
