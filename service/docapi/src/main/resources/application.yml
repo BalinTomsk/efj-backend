@@ -1,0 +1,63 @@
+server:
+  port: 8080
+
+spring:
+  # Default backing is in-memory, so the service starts with NO database. Exclude the JDBC/datasource
+  # auto-configuration that would otherwise fail fast when DB_URL is not set. The `jdbc` profile
+  # (application-jdbc.yml) re-enables it by clearing this exclusion.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration
+
+resilience4j:
+  retry:
+    # Lower order than the circuit breaker so the breaker is the OUTERMOST aspect: an open breaker
+    # short-circuits immediately instead of being retried, and all retries of one call count as a single
+    # breaker outcome. (Only exercised under the `jdbc` profile.)
+    retry-aspect-order: 1
+    instances:
+      sqlRetry:
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - org.springframework.dao.DataAccessException
+          - java.sql.SQLException
+  circuitbreaker:
+    circuit-breaker-aspect-order: 2   # higher order => outermost (wraps Retry)
+    instances:
+      sqlBreaker:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+
+management:
+  server:
+    # Actuator (metrics/prometheus) on a separate port that must NOT be published/exposed publicly;
+    # only /health on 8080 is intended for external probes.
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        # Only operational endpoints. Deliberately NOT env/configprops/beans (would leak config/secrets).
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true            # /actuator/health/liveness and /actuator/health/readiness
+      show-details: never        # aggregate status only; do not expose component details publicly
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState   # no `db` here — the default profile has no datasource
+  health:
+    db:
+      enabled: false               # no datasource in the default (in-memory) profile
+
+logging:
+  level:
+    root: INFO
+    com.fishfind.docapi: INFO
