@@ -14,7 +14,9 @@ name: docapi
 #     The deploy job is skipped automatically until DEPLOY_HOST is set, so pushing to main just
 #     builds+pushes the image until the infra/secrets are ready.
 #
-# Repository secrets used by deploy:
+# Repository secrets:
+#   GHCR_PUSH_TOKEN      PAT (write:packages) used to push the image to GHCR (the docapi package is
+#                        user-owned and not connected to this repo, so GITHUB_TOKEN can't push it)
 #   DEPLOY_HOST          droplet address to deploy to (private IP once VPC-only; public IP for now)
 #   DEPLOY_USER          ssh user (root)
 #   DEPLOY_SSH_KEY       private key authorized on the droplet
@@ -70,10 +72,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write   # GITHUB_TOKEN pushes to GHCR; the docapi package must be linked to this repo
-                        # (Package settings -> Connect repository). Otherwise set a GHCR_PUSH_TOKEN PAT
-                        # and use it as the login password below instead of GITHUB_TOKEN.
+      contents: read    # GHCR push uses the GHCR_PUSH_TOKEN PAT (below), not GITHUB_TOKEN, because the
+                        # docapi package is user-owned and not connected to this repo.
     outputs:
       tag: ${{ steps.vars.outputs.tag }}
     steps:
@@ -85,8 +85,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: BalinTomsk
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
