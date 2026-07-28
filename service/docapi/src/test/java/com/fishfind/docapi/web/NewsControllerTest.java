@@ -3,32 +3,21 @@ package com.fishfind.docapi.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import com.fishfind.docapi.service.NewsDocumentService;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementSetter;
-import org.springframework.jdbc.core.ResultSetExtractor;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -47,6 +36,9 @@ class NewsControllerTest {
 
     @MockBean
     private NewsDocumentService service;
+
+    @MockBean
+    private NewsQueryRepository queryRepository;
 
     // ---- generic JSON-document CRUD (inherited from AbstractDocumentController) ----
 
@@ -104,10 +96,13 @@ class NewsControllerTest {
                 .andExpect(jsonPath("$.data.id").value("7"));
     }
 
-    // ---- News-page read queries (no DB in this slice, so results are empty) ----
+    // ---- News-page read queries (delegated to NewsQueryRepository) ----
 
     @Test
-    void listWithNoDatabaseReturnsEmptyPageEchoingPaging() throws Exception {
+    void listWithEmptyRepositoryReturnsEmptyPageEchoingPaging() throws Exception {
+        when(queryRepository.list(null, 5, 10))
+                .thenReturn(new NewsController.NewsListPage(List.of(), 0L, 5, 10));
+
         mockMvc.perform(get("/api/v1/news/list").param("offset", "5").param("limit", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray())
@@ -125,96 +120,52 @@ class NewsControllerTest {
     }
 
     @Test
-    void defaultWithNoDatabaseReturnsEmptyItems() throws Exception {
+    void defaultWithEmptyRepositoryReturnsEmptyItems() throws Exception {
+        when(queryRepository.defaultNews())
+                .thenReturn(objectMapper.createObjectNode().set("items", objectMapper.createArrayNode()));
+
         mockMvc.perform(get("/api/v1/news/default"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray())
                 .andExpect(jsonPath("$.data.items").isEmpty());
     }
 
-    // ---- News-page read queries with a JDBC backing (controller built directly, jdbc mocked) ----
-
     @Test
-    void listMapsFnNewsListRowsAndReadsTheTotalOnce() throws Exception {
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        PreparedStatement ps = mock(PreparedStatement.class);
-        NewsController controller = new NewsController(service, objectMapper, providerOf(jdbc));
+    void listMapsRepositoryResultsIntoTheEnvelope() throws Exception {
+        NewsController.NewsListItem item = new NewsController.NewsListItem(1L, "n-id", "Title", "Source", "2026-07-27", "CA", true, 0);
+        NewsController.NewsListPage page = new NewsController.NewsListPage(List.of(item), 8L, 0, 25);
+        when(queryRepository.list(null, 0, 25)).thenReturn(page);
 
-        when(jdbc.query(any(String.class), any(PreparedStatementSetter.class), any(ResultSetExtractor.class)))
-                .thenAnswer(invocation -> {
-                    // country normalized to upper-case and paging bound as parameters 1..3
-                    PreparedStatementSetter binder = invocation.getArgument(1);
-                    binder.setValues(ps);
-
-                    ResultSet rs = mock(ResultSet.class);
-                    when(rs.next()).thenReturn(true, false);
-                    when(rs.getLong("total")).thenReturn(8L);
-                    when(rs.getLong("rn")).thenReturn(1L);
-                    when(rs.getString("news_id")).thenReturn("n-guid");
-                    when(rs.getString("title")).thenReturn("Opener");
-                    when(rs.getString("source")).thenReturn("Gazette");
-                    when(rs.getString("stamp")).thenReturn("2026-07-10");
-                    when(rs.getString("flag")).thenReturn("CA");
-                    when(rs.getBoolean("has_photo")).thenReturn(true);
-                    when(rs.getInt("block_ord")).thenReturn(0);
-
-                    ResultSetExtractor<?> extractor = invocation.getArgument(2);
-                    return extractor.extractData(rs);
-                });
-
-        ApiResponse<NewsController.NewsListPage> response = controller.list("ca", 0, 25);
-        NewsController.NewsListPage page = response.data();
-
-        assertEquals(8L, page.total());
-        assertEquals(1, page.items().size());
-        NewsController.NewsListItem item = page.items().get(0);
-        assertEquals("Opener", item.title());
-        assertEquals("CA", item.flag());
-        assertTrue(item.hasPhoto());
-
-        verify(jdbc).query(eq(NewsController.LIST_SQL), any(PreparedStatementSetter.class), any(ResultSetExtractor.class));
-        verify(ps).setString(1, "CA");   // "ca" normalized to upper-case
-        verify(ps).setInt(2, 0);
-        verify(ps).setInt(3, 25);
+        mockMvc.perform(get("/api/v1/news/list"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].title").value("Title"))
+                .andExpect(jsonPath("$.data.total").value(8));
     }
 
     @Test
-    void defaultAssemblesItemsFromTheDefaultNewsFunctions() {
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        NewsController controller = new NewsController(service, objectMapper, providerOf(jdbc));
+    void defaultAssemblesRepositoryItemsIntoTheEnvelope() throws Exception {
+        JsonNode items = objectMapper.createArrayNode()
+                .add(objectMapper.readTree("{\"title\":\"Lead\",\"with_photo\":true}"))
+                .add(objectMapper.readTree("{\"title\":\"Small\",\"with_photo\":false}"));
+        JsonNode root = objectMapper.createObjectNode().set("items", items);
+        when(queryRepository.defaultNews()).thenReturn(root);
 
-        when(jdbc.query(any(String.class), any(RowMapper.class)))
-                .thenReturn(List.of("{\"title\":\"Lead\",\"with_photo\":true}", "{\"title\":\"Small\",\"with_photo\":false}"));
-
-        JsonNode data = controller.defaultNews().data();
-
-        assertEquals(2, data.get("items").size());
-        assertEquals("Lead", data.get("items").get(0).get("title").asText());
-        verify(jdbc).query(eq(NewsController.DEFAULT_SQL), any(RowMapper.class));
+        mockMvc.perform(get("/api/v1/news/default"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].title").value("Lead"));
     }
 
     @Test
-    void listClampsOffsetAndLimitEvenWithNoDatabase() {
-        NewsController controller = new NewsController(service, objectMapper, providerOf(null));
+    void newsAddCreatesTheDocument() throws Exception {
+        when(service.add(any())).thenReturn("42");
 
-        NewsController.NewsListPage page = controller.list(null, -5, 999).data();
-
-        assertEquals(0, page.offset());     // negative offset → 0
-        assertEquals(200, page.limit());    // 999 capped at MAX_LIMIT
-        assertTrue(page.items().isEmpty());
-    }
-
-    @Test
-    void listRejectsANonTwoLetterCountryAtTheServiceLevel() {
-        NewsController controller = new NewsController(service, objectMapper, providerOf(null));
-
-        assertThrows(InvalidDocumentException.class, () -> controller.list("USA", 0, 25));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<JdbcTemplate> providerOf(JdbcTemplate jdbc) {
-        ObjectProvider<JdbcTemplate> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(jdbc);
-        return provider;
+        mockMvc.perform(post("/api/v1/news")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"news\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").exists());
     }
 }
