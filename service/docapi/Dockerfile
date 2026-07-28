@@ -12,7 +12,10 @@ RUN mvn -B -DskipTests package
 FROM eclipse-temurin@sha256:8ec353b20d3aab0758572236b81b967c7077c40c4d0819ce97f9a1329d684603
 WORKDIR /app
 
-COPY --from=build /app/target/docapi-1.0.0.jar /app/docapi.jar
+# Version-agnostic on purpose: pom.xml <version> is bumped per release, so a hardcoded
+# jar name here would break the build on every version bump. The Spring Boot repackage
+# goal leaves the plain jar as *.jar.original, so this glob matches exactly one file.
+COPY --from=build /app/target/docapi-*.jar /app/docapi.jar
 
 # The temurin JRE image ships without wget/curl; install wget so HEALTHCHECK can actually run.
 RUN apt-get update \
