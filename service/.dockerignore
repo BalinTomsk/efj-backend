@@ -1,0 +1,8 @@
+.git
+.idea
+target
+schema
+scripts
+docs
+.env
+service/docs/*.*

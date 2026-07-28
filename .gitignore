@@ -14,7 +14,8 @@ target/
 *.iml
 *.ipr
 service/waterservice/.idea/workspace.xml 
-
+service/docs
+service/weather/docs/*.*
 
 ### VS Code ###
 .vscode/
