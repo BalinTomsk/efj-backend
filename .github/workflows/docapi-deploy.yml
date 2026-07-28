@@ -1,0 +1,148 @@
+name: docapi
+
+# Test → build image → push to GHCR → (optionally) deploy to the droplet.
+# Scoped to the docapi path so the other monorepo services are unaffected.
+#
+# Deploy model (see service/docapi/docs/do-update.md):
+#   - build-and-push runs on GitHub-hosted runners and needs no droplet access.
+#   - deploy SSHes into the droplet and runs docker pull/run there. Once the droplet is VPC-only
+#     with no public SSH, that SSH must originate INSIDE DigitalOcean. Two supported ways:
+#       (a) keep runs-on: ubuntu-latest and hop through a public **bastion** via the DEPLOY_BASTION_*
+#           secrets (appleboy proxy_*), targeting the droplet's private IP (e.g. 10.118.0.3); or
+#       (b) register a **self-hosted runner inside the VPC** and change the deploy job's runs-on to
+#           its label, then leave the DEPLOY_BASTION_* secrets empty (direct private connection).
+#     The deploy job is skipped automatically until DEPLOY_HOST is set, so pushing to main just
+#     builds+pushes the image until the infra/secrets are ready.
+#
+# Repository secrets used by deploy:
+#   DEPLOY_HOST          droplet address to deploy to (private IP once VPC-only; public IP for now)
+#   DEPLOY_USER          ssh user (root)
+#   DEPLOY_SSH_KEY       private key authorized on the droplet
+#   DEPLOY_BASTION_HOST  optional: bastion host for ProxyJump (leave empty for a self-hosted runner)
+#   DEPLOY_BASTION_USER  optional: bastion ssh user
+#   DEPLOY_BASTION_KEY   optional: bastion private key
+#   GHCR_PULL_TOKEN      PAT with read:packages so the droplet can pull the image (or make the
+#                        ghcr.io/balintomsk/docapi package public and this can be any valid token)
+# Repository variable (optional):
+#   DOCAPI_PUBLISH       docker -p mapping (default 127.0.0.1:8080:8080 = localhost-only; set to the
+#                        private IP, e.g. 10.118.0.3:8080:8080, when a proxy on another droplet needs it)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "service/docapi/**"
+      - ".github/workflows/docapi-deploy.yml"
+  pull_request:
+    paths:
+      - "service/docapi/**"
+      - ".github/workflows/docapi-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to the droplet after build/push"
+        type: boolean
+        default: true
+
+env:
+  IMAGE: ghcr.io/balintomsk/docapi
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service/docapi
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Run tests
+        run: mvn -B test
+
+  build-and-push:
+    needs: test
+    # Only build/publish an image for real refs, never for PRs.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # GITHUB_TOKEN pushes to GHCR; the docapi package must be linked to this repo
+                        # (Package settings -> Connect repository). Otherwise set a GHCR_PUSH_TOKEN PAT
+                        # and use it as the login password below instead of GITHUB_TOKEN.
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: vars
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: service/docapi
+          file: service/docapi/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.tag }}
+
+  deploy:
+    needs: build-and-push
+    # Deploy on a push to main, or on a manual run with deploy=true.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    runs-on: ubuntu-latest   # change to your self-hosted VPC runner label if you close outside-DO SSH entirely
+    steps:
+      - name: Check deploy is configured
+        id: guard
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
+            echo "::notice::DEPLOY_HOST secret not set — image built & pushed, deploy skipped."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to droplet
+        if: steps.guard.outputs.ready == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          TAG: ${{ needs.build-and-push.outputs.tag }}
+          PUBLISH: ${{ vars.DOCAPI_PUBLISH || '127.0.0.1:8080:8080' }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          proxy_host: ${{ secrets.DEPLOY_BASTION_HOST }}
+          proxy_username: ${{ secrets.DEPLOY_BASTION_USER }}
+          proxy_key: ${{ secrets.DEPLOY_BASTION_KEY }}
+          envs: TAG,PUBLISH
+          script: |
+            set -e
+            echo "${{ secrets.GHCR_PULL_TOKEN }}" | docker login ghcr.io -u BalinTomsk --password-stdin
+            docker pull "ghcr.io/balintomsk/docapi:${TAG}"
+            docker rm -f docapi 2>/dev/null || true
+            docker run -d --name docapi --restart unless-stopped \
+              -p "${PUBLISH}" \
+              --env-file /mnt/volume_jnode/waterservice/waterservice.env \
+              -e SPRING_PROFILES_ACTIVE=jdbc \
+              "ghcr.io/balintomsk/docapi:${TAG}"
+            docker logout ghcr.io || true
+            echo "Waiting for health..."
+            for i in $(seq 1 20); do
+              curl -sf http://localhost:8080/health && { echo; echo "docapi healthy"; exit 0; }
+              sleep 3
+            done
+            echo "docapi did not become healthy in time" >&2
+            docker logs --tail 50 docapi >&2 || true
+            exit 1
