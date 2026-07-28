@@ -78,7 +78,10 @@ com.fishfind.docapi
 │   ├── NewsDocumentRepository     # binds dbo.fn_news_doc / sp_news_doc_add / sp_news_doc_update
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
-│   └── StationDocumentRepository
+│   ├── StationDocumentRepository
+│   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
+│   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
+│   └── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
 │   ├── NewsDocumentService … (one @Service per entity)
@@ -102,13 +105,14 @@ store configs register beans under the same names, so switching profiles swaps t
 
 ## Storage backends (profiles)
 
-- **default (no profile)** — `InMemoryStoreConfig` provides four `InMemoryDocumentStore` beans. No DB.
-  `application.yml` excludes `DataSourceAutoConfiguration` / `DataSourceTransactionManagerAutoConfiguration`
-  / `JdbcTemplateAutoConfiguration` and turns the actuator `db` health indicator off.
+- **default (no profile)** — `InMemoryStoreConfig` provides four `InMemoryDocumentStore` beans and one
+  `InMemoryNewsQueryRepository`. No DB. `application.yml` excludes `DataSourceAutoConfiguration` /
+  `DataSourceTransactionManagerAutoConfiguration` / `JdbcTemplateAutoConfiguration` and turns the
+  actuator `db` health indicator off.
 - **`jdbc` profile** — `application-jdbc.yml` clears the exclusion and configures the Hikari datasource
   from `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`; `JdbcStoreConfig` provides four `JdbcDocumentRepository`
-  beans; the `db` health indicator + readiness `db` group are re-enabled. Run with
-  `--spring.profiles.active=jdbc`.
+  beans and one `JdbcNewsQueryRepository`; the `db` health indicator + readiness `db` group are
+  re-enabled. Run with `--spring.profiles.active=jdbc`.
 
 ---
 
@@ -134,12 +138,12 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
 
 ### News-page read queries (functions that already exist in `envfish-db`)
 
-Separate from the CRUD above, `NewsController` exposes two read endpoints that call **existing**
-functions (`mssql/script02_Funct.sql`, tested by `unit_test@DefaultNews.sql`) directly — no
-repository subclass; the SQL constants, row mapping, and the `NewsListItem`/`NewsListPage` records
-live in the controller, and it injects `ObjectProvider<JdbcTemplate>` (null in the default no-DB
-profile ⇒ empty results). Reads go through functions only (never base tables); both carry the same
-`sqlRetry`/`sqlBreaker` Resilience4j guards as the document reads.
+Separate from the CRUD above, `NewsController` exposes two read endpoints that delegate to
+`NewsQueryRepository` — a separate abstraction for news-page queries. The repository has two
+implementations: `InMemoryNewsQueryRepository` (default, returns empty results; no DB needed) and
+`JdbcNewsQueryRepository` (jdbc profile, calls existing functions tested by `unit_test@DefaultNews.sql`).
+Reads go through functions only (never base tables); both methods carry the same `sqlRetry`/`sqlBreaker`
+Resilience4j guards as the document reads.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
@@ -219,9 +223,8 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
 - `NewsControllerTest` — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
-  queries — empty `/list`+`/default` with no DB and a 400 on a bad country, and (controller built
-  directly with a mocked `JdbcTemplate`) `fn_news_list` row/`total` mapping, `default` item assembly,
-  and offset/limit clamping.
+  queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
+  and successful queries returning paginated items or home-page JSON.
 - `DocumentRoundTripTest` — `@SpringBootTest` + MockMvc, default in-memory backing: POST→GET→PUT→GET
   round-trip, 404, all four entities accept documents, and the News `/list`+`/default` queries return
   empty payloads (the "it actually works with no DB" proof).

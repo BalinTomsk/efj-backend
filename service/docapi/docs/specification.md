@@ -91,6 +91,9 @@ src/main/java/com/fishfind/docapi/repo/NewsDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/WaterbodyDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/FishDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/StationDocumentRepository.java
+src/main/java/com/fishfind/docapi/repo/NewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryNewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/service/DocumentService.java
 src/main/java/com/fishfind/docapi/service/NewsDocumentService.java
 src/main/java/com/fishfind/docapi/service/WaterbodyDocumentService.java
@@ -152,20 +155,22 @@ copied into JVM-global system properties. `main()` only calls `SpringApplication
 
 ## Profiles / storage backends
 
-Storage is behind the `DocumentStore` interface, chosen by Spring profile:
+Storage is behind the `DocumentStore` interface, chosen by Spring profile. Additionally,
+`NewsQueryRepository` has two implementations registered per profile:
 
 - **default (no profile)** — `InMemoryStoreConfig` (`@Profile("!jdbc")`) registers four
-  `InMemoryDocumentStore` beans (`newsStore`, `waterbodyStore`, `fishStore`, `stationStore`). No DB.
-  `application.yml` sets `spring.autoconfigure.exclude` to `DataSourceAutoConfiguration`,
-  `DataSourceTransactionManagerAutoConfiguration`, `JdbcTemplateAutoConfiguration`, and disables the
-  actuator `db` health indicator (readiness group = `readinessState` only).
+  `InMemoryDocumentStore` beans (`newsStore`, `waterbodyStore`, `fishStore`, `stationStore`) and one
+  `InMemoryNewsQueryRepository` bean. No DB. `application.yml` sets `spring.autoconfigure.exclude`
+  to `DataSourceAutoConfiguration`, `DataSourceTransactionManagerAutoConfiguration`,
+  `JdbcTemplateAutoConfiguration`, and disables the actuator `db` health indicator (readiness group =
+  `readinessState` only).
 - **`jdbc` profile** — `JdbcStoreConfig` (`@Profile("jdbc")`) registers four `JdbcDocumentRepository`
-  beans under the **same names**, each taking the shared `JdbcTemplate`. `application-jdbc.yml` clears
-  the auto-configure exclusion, configures the datasource, and re-enables the `db` health indicator +
-  readiness `db` group.
+  beans under the **same names**, each taking the shared `JdbcTemplate`, and one `JdbcNewsQueryRepository`
+  bean. `application-jdbc.yml` clears the auto-configure exclusion, configures the datasource, and
+  re-enables the `db` health indicator + readiness `db` group.
 
-Because both configs use the same bean names, each service injects its store by qualifier
-(`@Qualifier("newsStore")` …) and is agnostic to the active profile.
+Because both configs use the same bean names, each service/controller injects by name/qualifier
+and is agnostic to the active profile.
 
 ### Datasource (`application-jdbc.yml`, jdbc profile only)
 
@@ -239,21 +244,38 @@ returns the new id; `sp_<entity>_doc_update(@id,@json)` updates and returns the 
 `waterbody` = `dbo.lake`. The `fish` doc objects are distinct from the existing
 `dbo.fn_fish_document` / `dbo.sp_add_fish_document` (a PDF blob).
 
-### News-page query functions (already created in `envfish-db`)
+### News-page query repository (`NewsQueryRepository`)
 
-Unlike the document CRUD above, the two News-page read queries call functions that **exist**
-(`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`). They are invoked
-directly from `NewsController` (no repository subclass), reading through functions only — never base
-tables:
+The two News-page read queries are delegated to `NewsQueryRepository` — a separate abstraction from
+the document-store pattern, following the repository pattern established in the codebase. Two
+implementations exist:
+
+- **`InMemoryNewsQueryRepository`** (default profile) — returns empty results; no database access.
+- **`JdbcNewsQueryRepository`** (jdbc profile) — calls functions that **exist** in `envfish-db`
+  (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`), reading through
+  functions only — never base tables. Both methods carry `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")`
+  with fallbacks.
 
 | Query | SQL | Returns |
 |-------|-----|---------|
 | latest-news page | `SELECT rn, news_id, title, source, stamp, flag, has_photo, block_ord, total FROM dbo.fn_news_list(?, ?, ?) ORDER BY rn` | one page of rows + windowed `total` |
 | home page | `SELECT dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | one JSON document per home item, in display order |
 
+**Interface:**
+
+- `NewsListPage list(String country, int offset, int limit)` — `country` NULL ⇒ all countries;
+  an ISO-2 code filters to it, and a **non-CA** country with fewer than 100 published items is
+  padded with the latest Canadian news up to 100 (`blockOrd = 1`). Modern `OFFSET/FETCH` paging
+  with a windowed `COUNT(*) OVER()` `total`. Returns `NewsListPage` with items list and paging metadata.
+- `JsonNode defaultNews()` — returns `{ "items": [ <news>, … ] }` in display order (2 lead articles
+  first, then 3 right-column items), each the per-item JSON document. With no JDBC backing
+  (default profile), returns `{ "items": [] }`.
+
+**SQL details:**
+
 - `dbo.fn_news_list(@country, @offset, @fetch)` — `@country` NULL ⇒ all countries; an ISO-2 code
   filters to it, and a **non-CA** country with fewer than 100 published items is padded with the
-  latest Canadian news up to 100 (`block_ord = 1`). Modern `OFFSET/FETCH` paging with a windowed
+  latest Canadian news up to 100 (`block_ord = 1`). Modern `OFFSET/FETCH` paging with windowed
   `COUNT(*) OVER()` `total`.
 - `dbo.fn_default_news_ids()` — the home-page ids with `with_photo` (1 = lead/photo slot, 2 leads;
   0 = right column) and `ord` (1-based display position). `dbo.fn_default_news_json(@news_id,
@@ -312,22 +334,18 @@ than binding a fixed DTO. `idNode` builds `{ "id": … }` via the injected `Obje
 `@RequestMapping(value="/api/v1/<entity>", produces=JSON)`, constructor injecting the entity service
 + `ObjectMapper` into `super(...)`.
 
-`NewsController` additionally injects `ObjectProvider<JdbcTemplate>` (empty in the default no-DB
-profile → `getIfAvailable()` is null) and adds the two News-page read queries directly (no repository
-subclass — the SQL, row mapping, and the `NewsListItem` / `NewsListPage` records all live in the
-controller):
+`NewsController` additionally injects `NewsQueryRepository` and adds the two News-page read queries
+as delegations to the repository:
 
 - `@GetMapping("/list")` `list(country, offset, limit)` — normalizes/clamps params (a non-2-letter
-  `country` ⇒ `InvalidDocumentException` → 400), then runs `LIST_SQL` (`dbo.fn_news_list`) via a
-  `ResultSetExtractor` that maps rows to `NewsListItem` and reads the windowed `total` once. With no
-  JDBC template it returns an empty `NewsListPage` echoing the clamped paging.
-- `@GetMapping("/default")` `defaultNews()` — runs `DEFAULT_SQL`
-  (`dbo.fn_default_news_json(...) FROM dbo.fn_default_news_ids() ORDER BY ord`), parses each returned
-  JSON string with `ObjectMapper.readTree` into an `items` array. Empty when there's no JDBC template.
+  `country` ⇒ `InvalidDocumentException` → 400), then delegates to
+  `queryRepository.list(normalizedCountry, safeOffset, safeLimit)`. The repository handles SQL
+  execution (JDBC profile) or returns empty results (default profile).
+- `@GetMapping("/default")` `defaultNews()` — delegates to `queryRepository.defaultNews()`,
+  returning `{ "items": […] }` per the repository implementation.
 
-Both carry `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")` with fallbacks (`listFallback` /
-`defaultFallback`); `listFallback` rethrows an `InvalidDocumentException` unchanged so it still maps
-to 400. The literal `/list` and `/default` paths win over the inherited templated `/{id}`.
+The literal `/list` and `/default` paths win over the inherited templated `/{id}`. Resilience4j
+decorators (`@Retry` / `@CircuitBreaker`) live on the repository methods, not the controller.
 
 ### `HealthController`
 
@@ -393,12 +411,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsDocumentRepositoryTest` — mocks `JdbcTemplate`, asserts get scalar mapping + the SQL string.
 - `DocumentServiceTest` — mocks `DocumentStore`, real `ObjectMapper`: get/parse, not-found, blank-id,
   add normalization, blank/malformed body rejection, update id fallback.
-- `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service (12 tests): the CRUD
-  envelope (GET/404/POST-201/400/PUT); the News-page queries in the no-DB slice (empty `/list`
-  echoing paging, 400 on a non-2-letter country, empty `/default`); and — building the controller
-  directly with a mocked `JdbcTemplate` — `fn_news_list` row/`total` mapping with country
-  normalization + param binding, `default` item assembly from the `fn_default_news_*` functions,
-  offset/limit clamping, and country validation.
+- `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (11 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, and country validation.
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

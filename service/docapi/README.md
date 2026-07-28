@@ -52,7 +52,10 @@ src/main/java/com/fishfind/docapi/
 │   ├── NewsDocumentRepository.java
 │   ├── WaterbodyDocumentRepository.java
 │   ├── FishDocumentRepository.java
-│   └── StationDocumentRepository.java
+│   ├── StationDocumentRepository.java
+│   ├── NewsQueryRepository.java        # interface for news-page queries (list + default)
+│   ├── InMemoryNewsQueryRepository.java
+│   └── JdbcNewsQueryRepository.java
 ├── service/
 │   ├── DocumentService.java            # abstract: validation + not-found handling
 │   ├── NewsDocumentService.java …      # one per entity
