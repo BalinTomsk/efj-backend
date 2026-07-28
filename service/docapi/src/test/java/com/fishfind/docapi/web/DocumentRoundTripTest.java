@@ -64,6 +64,15 @@ class DocumentRoundTripTest {
     }
 
     @Test
+    void unmappedPathReturns404NotFoundNotServerError() throws Exception {
+        // A bot probing an unmapped route (e.g. /login) must get a quiet 404, not a logged 500.
+        mockMvc.perform(get("/login"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
     void newsQueryEndpointsWorkWithNoDatabase() throws Exception {
         // The latest-news list and the home page both run with the default in-memory backing (no DB),
         // returning well-formed but empty payloads.

@@ -9,12 +9,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Translates exceptions into the {@link ApiResponse} error envelope with an appropriate HTTP status.
  *
- * <p>Client mistakes (unknown id, malformed/blank body) become 4xx with a descriptive message; anything
- * else is logged and returned as a generic 500 so internal details (SQL, stack traces) never leak to callers.
+ * <p>Client mistakes (unknown id, malformed/blank body, unmapped path) become 4xx with a descriptive
+ * message; anything else is logged and returned as a generic 500 so internal details (SQL, stack
+ * traces) never leak to callers.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -25,6 +27,18 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNotFound(DocumentNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.fail("not_found", ex.getMessage()));
+    }
+
+    /**
+     * An unmapped request path (no controller and no static resource — commonly a bot probing
+     * {@code /login}, {@code /wp-admin}, etc. now that the API is publicly reachable). This is a
+     * 404, not a server error: return it as {@code not_found} and do <strong>not</strong> log a
+     * stack trace, so scanner traffic never shows up as noisy ERROR-level 500s.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail("not_found", "No handler for the requested path"));
     }
 
     @ExceptionHandler({InvalidDocumentException.class, HttpMessageNotReadableException.class})
