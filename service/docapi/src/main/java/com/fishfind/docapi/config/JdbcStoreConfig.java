@@ -1,8 +1,11 @@
 package com.fishfind.docapi.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.FishDocumentRepository;
+import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsDocumentRepository;
+import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.repo.StationDocumentRepository;
 import com.fishfind.docapi.repo.WaterbodyDocumentRepository;
 import org.springframework.context.annotation.Bean;
@@ -41,5 +44,10 @@ public class JdbcStoreConfig {
     @Bean
     public DocumentStore stationStore(JdbcTemplate jdbc) {
         return new StationDocumentRepository(jdbc);
+    }
+
+    @Bean
+    public NewsQueryRepository newsQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcNewsQueryRepository(jdbc, objectMapper);
     }
 }
