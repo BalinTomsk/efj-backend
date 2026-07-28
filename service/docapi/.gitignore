@@ -1,0 +1,18 @@
+target/
+logs/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.kotlin
+!**/src/main/resources/application.yml
+
+### IntelliJ IDEA ###
+.idea/*
+
+############################
+# Application secrets
+############################
+.env
+config.ini
+docs/digitalocean.md
+docs/do-update.md

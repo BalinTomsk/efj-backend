@@ -1,0 +1,32 @@
+# Activated with the `jdbc` Spring profile (e.g. SPRING_PROFILES_ACTIVE=jdbc or --spring.profiles.active=jdbc).
+# Switches DocApi from the in-memory backing to the SQL Server stored-procedure backing. Requires
+# DB_URL / DB_USERNAME / DB_PASSWORD and the per-entity DB objects (see docs/specification.md).
+spring:
+  # Clear the default profile's datasource exclusion so JDBC auto-configuration runs again.
+  autoconfigure:
+    exclude:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    hikari:
+      pool-name: docapi-hikari
+      # Sized for concurrent HTTP request handling against the remote DB.
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+      # Retire connections before the server/network idle timeout closes them out from under the pool.
+      max-lifetime: 1740000   # 29 min
+      keepalive-time: 300000  # 5 min
+      validation-timeout: 5000
+
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db   # readiness reflects datasource connectivity
+  health:
+    db:
+      enabled: true

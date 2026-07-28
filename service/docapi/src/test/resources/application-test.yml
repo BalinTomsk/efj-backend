@@ -1,0 +1,29 @@
+server:
+  port: 0
+
+# The default (in-memory) backing needs no datasource; JDBC auto-configuration stays excluded via the
+# base application.yml, so tests boot without a database.
+
+resilience4j:
+  retry:
+    retry-aspect-order: 1
+    instances:
+      sqlRetry:
+        max-attempts: 3
+        wait-duration: 10ms
+        retry-exceptions:
+          - org.springframework.dao.DataAccessException
+          - java.sql.SQLException
+  circuitbreaker:
+    circuit-breaker-aspect-order: 2
+    instances:
+      sqlBreaker:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+
+logging:
+  level:
+    root: WARN
+    com.fishfind.docapi: WARN
