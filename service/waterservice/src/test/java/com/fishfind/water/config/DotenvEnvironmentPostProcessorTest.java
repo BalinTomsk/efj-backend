@@ -13,7 +13,9 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class DotenvEnvironmentPostProcessorTest {
 
@@ -79,5 +81,40 @@ class DotenvEnvironmentPostProcessorTest {
         assertDoesNotThrow(() -> processor.postProcessEnvironment(environment, new SpringApplication()));
 
         assertFalse(environment.getPropertySources().contains(SOURCE_NAME));
+    }
+
+    @Test
+    void failsFastWhenAValueIsEncryptedButNoMasterKeyIsConfigured() throws Exception {
+        // Only meaningful when this JVM has no key configured; skip rather than fail on a machine
+        // that legitimately has one exported.
+        assumeTrue(System.getenv("FF_MASTER_KEY_FILE") == null && System.getenv("FF_MASTER_KEY") == null,
+                "a master key is configured in this environment");
+
+        Files.writeString(DOTENV_PATH, "DB_PASSWORD=enc:v1:6tiG1Z4iC24LMP6h7LN5x9s_OraeqDKDny_lHf9rAm94XKFNbu3pSaqv9A\n");
+        StandardEnvironment environment = new StandardEnvironment();
+
+        // Startup must break loudly. Passing the raw enc:v1: string through to the JDBC driver would
+        // surface as an unrelated-looking SQL login failure.
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> processor.postProcessEnvironment(environment, new SpringApplication()));
+
+        assertTrue(thrown.getMessage().contains("DB_PASSWORD"));
+        assertTrue(thrown.getMessage().contains("FF_MASTER_KEY_FILE"));
+    }
+
+    @Test
+    void leavesAPlaintextDotenvCompletelyUnaffected() throws Exception {
+        // The rollout depends on this: decrypt-capable images ship first and must run against the
+        // existing all-plaintext .env with no key present at all.
+        assumeTrue(System.getenv("FF_MASTER_KEY_FILE") == null && System.getenv("FF_MASTER_KEY") == null,
+                "a master key is configured in this environment");
+
+        Files.writeString(DOTENV_PATH, "DB_URL=jdbc:plain\nDB_USERNAME=user\nDB_PASSWORD=pass\n");
+        StandardEnvironment environment = new StandardEnvironment();
+
+        assertDoesNotThrow(() -> processor.postProcessEnvironment(environment, new SpringApplication()));
+
+        assertEquals("jdbc:plain", environment.getProperty("DB_URL"));
+        assertEquals("pass", environment.getProperty("DB_PASSWORD"));
     }
 }

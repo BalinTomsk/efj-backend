@@ -1,5 +1,6 @@
 package com.fishfind.weather;
 
+import com.fishfind.weather.config.SecretCodec;
 import io.github.cdimascio.dotenv.Dotenv;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -95,6 +96,12 @@ public class WeatherStationPusherApplication {
         return null;
     }
 
+    /**
+     * Adds one dotenv value to the fallback map unless the process environment or system properties
+     * already supply it, unwrapping the value first when it is stored as {@code enc:v1:} ciphertext.
+     * An encrypted value arriving as a real environment variable instead is handled by
+     * {@link com.fishfind.weather.config.EncryptedEnvironmentPostProcessor}, which can outrank it.
+     */
     static void addIfMissing(Dotenv dotenv, Map<String, Object> fallback, String key) {
         if (System.getenv(key) != null || System.getProperty(key) != null) {
             return;
@@ -102,7 +109,7 @@ public class WeatherStationPusherApplication {
 
         String value = dotenv.get(key);
         if (value != null && !value.isBlank()) {
-            fallback.put(key, value);
+            fallback.put(key, SecretCodec.decryptIfNeeded(key, value));
         }
     }
 }
