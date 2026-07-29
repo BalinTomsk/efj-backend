@@ -33,12 +33,16 @@ param(
     [string] $OutputPath    = (Join-Path $PSScriptRoot '.env'),
     [string] $KeyPath       = (Join-Path $PSScriptRoot 'master.key'),
 
-    # SQL Server host (inside the JDBC URL), login name and password, plus the paid weather API
-    # keys. Anything not listed here is copied through in plaintext; see the warning emitted at the
-    # end of an encrypt run, which flags secret-looking names that were left unencrypted.
+    # SQL Server host (inside the JDBC URL), login name and password; the paid weather API keys; and
+    # the SMTP account plus the weekly-report addresses. SMTP_HOST/SMTP_PORT stay readable — they are
+    # not credentials and are useful to eyeball when the Friday report fails to arrive.
+    #
+    # Anything not listed here is copied through in plaintext; see the warning emitted at the end of
+    # an encrypt run, which flags secret-looking names that were left unencrypted.
     [string[]] $Encrypt = @(
         'DB_URL', 'DB_USERNAME', 'DB_PASSWORD',
-        'VISUAL_CROSSING_API_KEY', 'GOOGLE_WEATHER_API_KEY'
+        'VISUAL_CROSSING_API_KEY', 'GOOGLE_WEATHER_API_KEY',
+        'SMTP_USERNAME', 'SMTP_PASSWORD', 'REPORT_EMAIL_FROM', 'REPORT_EMAIL_TO'
     ),
 
     [Parameter(ParameterSetName = 'GenerateKey')]
