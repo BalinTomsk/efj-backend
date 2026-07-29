@@ -33,8 +33,13 @@ param(
     [string] $OutputPath    = (Join-Path $PSScriptRoot '.env'),
     [string] $KeyPath       = (Join-Path $PSScriptRoot 'master.key'),
 
-    # SQL Server host (inside the JDBC URL), login name, and password.
-    [string[]] $Encrypt = @('DB_URL', 'DB_USERNAME', 'DB_PASSWORD'),
+    # SQL Server host (inside the JDBC URL), login name and password, plus the paid weather API
+    # keys. Anything not listed here is copied through in plaintext; see the warning emitted at the
+    # end of an encrypt run, which flags secret-looking names that were left unencrypted.
+    [string[]] $Encrypt = @(
+        'DB_URL', 'DB_USERNAME', 'DB_PASSWORD',
+        'VISUAL_CROSSING_API_KEY', 'GOOGLE_WEATHER_API_KEY'
+    ),
 
     [Parameter(ParameterSetName = 'GenerateKey')]
     [switch] $GenerateKey,
@@ -264,4 +269,15 @@ foreach ($line in [IO.File]::ReadAllLines($PlaintextPath)) {
 Write-Host "Wrote $OutputPath"
 Write-Host ("  encrypted: " + ($encrypted -join ', '))
 Write-Host ("  verbatim:  " + ($skipped -join ', '))
+
+# Safety net for the obvious failure mode of an allow-list: a new credential is added to
+# plaintext.env, nobody remembers to add it to -Encrypt, and it ships in the clear. Warn rather
+# than encrypt automatically, so what gets encrypted stays an explicit decision.
+$suspicious = $skipped | Where-Object { $_ -match 'PASSWORD|SECRET|TOKEN|CREDENTIAL|_KEY$|APIKEY' }
+if ($suspicious) {
+    Write-Host ""
+    Write-Warning ("These look like credentials but were left in plaintext: " + ($suspicious -join ', '))
+    Write-Warning "Add them to -Encrypt if they should be protected."
+}
+
 Write-Host "`nVerify with: ./Protect-Env.ps1 -Verify"
