@@ -65,6 +65,28 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
   templated `/{id}` document fetch. Both run with the default in-memory backing too, returning empty
   results (no DB), and are guarded by the same Resilience4j retry/breaker as the document reads.
 
+**Interchange export / import** (news only, `fn_news_json` format — the self-contained JSON the portal
+News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `GET`  | `/api/v1/news/export/{id}` | 200 | the full interchange document (nested JSON) |
+| `POST` | `/api/v1/news/import`      | 201 | `{ "id": <newId> }` |
+
+- **Only these two endpoints carry the FULL document** — every field plus all three paragraph photos
+  embedded as **base64**; the `/{id}`, `/list`, `/default` endpoints above keep their existing lighter
+  shapes and amount.
+- `GET /api/v1/news/export/{id}` — backed by `dbo.fn_news_json(@id)`; `NULL` ⇒ 404. The literal
+  `/export/…` prefix is matched ahead of the templated `/{id}` fetch. Read straight through the news
+  cache (not cached — large per-id payload).
+- `POST /api/v1/news/import` — backed by `dbo.sp_news_import(@json)`: creates a **published** article
+  from an `fn_news_json` body (base64 photos decoded to binary; `lake_id`/`fish1..3` accept a GUID
+  string or null), returns the new id. Blank/malformed body ⇒ 400 `invalid_document`. `news_title` is
+  UNIQUE, so importing an existing title raises the duplicate-key error. Importing evicts the news
+  cache (lists + home page) so the new article shows up immediately.
+- Both run with the default in-memory backing too (export ⇒ 404, import ⇒ a synthetic id), and are
+  guarded by the same Resilience4j retry/breaker as the document reads.
+
 All non-health responses use the envelope `{ data, error, meta }` where `meta` carries a
 `timestamp`. Exactly one of `data` / `error` is populated.
 
@@ -260,6 +282,8 @@ implementations exist:
 |-------|-----|---------|
 | latest-news page | `SELECT rn, news_id, title, source, stamp, flag, has_photo, block_ord, total FROM dbo.fn_news_list(?, ?, ?) ORDER BY rn` | one page of rows + windowed `total` |
 | home page | `SELECT dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | one JSON document per home item, in display order |
+| interchange export | `SELECT dbo.fn_news_json(?)` | the full interchange doc (all fields + 3 base64 photos), or `NULL` ⇒ 404 |
+| interchange import | `EXEC dbo.sp_news_import ?` | creates a published article from an `fn_news_json` body, returns the new id |
 
 **Interface:**
 
@@ -270,6 +294,13 @@ implementations exist:
 - `JsonNode defaultNews()` — returns `{ "items": [ <news>, … ] }` in display order (2 lead articles
   first, then 3 right-column items), each the per-item JSON document. With no JDBC backing
   (default profile), returns `{ "items": [] }`.
+- `JsonNode exportNews(String id)` — the full `fn_news_json` interchange document for one article
+  (every field + all 3 base64 photos), or `null` ⇒ 404. Only export/import carry this full shape;
+  the other queries keep their existing amount. In-memory profile returns `null`.
+- `String importNews(String json)` — creates a **published** article from an `fn_news_json` body
+  (`dbo.sp_news_import`, base64 photos decoded to binary) and returns the new id. In-memory profile
+  returns a synthetic id. The caching decorator (`NewsQueryCache`) reads `exportNews` straight
+  through (not cached) and **evicts the cached lists + home page on `importNews`**.
 
 **SQL details:**
 
@@ -281,6 +312,14 @@ implementations exist:
   0 = right column) and `ord` (1-based display position). `dbo.fn_default_news_json(@news_id,
   @with_photo)` — the per-item JSON document (info + base64 photo for a lead; compact for a
   right-column item).
+- `dbo.fn_news_json(@news_id)` — the **full interchange document**: title, author, author/source
+  links, source, video link, all 3 paragraphs, country, date, `lakeId`, `fish1/2/3Id`, and the 3
+  paragraph photos embedded as base64 with each photo's author/alt. `NULL` for an unknown id. The
+  same shape the portal's News.aspx "Save JSON" / AddNews "Import from JSON" round-trip uses.
+- `dbo.sp_news_import(@json)` — inserts one article from an `fn_news_json` body (base64 photos decoded
+  via `xs:base64Binary`; `lake_id`/`fish1..3` via `TRY_CONVERT`, bad text ⇒ null), `news_publish = 1`,
+  absent date ⇒ now, and returns the new `news_id`. Added test-first in `envfish-db`
+  (`UNIT_TESTS/unit_test@NewsImport.sql`, 4 tests incl. a fn_news_json export→import round-trip).
 
 ## Service layer
 
@@ -343,9 +382,16 @@ as delegations to the repository:
   execution (JDBC profile) or returns empty results (default profile).
 - `@GetMapping("/default")` `defaultNews()` — delegates to `queryRepository.defaultNews()`,
   returning `{ "items": […] }` per the repository implementation.
+- `@GetMapping("/export/{id}")` `export(id)` — `queryRepository.exportNews(id)`; a `null` result ⇒
+  `DocumentNotFoundException` → 404, otherwise the full interchange document in the envelope.
+- `@PostMapping(value="/import", consumes=JSON)` `@ResponseStatus(CREATED)` `importNews(body)` —
+  rejects a blank/malformed body with `InvalidDocumentException` → 400 (validated via the injected
+  `ObjectMapper`), then `queryRepository.importNews(body)`, returning `ok({ id })`.
 
-The literal `/list` and `/default` paths win over the inherited templated `/{id}`. Resilience4j
-decorators (`@Retry` / `@CircuitBreaker`) live on the repository methods, not the controller.
+The literal `/list`, `/default`, `/export/…`, and `/import` paths win over the inherited templated
+`/{id}`. Resilience4j decorators (`@Retry` / `@CircuitBreaker`) live on the repository methods, not the
+controller. `NewsController` stores the `ObjectMapper` (in addition to passing it to `super`) to
+validate the import body and build the `{ id }` node.
 
 ### `HealthController`
 
@@ -402,7 +448,7 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 30 tests, none requiring a database:
+`mvn test` runs 65 tests, none requiring a database:
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
@@ -411,7 +457,8 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsDocumentRepositoryTest` — mocks `JdbcTemplate`, asserts get scalar mapping + the SQL string.
 - `DocumentServiceTest` — mocks `DocumentStore`, real `ObjectMapper`: get/parse, not-found, blank-id,
   add normalization, blank/malformed body rejection, update id fallback.
-- `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (11 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, and country validation.
+- `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
+- `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

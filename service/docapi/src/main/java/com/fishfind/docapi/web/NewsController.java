@@ -1,14 +1,23 @@
 package com.fishfind.docapi.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.NewsQueryRepository;
+import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import com.fishfind.docapi.service.NewsDocumentService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -39,11 +48,59 @@ public class NewsController extends AbstractDocumentController {
     static final int MAX_LIMIT = 200;
 
     private final NewsQueryRepository queryRepository;
+    private final ObjectMapper objectMapper;
 
     public NewsController(NewsDocumentService service, ObjectMapper objectMapper,
                           NewsQueryRepository queryRepository) {
         super(service, objectMapper);
+        this.objectMapper = objectMapper;
         this.queryRepository = queryRepository;
+    }
+
+    /**
+     * Exports one article as the {@code fn_news_json} interchange document — every field needed to
+     * re-create it, with the 3 paragraph photos embedded as base64 (the same format the News.aspx
+     * "Save JSON" link and the AddNews "Import from JSON" round-trip use).
+     *
+     * <p>The literal {@code /export/...} prefix is matched ahead of the templated {@code /{id}} handler,
+     * so it never collides with a plain document fetch.
+     *
+     * @param id the article id
+     * @return the interchange JSON nested inside the response envelope
+     * @throws DocumentNotFoundException if no article exists for the id (→ 404)
+     */
+    @GetMapping("/export/{id}")
+    public ApiResponse<JsonNode> export(@PathVariable String id) {
+        JsonNode document = queryRepository.exportNews(id);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.NEWS, id);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * Imports one article from an {@code fn_news_json} interchange document, creating a new published
+     * article (base64 photos decoded to binary). Returns the new id.
+     *
+     * @param body the interchange JSON document
+     * @return an envelope carrying {@code { "id": <newId> }}
+     * @throws InvalidDocumentException if the body is missing or not well-formed JSON (→ 400)
+     */
+    @PostMapping(value = "/import", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<JsonNode> importNews(@RequestBody(required = false) String body) {
+        if (body == null || body.isBlank()) {
+            throw new InvalidDocumentException("Request body must be a non-empty JSON document");
+        }
+        try {
+            objectMapper.readTree(body);
+        } catch (JsonProcessingException ex) {
+            throw new InvalidDocumentException("Request body is not well-formed JSON: " + ex.getOriginalMessage(), ex);
+        }
+        String newId = queryRepository.importNews(body);
+        ObjectNode idNode = objectMapper.createObjectNode();
+        idNode.put("id", newId);
+        return ApiResponse.ok(idNode);
     }
 
     /**

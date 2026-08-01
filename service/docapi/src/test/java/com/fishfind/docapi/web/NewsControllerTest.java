@@ -168,4 +168,57 @@ class NewsControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.id").exists());
     }
+
+    // ---- interchange export / import (fn_news_json shape) ----
+
+    @Test
+    void exportReturnsTheInterchangeDocumentNestedInTheEnvelope() throws Exception {
+        when(queryRepository.exportNews("7"))
+                .thenReturn(objectMapper.readTree("{\"title\":\"Opener\",\"photo0\":\"AQIDBAU=\"}"));
+
+        mockMvc.perform(get("/api/v1/news/export/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("Opener"))
+                .andExpect(jsonPath("$.data.photo0").value("AQIDBAU="))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void exportUnknownIdReturns404() throws Exception {
+        when(queryRepository.exportNews("nope")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/news/export/nope"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void importReturns201WithNewId() throws Exception {
+        when(queryRepository.importNews(any())).thenReturn("abc-123");
+
+        mockMvc.perform(post("/api/v1/news/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Imported\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value("abc-123"));
+    }
+
+    @Test
+    void importInvalidJsonReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/news/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void importEmptyBodyReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/news/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
 }

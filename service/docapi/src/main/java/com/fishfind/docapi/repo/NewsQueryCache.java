@@ -121,6 +121,26 @@ public class NewsQueryCache implements NewsQueryRepository {
     }
 
     /**
+     * Not cached — a per-id interchange document (with embedded base64 photos) is large and rarely
+     * re-requested, so it reads straight through to the delegate.
+     */
+    @Override
+    public JsonNode exportNews(String id) {
+        return delegate.exportNews(id);
+    }
+
+    /**
+     * A write: create the article via the delegate, then drop the cached lists/home page so the new
+     * article shows up on the next read.
+     */
+    @Override
+    public String importNews(String json) {
+        String newId = delegate.importNews(json);
+        clear();
+        return newId;
+    }
+
+    /**
      * Drops every cached entry. The next request for each repopulates it from the database.
      */
     public void clear() {

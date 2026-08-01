@@ -127,7 +127,19 @@ ID=$(curl -s -X POST http://localhost:8080/api/v1/news \
      | sed -E 's/.*"id":"([^"]+)".*/\1/')          # e.g. news-1
 curl http://localhost:8080/api/v1/news/$ID
 curl -X PUT http://localhost:8080/api/v1/news/$ID -H 'Content-Type: application/json' -d '{"title":"Edited"}'
+
+# Interchange export/import (fn_news_json format — the full self-contained document with base64 photos)
+curl http://localhost:8080/api/v1/news/export/$ID
+curl -X POST http://localhost:8080/api/v1/news/import \
+     -H 'Content-Type: application/json' -d '{"title":"Imported","author":"Jane Roe"}'
 ```
+
+The News page adds four extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` and
+`GET /api/v1/news/default` (latest-news list + assembled home page), and the interchange
+`GET /api/v1/news/export/{id}` + `POST /api/v1/news/import`. **Only export/import carry the full
+document** (every field + the 3 paragraph photos embedded as base64, the same `fn_news_json` format the
+portal's News.aspx "Save JSON" / AddNews "Import from JSON" round-trip use); the other endpoints keep
+their existing lighter shapes.
 
 ### Response shape
 
@@ -164,6 +176,10 @@ Notes:
 - `waterbody` maps to the `dbo.lake` table.
 - The `fish` objects (`fn_fish_doc` / `sp_fish_doc_*`) are distinct from the existing
   `dbo.fn_fish_document` / `dbo.sp_add_fish_document`, which manage a PDF blob, not the species JSON.
+- **News interchange** (`/export`, `/import`) uses its own objects, both in `envfish-db`:
+  `dbo.fn_news_json(@id)` (already deployed) for export and `dbo.sp_news_import(@json)` (added
+  test-first — `unit_test@NewsImport.sql`) for import. These carry the **full** article (all fields +
+  base64 photos); the `fn_<entity>_doc` document reads above keep their existing lighter shapes.
 
 ## Docker
 

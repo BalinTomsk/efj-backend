@@ -8,13 +8,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 
+import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +33,12 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
     static final String DEFAULT_SQL =
             "SELECT dbo.fn_default_news_json(news_id, with_photo) "
                     + "FROM dbo.fn_default_news_ids() ORDER BY ord";
+
+    /** Interchange export: the full article as fn_news_json (all fields + base64 photos), or NULL. */
+    static final String EXPORT_SQL = "SELECT dbo.fn_news_json(?)";
+
+    /** Interchange import: create a published article from an fn_news_json body, returns the new id. */
+    static final String IMPORT_SQL = "EXEC dbo.sp_news_import ?";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -96,12 +102,64 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
         return root;
     }
 
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "exportFallback")
+    public JsonNode exportNews(String id) {
+        List<String> rows = jdbc.query(EXPORT_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parseItem(json);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "importFallback")
+    public String importNews(String json) {
+        // Mirror JdbcDocumentRepository's write path: the EXEC may emit incidental update counts as well
+        // as the id result set, so drain everything and take the first scalar.
+        return jdbc.execute(IMPORT_SQL, (PreparedStatementCallback<String>) ps -> {
+            ps.setString(1, json);
+            String scalar = null;
+            boolean hasResults = ps.execute();
+            while (hasResults || ps.getUpdateCount() != -1) {
+                if (hasResults) {
+                    try (var rs = ps.getResultSet()) {
+                        if (scalar == null && rs != null && rs.next()) {
+                            scalar = rs.getString(1);
+                        }
+                        while (rs != null && rs.next()) {
+                            // drain
+                        }
+                    }
+                }
+                hasResults = ps.getMoreResults(Statement.CLOSE_CURRENT_RESULT);
+            }
+            return scalar;
+        });
+    }
+
     /**
      * Circuit-breaker fallback for {@link #list}.
      */
     @SuppressWarnings("unused")
     public NewsListPage listFallback(String country, int offset, int limit, Throwable ex) {
         throw new RuntimeException("SQL news-list query failed", ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #exportNews}.
+     */
+    @SuppressWarnings("unused")
+    public JsonNode exportFallback(String id, Throwable ex) {
+        throw new RuntimeException("SQL news-export query failed for id " + id, ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #importNews}.
+     */
+    @SuppressWarnings("unused")
+    public String importFallback(String json, Throwable ex) {
+        throw new RuntimeException("SQL news-import failed", ex);
     }
 
     /**

@@ -89,7 +89,7 @@ com.fishfind.docapi
 │   └── InvalidDocumentException   # → HTTP 400
 └── web
     ├── AbstractDocumentController # GET/POST/PUT shared surface; body consumed as raw JSON string
-    ├── NewsController             # base-path CRUD + the two News-page read queries (/list, /default)
+    ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -149,6 +149,24 @@ Resilience4j guards as the document reads.
 |----------|-----|-------|
 | `GET /api/v1/news/list?country=&offset=&limit=` | `dbo.fn_news_list(?, ?, ?)` | latest news; ISO-2 country filter (a non-CA country < 100 items is padded with CA news to 100); `OFFSET/FETCH` paging + windowed `total`; limit default 25 / cap 200; bad country ⇒ 400 |
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document |
+
+### Interchange export / import (`fn_news_json` format)
+
+`NewsController` also exposes an **export** (read) and **import** (write) pair on `NewsQueryRepository`,
+using the **`fn_news_json` interchange format** — the same self-contained JSON the portal's News.aspx
+"Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use. **Only these two endpoints carry
+the FULL document** (every field + all 3 paragraph photos embedded as base64); the endpoints above keep
+their existing lighter shapes / amount. Export reads through `NewsQueryCache` uncached (large per-id
+payload); import evicts the cached lists + home page so a new article shows up immediately.
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /api/v1/news/export/{id}` | `SELECT dbo.fn_news_json(?)` | full interchange doc (all fields + 3 base64 photos); `NULL` ⇒ 404. Literal `/export/…` prefix is matched ahead of `/{id}`. |
+| `POST /api/v1/news/import` | `EXEC dbo.sp_news_import ?` | creates a **published** article from an `fn_news_json` body (base64 photos decoded to binary), returns `201 { id }`; blank/malformed body ⇒ 400 |
+
+`dbo.fn_news_json` already exists in `envfish-db`; `dbo.sp_news_import` was added there test-first
+(`unit_test@NewsImport.sql`). `news_title` is UNIQUE, so importing an existing title raises the
+duplicate-key error. Both methods carry the same `sqlRetry`/`sqlBreaker` guards.
 
 ---
 
@@ -218,13 +236,16 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (30 tests):
+`mvn test` — no DB needed (65 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
 - `NewsControllerTest` — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
   queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
-  and successful queries returning paginated items or home-page JSON.
+  successful queries returning paginated items or home-page JSON, **and the interchange
+  `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
+- `NewsCacheTest` — `NewsQueryCache` behaviour incl. `/export` read-through (never cached) and
+  `/import` evicting the cached lists + home page.
 - `DocumentRoundTripTest` — `@SpringBootTest` + MockMvc, default in-memory backing: POST→GET→PUT→GET
   round-trip, 404, all four entities accept documents, and the News `/list`+`/default` queries return
   empty payloads (the "it actually works with no DB" proof).

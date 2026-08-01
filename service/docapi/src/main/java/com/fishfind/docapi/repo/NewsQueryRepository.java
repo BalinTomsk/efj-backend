@@ -25,4 +25,23 @@ public interface NewsQueryRepository {
      * @return root JSON object with "items" array, each element is the JSON document for one news item
      */
     JsonNode defaultNews();
+
+    /**
+     * Exports one article as the {@code fn_news_json} interchange document — every field needed to
+     * re-create it, with the 3 paragraph photos embedded as base64. This is the same shape the
+     * News.aspx "Save JSON" link and the AddNews "Import from JSON" round-trip use.
+     *
+     * @param id the article id
+     * @return the article as a JSON tree, or {@code null} if no article exists for the id
+     */
+    JsonNode exportNews(String id);
+
+    /**
+     * Imports one article from an {@code fn_news_json} interchange document, creating a new published
+     * article (base64 photos decoded to binary).
+     *
+     * @param json the interchange JSON body (validated well-formed upstream)
+     * @return the id assigned to the newly created article
+     */
+    String importNews(String json);
 }
