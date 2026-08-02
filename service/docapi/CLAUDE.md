@@ -262,3 +262,27 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - Every external/DB call: timeout + retry with backoff; circuit breaker on downstream deps.
 - Health check: `GET /health` → `{ status, version, uptime }`.
 - Each service owns its data store exclusively.
+
+## Changelog
+
+- 2026-08-01: **1.2.0 — news interchange export/import endpoints (`fn_news_json` format).**
+  `NewsController` gained `GET /api/v1/news/export/{id}` (→ `dbo.fn_news_json`, full self-contained doc:
+  every field + all 3 paragraph photos as base64; `NULL` ⇒ 404) and `POST /api/v1/news/import`
+  (→ new `dbo.sp_news_import`, creates a **published** article from that JSON, base64 photos decoded to
+  binary, 201 `{ id }`; blank/malformed body ⇒ 400). This is the same interchange format the portal's
+  News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" use, so news round-trips
+  API↔portal. **Only these two carry the full document** — `GET /{id}`, `/list`, `/default` keep their
+  existing lighter shapes. Wired through `NewsQueryRepository` (interface + JDBC + in-memory);
+  `NewsQueryCache` reads export through uncached and **evicts the cached lists/home page on import**.
+  Tests: `NewsControllerTest` (+5) and `NewsCacheTest` (+2) → **65 pass**. DB side is
+  `dbo.sp_news_import` (envfish-db, added test-first — `unit_test@NewsImport.sql`, 4 tests incl. a
+  fn_news_json export→import round-trip); `dbo.fn_news_json` already existed. Docs: this file, `README.md`,
+  `docs/specification.md`. **Deployed to prod 2026-08-01** (`sp_news_import` applied to the DB first;
+  image `ghcr.io/balintomsk/docapi:1.2.0` on the droplet; `/health` reports 1.2.0; `/news/list`,
+  `/default`, `/export/{guid}` → 200; import verified live end-to-end — POST 201 → export 200 with a
+  byte-perfect base64 photo round-trip — then the test article was deleted and the cache cleared via a
+  container restart).
+  **Deploy gotcha (now baked into the `update-docapi` skill + `docs/do-update.md`):** since 2026-07-29
+  the `DB_*` values in `docapi.env` are **encrypted** (`SecretCodec`), so the container run command MUST
+  mount the master key — `-e FF_MASTER_KEY_FILE=/run/master.key -v /mnt/volume_jnode/docapi/master.key:/run/master.key:ro`
+  — or it crash-loops with *"Value of DB_USERNAME is encrypted but no master key is configured."*
