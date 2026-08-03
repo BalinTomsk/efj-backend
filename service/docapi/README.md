@@ -114,7 +114,7 @@ java -jar target\docapi-1.0.0.jar
 ```
 
 The service listens on **8080** (application + `/health`); Actuator lives on the private management
-port **8081** and must never be exposed publicly.
+port **8082** and must never be exposed publicly.
 
 Quick smoke test once running (default in-memory backing — no DB needed):
 
@@ -134,8 +134,10 @@ curl -X POST http://localhost:8080/api/v1/news/import \
      -H 'Content-Type: application/json' -d '{"title":"Imported","author":"Jane Roe"}'
 ```
 
-The News page adds four extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` and
-`GET /api/v1/news/default` (latest-news list + assembled home page), and the interchange
+The News page adds extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` and
+`GET /api/v1/news/default` (latest-news list + assembled home page), `GET /api/v1/news/search?q=`
+(up to 100 published matches across headline/source/paragraphs/photo-alts **and the mentioned fishes'
+names**, newest first — `dbo.fn_news_search`; blank `q` ⇒ 400), and the interchange
 `GET /api/v1/news/export/{id}` + `POST /api/v1/news/import`. **Only export/import carry the full
 document** (every field + the 3 paragraph photos embedded as base64, the same `fn_news_json` format the
 portal's News.aspx "Save JSON" / AddNews "Import from JSON" round-trip use); the other endpoints keep

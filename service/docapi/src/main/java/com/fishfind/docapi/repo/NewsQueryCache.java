@@ -3,6 +3,7 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -127,6 +128,15 @@ public class NewsQueryCache implements NewsQueryRepository {
     @Override
     public JsonNode exportNews(String id) {
         return delegate.exportNews(id);
+    }
+
+    /**
+     * Not cached — searches use free-form terms (unbounded key space) and are less repetitive than the
+     * list/home-page reads, so each reads straight through to the delegate.
+     */
+    @Override
+    public NewsSearchPage search(String query) {
+        return delegate.search(query);
     }
 
     /**

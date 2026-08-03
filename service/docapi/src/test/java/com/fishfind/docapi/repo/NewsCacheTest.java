@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +48,7 @@ class NewsCacheTest {
         final AtomicInteger defaultCalls = new AtomicInteger();
         final AtomicInteger exportCalls = new AtomicInteger();
         final AtomicInteger importCalls = new AtomicInteger();
+        final AtomicInteger searchCalls = new AtomicInteger();
         private final long total;
 
         CountingRepo(long total) {
@@ -76,6 +78,12 @@ class NewsCacheTest {
         public String importNews(String json) {
             importCalls.incrementAndGet();
             return "new-" + importCalls.get();
+        }
+
+        @Override
+        public NewsSearchPage search(String query) {
+            searchCalls.incrementAndGet();
+            return new NewsSearchPage(List.of(), 0, query);
         }
     }
 

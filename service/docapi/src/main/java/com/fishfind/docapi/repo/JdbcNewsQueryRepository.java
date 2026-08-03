@@ -13,6 +13,8 @@ import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchItem;
+import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 
 import java.sql.Statement;
 import java.sql.Types;
@@ -39,6 +41,11 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
 
     /** Interchange import: create a published article from an fn_news_json body, returns the new id. */
     static final String IMPORT_SQL = "EXEC dbo.sp_news_import ?";
+
+    /** Search: up to 100 published matches across headline/source/paragraphs/photo-alts/fish names. */
+    static final String SEARCH_SQL =
+            "SELECT news_id, news_title, news_source, stamp, country, fish1, fish2, fish3 "
+                    + "FROM dbo.fn_news_search(?)";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -138,12 +145,58 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
         });
     }
 
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")
+    public NewsSearchPage search(String query) {
+        // The term is escaped here (LIKE metacharacters) and fn_news_search wraps it as %term% ESCAPE '\'.
+        String escaped = escapeLike(query);
+        List<NewsSearchItem> items = jdbc.query(
+                SEARCH_SQL,
+                ps -> ps.setString(1, escaped),
+                (rs, i) -> new NewsSearchItem(
+                        rs.getString("news_id"),
+                        rs.getString("news_title"),
+                        rs.getString("news_source"),
+                        rs.getString("stamp"),
+                        rs.getString("country"),
+                        distinctFishes(rs.getString("fish1"), rs.getString("fish2"), rs.getString("fish3"))));
+        return new NewsSearchPage(items, items.size(), query);
+    }
+
+    /**
+     * Escapes SQL {@code LIKE} wildcards ({@code \ % _ [}) so a user/agent term matches literally.
+     * Pairs with the {@code ESCAPE '\'} inside {@code dbo.fn_news_search}.
+     */
+    private static String escapeLike(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").replace("[", "\\[");
+    }
+
+    /** Distinct, non-blank fish common names in slot order (0–3). */
+    private static List<String> distinctFishes(String... names) {
+        List<String> out = new ArrayList<>();
+        for (String n : names) {
+            if (n != null && !n.isBlank() && !out.contains(n)) {
+                out.add(n);
+            }
+        }
+        return out;
+    }
+
     /**
      * Circuit-breaker fallback for {@link #list}.
      */
     @SuppressWarnings("unused")
     public NewsListPage listFallback(String country, int offset, int limit, Throwable ex) {
         throw new RuntimeException("SQL news-list query failed", ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #search}.
+     */
+    @SuppressWarnings("unused")
+    public NewsSearchPage searchFallback(String query, Throwable ex) {
+        throw new RuntimeException("SQL news-search query failed", ex);
     }
 
     /**

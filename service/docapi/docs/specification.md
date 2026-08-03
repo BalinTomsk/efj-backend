@@ -31,7 +31,7 @@ database unless `jdbc` is active.
 | Root package | `com.fishfind.docapi` |
 | Main class | `com.fishfind.docapi.DocApiApplication` |
 | App/health port | 8080 |
-| Management (Actuator) port | 8081 (private) |
+| Management (Actuator) port | 8082 (private) |
 
 ## Endpoints
 
@@ -51,6 +51,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/news/list?country=&offset=&limit=` | 200 | `{ items:[{ rn, newsId, title, source, stamp, flag, hasPhoto, blockOrd }], total, offset, limit }` |
 | `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the assembled home page) |
+| `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
 
 - `GET /api/v1/news/list` — one page of the latest news, backed by `dbo.fn_news_list(@country,
   @offset, @fetch)`. `country` is an optional ISO-2 code (blank/absent ⇒ all countries; a non-CA
@@ -308,6 +309,12 @@ implementations exist:
   filters to it, and a **non-CA** country with fewer than 100 published items is padded with the
   latest Canadian news up to 100 (`block_ord = 1`). Modern `OFFSET/FETCH` paging with windowed
   `COUNT(*) OVER()` `total`.
+- `dbo.fn_news_search(@q)` — up to 100 published articles, newest first, matching `@q` over one
+  concatenation of headline, source, the 3 paragraphs, the 3 photo alts, and the up-to-3 mentioned
+  fishes' common/latin/alt names (news `LEFT JOIN fish ×3`). Published-only; matched as
+  `LIKE N'%'+@q+N'%' ESCAPE '\'` with the **caller** escaping `% _ [` (`JdbcNewsQueryRepository.escapeLike`);
+  NULL/empty ⇒ latest 100. The repo projects `news_id, news_title, news_source, stamp, country,
+  fish1/2/3` into `NewsSearchItem` (fishes de-duped). Not cached (`NewsQueryCache.search` reads through).
 - `dbo.fn_default_news_ids()` — the home-page ids with `with_photo` (1 = lead/photo slot, 2 leads;
   0 = right column) and `ord` (1-based display position). `dbo.fn_default_news_json(@news_id,
   @with_photo)` — the per-item JSON document (info + base64 photo for a lead; compact for a
@@ -431,7 +438,7 @@ JSON via `net.logstash.logback.encoder.LogstashEncoder`, `customFields {"service
 
 ## Observability & ops (`application.yml`)
 
-`management.server.port: 8081` (private — never exposed publicly). Exposed web endpoints only
+`management.server.port: 8082` (private — never exposed publicly). Exposed web endpoints only
 `health,info,prometheus,metrics`. `health.show-details: never`; probes enabled with groups
 `liveness: livenessState` and `readiness: readinessState,db`; `health.db.enabled: true`. `/health`
 on 8080 is the lightweight external/HEALTHCHECK probe.

@@ -2,6 +2,7 @@ package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 
 /**
  * Query repository for news-page read operations, backed by SQL functions in the DB.
@@ -44,4 +45,13 @@ public interface NewsQueryRepository {
      * @return the id assigned to the newly created article
      */
     String importNews(String json);
+
+    /**
+     * Searches published news for a term across the headline, source, paragraphs, photo alts, and the
+     * names of the mentioned fishes. Up to 100 matches, newest first.
+     *
+     * @param query the (trimmed, non-blank) search term
+     * @return the matching news list
+     */
+    NewsSearchPage search(String query);
 }
