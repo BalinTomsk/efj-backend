@@ -135,6 +135,30 @@ public class NewsController extends AbstractDocumentController {
         return ApiResponse.ok(queryRepository.defaultNews());
     }
 
+    /**
+     * Full-text-ish search over published news: matches the term against the headline, source,
+     * paragraphs, photo alts, and the names of the up-to-3 mentioned fishes (so "walleye" finds an
+     * article tagged with walleye even when the headline doesn't say it). Up to 100 matches, newest
+     * first. Backed by {@code dbo.fn_news_search}.
+     *
+     * <p>The literal {@code /search} path is matched ahead of the templated {@code /{id}} handler.
+     *
+     * @param q the search term (required, non-blank; trimmed and capped at 100 chars)
+     * @return the matching news list in the response envelope
+     * @throws InvalidDocumentException if {@code q} is missing or blank (→ 400)
+     */
+    @GetMapping("/search")
+    public ApiResponse<NewsSearchPage> search(@RequestParam(required = false) String q) {
+        if (q == null || q.isBlank()) {
+            throw new InvalidDocumentException("q (search term) is required");
+        }
+        String term = q.trim();
+        if (term.length() > 100) {
+            term = term.substring(0, 100);
+        }
+        return ApiResponse.ok(queryRepository.search(term));
+    }
+
     private String normalizeCountry(String country) {
         if (country == null) {
             return null;
@@ -186,5 +210,39 @@ public class NewsController extends AbstractDocumentController {
             long total,
             int offset,
             int limit) {
+    }
+
+    /**
+     * One hit from {@code dbo.fn_news_search}: the compact fields needed to render a result row. The
+     * paragraphs, photo alts and fish latin/alt names are searched but not returned, keeping the
+     * response token-cheap.
+     *
+     * @param newsId the article id
+     * @param title the headline
+     * @param source the publication/source label
+     * @param stamp the publish date as an ISO {@code yyyy-MM-dd} string
+     * @param country the ISO-2 country of the article
+     * @param fishes distinct common names of the mentioned fishes (0–3), in slot order
+     */
+    public record NewsSearchItem(
+            String newsId,
+            String title,
+            String source,
+            String stamp,
+            String country,
+            List<String> fishes) {
+    }
+
+    /**
+     * The result of a news search.
+     *
+     * @param items the matching rows (newest first; up to 100)
+     * @param total the number of rows returned (capped at 100 by {@code fn_news_search})
+     * @param query the (trimmed) term that was searched, echoed back
+     */
+    public record NewsSearchPage(
+            List<NewsSearchItem> items,
+            int total,
+            String query) {
     }
 }

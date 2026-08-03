@@ -159,6 +159,47 @@ class NewsControllerTest {
     }
 
     @Test
+    void searchMapsRepositoryResultsIntoTheEnvelope() throws Exception {
+        NewsController.NewsSearchItem item = new NewsController.NewsSearchItem(
+                "n-id", "Walleye run peaks", "Outdoor Canada", "2026-05-14", "CA", List.of("Walleye"));
+        when(queryRepository.search("walleye"))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(item), 1, "walleye"));
+
+        mockMvc.perform(get("/api/v1/news/search").param("q", "walleye"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.query").value("walleye"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].newsId").value("n-id"))
+                .andExpect(jsonPath("$.data.items[0].title").value("Walleye run peaks"))
+                .andExpect(jsonPath("$.data.items[0].fishes[0]").value("Walleye"));
+    }
+
+    @Test
+    void searchTrimsTheTermBeforeQuerying() throws Exception {
+        when(queryRepository.search("pike"))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "pike"));
+
+        mockMvc.perform(get("/api/v1/news/search").param("q", "  pike  "))
+                .andExpect(status().isOk());
+        // verified via the stub: the controller must have passed the trimmed term
+        org.mockito.Mockito.verify(queryRepository).search("pike");
+    }
+
+    @Test
+    void searchWithBlankTermReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/news/search").param("q", "   "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void searchWithMissingTermReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/news/search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
     void newsAddCreatesTheDocument() throws Exception {
         when(service.add(any())).thenReturn("42");
 

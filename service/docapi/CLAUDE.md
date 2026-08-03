@@ -149,6 +149,7 @@ Resilience4j guards as the document reads.
 |----------|-----|-------|
 | `GET /api/v1/news/list?country=&offset=&limit=` | `dbo.fn_news_list(?, ?, ?)` | latest news; ISO-2 country filter (a non-CA country < 100 items is padded with CA news to 100); `OFFSET/FETCH` paging + windowed `total`; limit default 25 / cap 200; bad country ⇒ 400 |
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document |
+| `GET /api/v1/news/search?q=` | `SELECT … FROM dbo.fn_news_search(?)` | up to 100 published matches, newest first, over headline/source/paragraphs/photo-alts + the up-to-3 mentioned fishes' names; caller escapes `% _ [`; blank `q` ⇒ 400; not cached (free-form key) |
 
 ### Interchange export / import (`fn_news_json` format)
 
@@ -205,7 +206,7 @@ Only SQL is guarded (no HTTP feeds, unlike `waterservice`):
 - **Credential loading**: `DotenvEnvironmentPostProcessor` registered via
   `META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`; loads `.env`
   (or `DOTENV_PATH`) as the **lowest-precedence** source — never `System.setProperty`.
-- **Actuator** on private `management.server.port: 8081`; exposed endpoints only
+- **Actuator** on private `management.server.port: 8082`; exposed endpoints only
   `health,info,prometheus,metrics`; `health.show-details: never`; liveness (not DB-dependent) vs
   readiness (includes `db`). Lightweight `/health` on 8080 is the Docker HEALTHCHECK target;
   `version` from Maven `build-info`.
@@ -265,6 +266,23 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Changelog
 
+- 2026-08-02: **1.3.1 — management/Actuator port moved 8081 → 8082.** `management.server.port` in
+  `application.yml` (still private/unpublished; only `/health` on 8080 is externally probed). Docs +
+  the `update-docapi` skill/`do-update.md` updated so startup verification expects `Tomcat started on
+  port 8082`. **Deployed to prod 2026-08-02** (image `ghcr.io/balintomsk/docapi:1.3.1`; `/health`
+  reports 1.3.1; startup shows Tomcat 8080 + 8082; healthy endpoints incl. `/news/search` → 200).
+- 2026-08-02: **1.3.0 — news search endpoint `GET /api/v1/news/search?q=`.** Up to 100 published
+  matches, newest first, over headline/source/paragraphs/photo-alts **and the up-to-3 mentioned fishes'
+  names** — so "walleye" finds an article tagged with walleye even when the headline doesn't say it.
+  Compact `NewsSearchItem` (newsId, title, source, stamp, country, fishes[]); blank `q` ⇒ 400; not
+  cached (`NewsQueryCache.search` reads through). DB side: `dbo.fn_news_search(@q)` (envfish-db, inline
+  TVF over news + `fish ×3` LEFT JOIN, published-only, `LIKE '%@q%' ESCAPE '\'` with the caller
+  escaping `% _ [`; `unit_test@NewsSearch.sql`, 4 tests incl. match-by-fish-name). Also applied the two
+  missing write procs `sp_news_doc_add` / `sp_news_doc_update` so POST/PUT are backed. Tests: 69 pass.
+  **Deployed to prod 2026-08-02** (3 DB objects applied via SqlClient txn first — `fn_news_search`,
+  `sp_news_doc_add`, `sp_news_doc_update`; the read side + `sp_news_import` were already live; image
+  `ghcr.io/balintomsk/docapi:1.3.0`; `/health` reports 1.3.0; `/news/search?q=fish` → 200 with real
+  matches + associated fishes; full smoke matrix as expected).
 - 2026-08-01: **1.2.0 — news interchange export/import endpoints (`fn_news_json` format).**
   `NewsController` gained `GET /api/v1/news/export/{id}` (→ `dbo.fn_news_json`, full self-contained doc:
   every field + all 3 paragraph photos as base64; `NULL` ⇒ 404) and `POST /api/v1/news/import`

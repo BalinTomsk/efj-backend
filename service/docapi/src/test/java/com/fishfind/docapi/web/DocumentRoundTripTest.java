@@ -86,6 +86,14 @@ class DocumentRoundTripTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isArray())
                 .andExpect(jsonPath("$.data.items").isEmpty());
+
+        // Search runs against the in-memory backing too: well-formed, empty result, echoes the term.
+        mockMvc.perform(get("/api/v1/news/search").param("q", "walleye"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.query").value("walleye"));
     }
 
     @Test
