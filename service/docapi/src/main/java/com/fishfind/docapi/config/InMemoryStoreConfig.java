@@ -3,7 +3,9 @@ package com.fishfind.docapi.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.DocumentStore;
+import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.InMemoryDocumentStore;
+import com.fishfind.docapi.repo.InMemoryFishQueryRepository;
 import com.fishfind.docapi.repo.InMemoryNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import org.springframework.context.annotation.Bean;
@@ -45,5 +47,10 @@ public class InMemoryStoreConfig {
     @Bean
     public NewsQueryRepository newsQueryRepository(ObjectMapper objectMapper) {
         return new InMemoryNewsQueryRepository(objectMapper);
+    }
+
+    @Bean
+    public FishQueryRepository fishQueryRepository() {
+        return new InMemoryFishQueryRepository();
     }
 }

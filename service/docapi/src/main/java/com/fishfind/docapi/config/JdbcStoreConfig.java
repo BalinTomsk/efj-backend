@@ -3,6 +3,8 @@ package com.fishfind.docapi.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.FishDocumentRepository;
+import com.fishfind.docapi.repo.FishQueryRepository;
+import com.fishfind.docapi.repo.JdbcFishQueryRepository;
 import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
@@ -63,6 +65,17 @@ public class JdbcStoreConfig {
     @Bean
     public DocumentStore fishStore(JdbcTemplate jdbc) {
         return new FishDocumentRepository(jdbc);
+    }
+
+    /**
+     * The SQL-backed fish query repository ({@code dbo.SearchFishList}), a bean in its own right so
+     * Resilience4j can proxy it — see {@link #jdbcNewsStore} for why this matters. There is no cache in
+     * front of it: species search terms are open-ended, so unlike {@code /news/list} there is nothing
+     * fixed to cache.
+     */
+    @Bean
+    public FishQueryRepository fishQueryRepository(JdbcTemplate jdbc) {
+        return new JdbcFishQueryRepository(jdbc);
     }
 
     @Bean

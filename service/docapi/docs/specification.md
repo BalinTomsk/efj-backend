@@ -53,6 +53,19 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the assembled home page) |
 | `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
 
+**Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
+already exists in `envfish-db`; see [Data access](#data-access)):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `GET` | `/api/v1/fish/search?q=` | 200 | `{ items:[{ fishId, name, latin, rank }], total, query }` (best match first; blank/missing `q` ⇒ 400) |
+
+- `GET /api/v1/fish/search` — relevance-ranked species search backed by `dbo.SearchFishList(@q)`,
+  matching the term against the primary name, Latin name, and `alt_name` synonyms (the same lookup the
+  Editor `FishList.aspx` search box uses). `rank` is the DB `irank` — lower is a better match (0 =
+  exact) and rows are returned best-first. The term is trimmed and capped at 64 chars
+  (`SearchFishList` takes a `varchar(64)`). Blank or missing `q` ⇒ 400 `invalid_document`.
+
 - `GET /api/v1/news/list` — one page of the latest news, backed by `dbo.fn_news_list(@country,
   @offset, @fetch)`. `country` is an optional ISO-2 code (blank/absent ⇒ all countries; a non-CA
   country with fewer than 100 items is padded with the latest Canadian news up to 100, marked
@@ -117,6 +130,9 @@ src/main/java/com/fishfind/docapi/repo/StationDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcNewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/FishQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryFishQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcFishQueryRepository.java
 src/main/java/com/fishfind/docapi/service/DocumentService.java
 src/main/java/com/fishfind/docapi/service/NewsDocumentService.java
 src/main/java/com/fishfind/docapi/service/WaterbodyDocumentService.java
@@ -179,18 +195,19 @@ copied into JVM-global system properties. `main()` only calls `SpringApplication
 ## Profiles / storage backends
 
 Storage is behind the `DocumentStore` interface, chosen by Spring profile. Additionally,
-`NewsQueryRepository` has two implementations registered per profile:
+`NewsQueryRepository` and `FishQueryRepository` each have two implementations registered per profile:
 
 - **default (no profile)** — `InMemoryStoreConfig` (`@Profile("!jdbc")`) registers four
-  `InMemoryDocumentStore` beans (`newsStore`, `waterbodyStore`, `fishStore`, `stationStore`) and one
-  `InMemoryNewsQueryRepository` bean. No DB. `application.yml` sets `spring.autoconfigure.exclude`
+  `InMemoryDocumentStore` beans (`newsStore`, `waterbodyStore`, `fishStore`, `stationStore`), one
+  `InMemoryNewsQueryRepository` bean, and one `InMemoryFishQueryRepository` bean. No DB.
+  `application.yml` sets `spring.autoconfigure.exclude`
   to `DataSourceAutoConfiguration`, `DataSourceTransactionManagerAutoConfiguration`,
   `JdbcTemplateAutoConfiguration`, and disables the actuator `db` health indicator (readiness group =
   `readinessState` only).
 - **`jdbc` profile** — `JdbcStoreConfig` (`@Profile("jdbc")`) registers four `JdbcDocumentRepository`
-  beans under the **same names**, each taking the shared `JdbcTemplate`, and one `JdbcNewsQueryRepository`
-  bean. `application-jdbc.yml` clears the auto-configure exclusion, configures the datasource, and
-  re-enables the `db` health indicator + readiness `db` group.
+  beans under the **same names**, each taking the shared `JdbcTemplate`, one `JdbcNewsQueryRepository`
+  bean, and one `JdbcFishQueryRepository` bean. `application-jdbc.yml` clears the auto-configure
+  exclusion, configures the datasource, and re-enables the `db` health indicator + readiness `db` group.
 
 Because both configs use the same bean names, each service/controller injects by name/qualifier
 and is agnostic to the active profile.
@@ -328,6 +345,34 @@ implementations exist:
   absent date ⇒ now, and returns the new `news_id`. Added test-first in `envfish-db`
   (`UNIT_TESTS/unit_test@NewsImport.sql`, 4 tests incl. a fn_news_json export→import round-trip).
 
+### Fish-catalogue query repository (`FishQueryRepository`)
+
+The fish search query is delegated to `FishQueryRepository`, the same repository pattern as
+`NewsQueryRepository`. Two implementations:
+
+- **`InMemoryFishQueryRepository`** (default profile) — returns empty results; no database access.
+- **`JdbcFishQueryRepository`** (jdbc profile) — calls `dbo.SearchFishList`, which **already exists**
+  in `envfish-db` (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@SearchFish.sql`) and
+  backs the Editor `FishList.aspx` search box — so no new DB object was needed. Carries
+  `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")` with a fallback.
+
+| Query | SQL | Returns |
+|-------|-----|---------|
+| species search | `SELECT fish_name, fish_latin, fish_id, irank FROM dbo.SearchFishList(?) ORDER BY irank ASC` | best-match-first species rows |
+
+**Interface:** `FishSearchPage search(String query)` — returns `FishSearchItem` rows
+`(fishId, name, latin, rank)` where `rank` is the DB `irank` (lower is better, 0 = exact).
+
+**SQL details:** `dbo.SearchFishList(@search varchar(64))` is a multi-statement TVF that **normalizes
+the term itself** (`dbo.NormalizeSearch`) and matches it against `fish_name`, `fish_latin`, and the
+`;`-delimited `alt_name` synonyms, assigning `irank` (0 = exact name/latin, then synonym, then
+substring). Because it normalizes and builds its own match variants, the Java layer binds the raw
+(trimmed, ≤64-char) term as a plain parameter with **no LIKE-escaping**. Returns
+`num, fish_name, name, fish_latin, fish_id, irank`; the repo projects `fish_name → name`,
+`fish_latin → latin`, `fish_id → fishId`, `irank → rank`. **Not cached** (open-ended search key), so —
+unlike `/news/list` — there is no cache decorator and no `@Primary`: just the one proxied bean per
+profile.
+
 ## Service layer
 
 ### `DocumentService` (abstract)
@@ -400,6 +445,13 @@ The literal `/list`, `/default`, `/export/…`, and `/import` paths win over the
 controller. `NewsController` stores the `ObjectMapper` (in addition to passing it to `super`) to
 validate the import body and build the `{ id }` node.
 
+`FishController` similarly injects `FishQueryRepository` and adds one search query:
+
+- `@GetMapping("/search")` `search(q)` — rejects a blank/missing `q` with `InvalidDocumentException`
+  → 400, trims it and caps it at 64 chars, then delegates to `queryRepository.search(term)`. The
+  literal `/search` path wins over the inherited `/{id}`. The repository handles SQL execution (JDBC
+  profile) or returns empty results (default profile).
+
 ### `HealthController`
 
 `GET /health` → `{ status:"UP", version, uptime }`; version from `@Nullable BuildProperties`
@@ -455,7 +507,7 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 65 tests, none requiring a database:
+`mvn test` runs 76 tests, none requiring a database:
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
@@ -466,6 +518,7 @@ build artifacts. Never bake a real `.env` into the image.
   add normalization, blank/malformed body rejection, update id fallback.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
+- `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (7 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400.
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.
