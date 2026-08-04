@@ -143,6 +143,12 @@ document** (every field + the 3 paragraph photos embedded as base64, the same `f
 portal's News.aspx "Save JSON" / AddNews "Import from JSON" round-trip use); the other endpoints keep
 their existing lighter shapes.
 
+The Fish entity adds one search endpoint: `GET /api/v1/fish/search?q=` — a relevance-ranked species
+search over the primary name, Latin name, and alternative/common names (so "rosefish" or "ling"
+resolves to the right species), best match first. It reuses the **same** lookup the Editor
+`FishList.aspx` search box uses (`dbo.SearchFishList`), so no new DB object is needed. Each hit is
+`{ fishId, name, latin, rank }` (`rank` — lower is better, 0 = exact); blank/missing `q` ⇒ 400.
+
 ### Response shape
 
 Success:
@@ -182,6 +188,10 @@ Notes:
   `dbo.fn_news_json(@id)` (already deployed) for export and `dbo.sp_news_import(@json)` (added
   test-first — `unit_test@NewsImport.sql`) for import. These carry the **full** article (all fields +
   base64 photos); the `fn_<entity>_doc` document reads above keep their existing lighter shapes.
+- **News search** (`/api/v1/news/search`) → `dbo.fn_news_search(@q)`; **fish search**
+  (`/api/v1/fish/search`) → `dbo.SearchFishList(@q)` (a `varchar(64)` TVF returning
+  `num, fish_name, name, fish_latin, fish_id, irank`, ranked best-first — already in prod, backs
+  `FishList.aspx`).
 
 ## Docker
 

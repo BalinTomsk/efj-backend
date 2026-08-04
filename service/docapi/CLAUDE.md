@@ -81,7 +81,10 @@ com.fishfind.docapi
 │   ├── StationDocumentRepository
 │   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
-│   └── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
+│   ├── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
+│   ├── FishQueryRepository        # interface: search(query) (species-catalogue search)
+│   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
+│   └── JdbcFishQueryRepository    # JDBC backing — calls dbo.SearchFishList (relevance-ranked)
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
 │   ├── NewsDocumentService … (one @Service per entity)
@@ -90,6 +93,7 @@ com.fishfind.docapi
 └── web
     ├── AbstractDocumentController # GET/POST/PUT shared surface; body consumed as raw JSON string
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
+    ├── FishController             # base-path CRUD + species-catalogue search (/search)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -150,6 +154,19 @@ Resilience4j guards as the document reads.
 | `GET /api/v1/news/list?country=&offset=&limit=` | `dbo.fn_news_list(?, ?, ?)` | latest news; ISO-2 country filter (a non-CA country < 100 items is padded with CA news to 100); `OFFSET/FETCH` paging + windowed `total`; limit default 25 / cap 200; bad country ⇒ 400 |
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document |
 | `GET /api/v1/news/search?q=` | `SELECT … FROM dbo.fn_news_search(?)` | up to 100 published matches, newest first, over headline/source/paragraphs/photo-alts + the up-to-3 mentioned fishes' names; caller escapes `% _ [`; blank `q` ⇒ 400; not cached (free-form key) |
+
+### Fish-catalogue search query (function that already exists in `envfish-db`)
+
+`FishController` exposes one read endpoint beyond the CRUD, delegating to `FishQueryRepository`
+(interface + `InMemoryFishQueryRepository` default / `JdbcFishQueryRepository` jdbc). It reuses the
+**same** relevance-ranked lookup the Editor `FishList.aspx` search box uses, so no new DB object was
+needed — `dbo.SearchFishList` already exists in prod. Same `sqlRetry`/`sqlBreaker` guards; **not
+cached** (open-ended search key), so no `@Primary`/cache layer like news list — just the one proxied
+bean per profile.
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /api/v1/fish/search?q=` | `SELECT fish_name, fish_latin, fish_id, irank FROM dbo.SearchFishList(?) ORDER BY irank ASC` | relevance-ranked species search over primary name / Latin / `alt_name` synonyms; `SearchFishList` is a TVF that normalizes the term itself (no LIKE-escaping in Java), `varchar(64)` so the term is trimmed+capped at 64; `FishSearchItem` = (fishId, name, latin, rank — lower is better, 0 = exact); blank/missing `q` ⇒ 400. Literal `/search` matched ahead of `/{id}`. |
 
 ### Interchange export / import (`fn_news_json` format)
 
@@ -237,7 +254,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (65 tests):
+`mvn test` — no DB needed (76 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
@@ -253,6 +270,9 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `HealthControllerTest`, `DocApiApplicationTest` (mocks `SpringApplication.run`).
 - `DocApiContextTest` — full context boot on the default (in-memory) profile.
 - `DocApiJdbcWiringTest` — boots the `jdbc` profile with an H2 stand-in to keep that wiring verified.
+- `FishControllerTest` — `@WebMvcTest` slice: CRUD envelope (200 doc / 404) **plus** `/fish/search`
+  via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
+  `q` ⇒ 400.
 
 ---
 
@@ -266,6 +286,22 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Changelog
 
+- 2026-08-04: **Fish search endpoint `GET /api/v1/fish/search?q=`.** Relevance-ranked species search
+  over the primary name, Latin name, and `alt_name` synonyms — the **same lookup the Editor
+  `FishList.aspx` search box uses**, so "rosefish" / "ling" resolves to the right species even when it
+  isn't the primary name. Backed by `dbo.SearchFishList` (a `varchar(64)` TVF that normalizes the term
+  itself and ranks by `irank`, best-first) — it **already exists in prod**, so this is a **docapi-only
+  change with NO DB object to create/apply**. New `FishQueryRepository` (interface + `Jdbc…` proxied
+  bean with `sqlRetry`/`sqlBreaker` + in-memory default); **not cached** (open-ended key, so no
+  `@Primary`/cache layer like `/news/list`). `FishSearchItem` = (fishId, name, latin, rank — lower is
+  better, 0 = exact); term trimmed + capped at 64; blank/missing `q` ⇒ 400; literal `/search` matched
+  ahead of `/{id}`. Tests: `FishControllerTest` (+7) → **76 pass**. Docs: this file, `README.md`,
+  `docs/specification.md`. **Deployed to prod 2026-08-04 as 1.4.0** (image
+  `ghcr.io/balintomsk/docapi:1.4.0`, digest `sha256:7c7a962c…`; **no DB step** — `SearchFishList`
+  already live). `/health` reports 1.4.0; startup clean, Tomcat 8080 + 8082, jdbc profile;
+  `/fish/search?q=pike` → 200 with ranked real rows ("Pike, Northern" rank 1 first), `q=rosefish`
+  resolves via synonym to "Acadian redfish"; the four doc-CRUD `/{id}=1` endpoints still the
+  documented expected 500s; breaker polled closed; GHCR logout on both machines.
 - 2026-08-02: **1.3.1 — management/Actuator port moved 8081 → 8082.** `management.server.port` in
   `application.yml` (still private/unpublished; only `/health` on 8080 is externally probed). Docs +
   the `update-docapi` skill/`do-update.md` updated so startup verification expects `Tomcat started on
