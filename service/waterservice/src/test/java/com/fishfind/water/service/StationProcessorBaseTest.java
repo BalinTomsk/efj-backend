@@ -3,6 +3,8 @@ package com.fishfind.water.service;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -72,6 +74,20 @@ class StationProcessorBaseTest {
         ILoggingEvent event = appender.list.get(0);
         assertEquals(Level.WARN, event.getLevel());
         assertTrue(event.getFormattedMessage().contains("HttpServerErrorException"));
+        assertNull(event.getThrowableProxy());
+    }
+
+    @Test
+    void openCircuitBreakerReturnsUpstreamOpenFailureWithoutStackTrace() {
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults("usFeed");
+        breaker.transitionToOpenState();
+        toThrow = CallNotPermittedException.createCallNotPermittedException(breaker);
+
+        assertEquals(ProcessingOutcome.FAILED_UPSTREAM_OPEN, processor.processWithOutcome("08313000", "NY", -5));
+
+        ILoggingEvent event = appender.list.get(0);
+        assertEquals(Level.WARN, event.getLevel());
+        assertTrue(event.getFormattedMessage().contains("circuit breaker is open"));
         assertNull(event.getThrowableProxy());
     }
 

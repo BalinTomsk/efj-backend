@@ -1,7 +1,9 @@
 package com.fishfind.water.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -53,7 +55,19 @@ public abstract class StationProcessorBase {
             return ProcessingOutcome.SKIPPED;
         }
 
-        if (ex instanceof IOException || isHttp503(ex)) {
+        if (ex instanceof CallNotPermittedException) {
+            logger().warn(
+                    "{} processing stopped because upstream circuit breaker is open. station={} state={} error={}: {}",
+                    stationLabel(),
+                    mli,
+                    state,
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage()
+            );
+            return ProcessingOutcome.FAILED_UPSTREAM_OPEN;
+        }
+
+        if (ex instanceof IOException || ex instanceof ResourceAccessException || isHttp503(ex)) {
             logger().warn(
                     "{} processing failed. station={} state={} error={}: {}",
                     stationLabel(),

@@ -4,15 +4,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.http.HttpMethod.GET;
@@ -69,5 +72,17 @@ class XmlFetcherUSTest {
         server.expect(requestTo(URL)).andRespond(withStatus(INTERNAL_SERVER_ERROR));
 
         assertThrows(HttpServerErrorException.class, () -> fetcher.fetch("NY", "08313000"));
+    }
+
+    @Test
+    void fetchClassifiesResponseIoFailureAsResourceAccessExceptionWithStationContext() {
+        server.expect(requestTo(URL))
+                .andRespond(withException(new IOException("chunked transfer encoding, state: READING_LENGTH")));
+
+        ResourceAccessException ex =
+                assertThrows(ResourceAccessException.class, () -> fetcher.fetch("NY", "08313000"));
+
+        assertTrue(ex.getMessage().contains("08313000"), "message should name the station: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("NY"), "message should name the state: " + ex.getMessage());
     }
 }
