@@ -93,7 +93,7 @@ public class VisualCrossingFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectShape(json);
-                    log.info("Visual Crossing fetch succeeded. latitude={} longitude={}", latitude, longitude);
+                    log.debug("Visual Crossing fetch succeeded. latitude={} longitude={}", latitude, longitude);
                     return json;
                 }
             } finally {

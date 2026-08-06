@@ -24,9 +24,9 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
     @Override
     protected void processStation(StationRef station) throws Exception {
         String json = fetcher.fetchLatestObservation(station.mli());
-        log.info("Saving Weather.gov payload. station={} state={} bytes={}", station.mli(), station.state(), json.length());
+        log.debug("Saving Weather.gov payload. station={} state={} bytes={}", station.mli(), station.state(), json.length());
         weatherDataRepository.saveStationData(station.mli(), json);
-        log.info("Processed station. station={} state={}", station.mli(), station.state());
+        log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 
     @Override

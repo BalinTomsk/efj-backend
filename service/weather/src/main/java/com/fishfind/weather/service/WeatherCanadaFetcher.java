@@ -91,7 +91,7 @@ public class WeatherCanadaFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectWithFeatures(json, url);
-                    log.info("Weather Canada fetch succeeded. latitude={} longitude={}", latitude, longitude);
+                    log.debug("Weather Canada fetch succeeded. latitude={} longitude={}", latitude, longitude);
                     return json;
                 }
             } finally {

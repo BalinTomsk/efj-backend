@@ -24,9 +24,9 @@ public class StationProcessorOpen extends StationProcessorBase {
     @Override
     protected void processStation(StationRef station) throws Exception {
         String json = fetcher.fetch(station.latitude(), station.longitude());
-        log.info("Saving Open-Meteo payload. station={} state={} bytes={}", station.mli(), station.state(), json.length());
+        log.debug("Saving Open-Meteo payload. station={} state={} bytes={}", station.mli(), station.state(), json.length());
         weatherDataRepository.saveStationData(station.mli(), json);
-        log.info("Processed station. station={} state={}", station.mli(), station.state());
+        log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 
     @Override
