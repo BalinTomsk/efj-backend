@@ -1,10 +1,10 @@
 weather-station-pusher — Full Specification
 ============================================
-Version: 1.0.0
-Last updated: 2026-06-22
 
 This document is the single source of truth for recreating the service from scratch.
 It must be kept in sync with every source file change.
+
+Changelog entries, release notes, and version history live in ../CHANGLOG.md.
 
 
 PROJECT IDENTITY
@@ -538,15 +538,15 @@ StationProcessorBase (template method):
 
 StationProcessorOpen:
   1. Fetch JSON from Open-Meteo using station lat/lon.
-  2. Log save start with payload byte count.
+  2. Log save start with payload byte count at DEBUG.
   3. Update dbo.ows_meteo via WeatherDataRepository.
-  4. Log station processed.
+  4. Log station processed at DEBUG.
 
 StationProcessorWeatherGov:
   1. Fetch latest-observation JSON from Weather.gov using station.mli as the station id.
-  2. Log save start with payload byte count.
+  2. Log save start with payload byte count at DEBUG.
   3. Update dbo.ows_meteo via WeatherDataRepository.
-  4. Log station processed.
+  4. Log station processed at DEBUG.
 
 StationPostProcessingService calls procedures in this exact order:
   1. dbo.spPushSpeciesFromLakeToStation
@@ -602,9 +602,10 @@ Required log events:
   - Background worker thread start
   - Supported station count
   - Calculated time-budget delay
-  - Fetch success per station
-  - Save start (with payload byte count)
-  - Station processed
+  - Fetch success per station (DEBUG)
+  - Save start with payload byte count (DEBUG)
+  - Station processed (DEBUG)
+  - Startup verification started/succeeded/failed (INFO for started and succeeded, ERROR for failed)
   - Post-processing procedure execution
   - Skip due to unpublished source (info)
   - Station processing failure (warning)

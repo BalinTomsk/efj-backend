@@ -92,7 +92,7 @@ public class WeatherGovFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectShape(json, normalizedStationId);
-                    log.info("Weather.gov fetch succeeded. station={}", normalizedStationId);
+                    log.debug("Weather.gov fetch succeeded. station={}", normalizedStationId);
                     return json;
                 }
             } finally {

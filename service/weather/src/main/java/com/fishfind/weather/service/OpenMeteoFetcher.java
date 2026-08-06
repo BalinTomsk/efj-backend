@@ -101,7 +101,7 @@ public class OpenMeteoFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectShape(json, url);
-                    log.info("Open-Meteo fetch succeeded. latitude={} longitude={}", latitude, longitude);
+                    log.debug("Open-Meteo fetch succeeded. latitude={} longitude={}", latitude, longitude);
                     return json;
                 }
             } finally {

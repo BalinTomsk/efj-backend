@@ -91,7 +91,7 @@ public class GoogleWeatherFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectShape(json);
-                    log.info("Google Weather fetch succeeded. latitude={} longitude={}", latitude, longitude);
+                    log.debug("Google Weather fetch succeeded. latitude={} longitude={}", latitude, longitude);
                     return json;
                 }
             } finally {

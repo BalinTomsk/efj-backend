@@ -13,10 +13,15 @@
 `docs/specification.txt` is the **single source of truth** used to recreate this service from scratch.
 It must always reflect the current state of the code.
 
+`CHANGLOG.md` is the **single source of truth for changelog entries**. Put release notes,
+version history, and notable change records there instead of keeping changelog data in
+`CLAUDE.md` or `docs/specification.txt`.
+
 **Rules:**
 
 - Whenever **any source file** (`*.java`, `pom.xml`, `application.yml`, `logback-spring.xml`,
   `Dockerfile`, etc.) is created, modified, or deleted — update `docs/specification.txt` to match.
+- Whenever a change is release-worthy or operationally notable — update `CHANGLOG.md`.
 - Whenever **this `claude.md`** is updated — apply the same change to `docs/specification.txt`
   if it affects behaviour, structure, or configuration.
 - `docs/specification.txt` must be sufficient on its own for a developer (or Claude) to
@@ -433,9 +438,9 @@ cleanOldWeatherData()           // → EXEC dbo.sp_clean_old_weather_data
 
 `StationProcessorOpen` implements:
 1. Fetch JSON from Open-Meteo using station lat/lon.
-2. Log save start with payload byte count.
+2. Log save start with payload byte count at `DEBUG`.
 3. Update `dbo.ows_meteo` via `WeatherDataRepository`.
-4. Log station processed.
+4. Log station processed at `DEBUG`.
 
 `StationPostProcessingService` calls procedures in this exact order (matches legacy base):
 1. `dbo.spPushSpeciesFromLakeToStation`
@@ -498,9 +503,10 @@ Structured JSON via `logstash-logback-encoder`. Every log line is a JSON object 
 - Background worker thread start
 - Supported station count
 - Calculated time-budget delay
-- Fetch success per station
-- Save start (with payload byte count)
-- Station processed
+- Fetch success per station (`DEBUG`)
+- Save start with payload byte count (`DEBUG`)
+- Station processed (`DEBUG`)
+- Startup verification started/succeeded/failed (`INFO` for started and succeeded, `ERROR` for failed)
 - Post-processing procedure execution
 - Skip due to unpublished source (info)
 - Station processing failure (warning)
