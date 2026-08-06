@@ -34,7 +34,7 @@ public class StationHttp503BackoffService {
 
     public void recordProcessed(String provider, String country, StationRef station) {
         repository.reset(provider, country, station.mli());
-        log.info("Reset station HTTP 503 backoff after successful processing. provider={} country={} station={} "
+        log.debug("Reset station HTTP 503 backoff after successful processing. provider={} country={} station={} "
                         + "state={}",
                 provider, country, station.mli(), station.state());
     }

@@ -46,6 +46,9 @@ Main application behavior
   - Real OS environment variables and JVM system properties always win over the `.env` file.
   - Only keys declared in the `.env` file are imported (`Dotenv.Filter.DECLARED_IN_ENV_FILE`); the OS environment is not copied.
   - Support optional `DOTENV_PATH` env var to point to a custom `.env` file; otherwise a root-level `.env` is used if present.
+  - Encrypted `.env` values require either `FF_MASTER_KEY_FILE` (preferred for Docker secret/file mounts) or
+    `FF_MASTER_KEY`; production mounts `/mnt/volume_jnode/waterservice/master.key` to `/run/secrets/master.key`
+    and sets `FF_MASTER_KEY_FILE=/run/secrets/master.key`.
   - SECURITY: credentials are NEVER copied into JVM-global system properties (no `System.setProperty`), so they do not leak into `System.getProperties()`, heap dumps, or diagnostic tooling.
 - Required keys:
   - `DB_URL`
@@ -275,6 +278,7 @@ Logging
   - CSV fetch start and success
   - USGS fetch start and success
   - save start/end with reading counts
+  - successful HTTP 503 station backoff resets
 - Log failures at WARN and skipped unpublished-source events at DEBUG (via StationProcessorBase)
 - `correlationId` MDC is populated per cycle: `StationWorker` generates a short id per `runCycle` and binds it
   to MDC on each parallel pass thread (and around post-processing), so all of a cycle's log lines share it.
@@ -324,6 +328,11 @@ Docker expectations
   `/app/logs` is pre-created and owned by that user so the container can run with a read-only root filesystem
   (mount a volume/tmpfs at `/app/logs` for the logback FILE appender).
 - Runtime container:
+  - Mount production env and secret files read-only: `/mnt/volume_jnode/waterservice/waterservice.env` to
+    `/run/secrets/waterservice.env` with `DOTENV_PATH=/run/secrets/waterservice.env`, and
+    `/mnt/volume_jnode/waterservice/master.key` to `/run/secrets/master.key` with
+    `FF_MASTER_KEY_FILE=/run/secrets/master.key`.
+  - Mount persistent logs at `/app/logs`, owned by uid/gid 10001.
   - The temurin JRE image ships WITHOUT wget/curl; the Dockerfile installs `wget` (apt, no-install-recommends)
     so the HEALTHCHECK can actually execute — without it the check exits 127 and the container is permanently
     reported unhealthy.
