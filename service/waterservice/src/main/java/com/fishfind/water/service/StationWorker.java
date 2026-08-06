@@ -333,6 +333,11 @@ public class StationWorker implements ApplicationRunner {
             } else {
                 failed++;
                 lastFailedStation = station.mli();
+                if (outcome == ProcessingOutcome.FAILED_UPSTREAM_OPEN) {
+                    log.warn("Stopping station pass because upstream feed is unavailable. country={} station={} state={}",
+                            country, station.mli(), station.state());
+                    break;
+                }
             }
         }
         return new PassStats(country, succeeded, failed, lastProcessedStation, lastFailedStation);

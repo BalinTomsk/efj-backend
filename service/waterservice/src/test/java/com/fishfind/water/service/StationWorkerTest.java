@@ -214,6 +214,25 @@ class StationWorkerTest {
     }
 
     @Test
+    void runOnceStopsCountryPassWhenSharedUpstreamCircuitBreakerIsOpen() {
+        StationRef first = new StationRef("08312000", "NM", -7);
+        StationRef second = new StationRef("08313000", "NY", -5);
+        StationRef third = new StationRef("08314000", "NY", -5);
+        when(repo.findSupported("US")).thenReturn(List.of(first, second, third));
+        when(processorUS.processWithOutcome("08312000", "NM", -7))
+                .thenReturn(ProcessingOutcome.PROCESSED);
+        when(processorUS.processWithOutcome("08313000", "NY", -5))
+                .thenReturn(ProcessingOutcome.FAILED_UPSTREAM_OPEN);
+
+        int processed = worker.runOnce("US", null);
+
+        assertEquals(1, processed);
+        verify(processorUS).processWithOutcome("08312000", "NM", -7);
+        verify(processorUS).processWithOutcome("08313000", "NY", -5);
+        verify(processorUS, never()).processWithOutcome("08314000", "NY", -5);
+    }
+
+    @Test
     void runCycleIsolatesAFailingCountryPassFromTheOther() {
         when(repo.findSupported("CA")).thenThrow(new RuntimeException("db down"));
         when(repo.findSupported("US")).thenReturn(List.of(new StationRef("08312000", "NM", -7)));

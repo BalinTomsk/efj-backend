@@ -10,6 +10,8 @@ public enum ProcessingOutcome {
     SKIPPED,
     /** Processing failed because the upstream provider returned HTTP 503. */
     FAILED_HTTP_503,
+    /** Processing stopped because the shared upstream circuit breaker is open. */
+    FAILED_UPSTREAM_OPEN,
     /** Processing failed for any other handled reason. */
     FAILED
 }

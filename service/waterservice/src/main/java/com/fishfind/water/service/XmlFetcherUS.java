@@ -6,7 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -53,6 +55,26 @@ public class XmlFetcherUS {
         } catch (HttpClientErrorException.NotFound ex) {
             throw new FileNotFoundException(
                     "HTTP 404: WaterML not published for US station " + mli + " (state " + state + ")");
+        } catch (RestClientException ex) {
+            IOException ioCause = findCause(ex, IOException.class);
+            if (ioCause != null) {
+                throw new ResourceAccessException(
+                        "I/O error while reading USGS WaterML response for station " + mli
+                                + " (state " + state + ")",
+                        ioCause);
+            }
+            throw ex;
         }
+    }
+
+    private static <T extends Throwable> T findCause(Throwable throwable, Class<T> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return type.cast(current);
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 }
