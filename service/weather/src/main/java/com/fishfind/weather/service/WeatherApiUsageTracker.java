@@ -14,7 +14,20 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Persists conservative per-provider daily API reservations so restarts cannot reset usage.
+ * Tracks how much of each provider's daily API allowance has actually been spent, in a file that
+ * survives restarts so a crash-loop cannot re-spend a paid quota.
+ *
+ * <p><strong>Budget is consumed one station at a time, immediately before that station is
+ * fetched</strong> — never booked up front for a whole cycle. The up-front version charged the entire
+ * daily limit at cycle start, so any restart forfeited whatever the interrupted cycle had not yet
+ * used: measured on the C# port on 2026-08-08, three restarts burned 3,200 station-slots to do ~154
+ * stations of real work, and the service then sat idle until the next UTC day. Charging per station
+ * means an interrupted cycle costs exactly what it used, and that stays true after a hard kill, where
+ * nothing gets the chance to credit anything back.
+ *
+ * <p>If the ledger cannot be written the provider is skipped rather than run unmetered — an
+ * unwritable state directory is precisely the condition under which a restart loop would otherwise
+ * re-spend the budget over and over.
  */
 @Component
 public class WeatherApiUsageTracker {
@@ -25,44 +38,87 @@ public class WeatherApiUsageTracker {
     @Value("${weather.lifecycle.state-dir:/app/logs/.lifecycle}")
     private String stateDir;
 
-    public synchronized UsageReservation reserve(String provider, LocalDate date, int requested, int dailyLimit) {
-        int safeRequested = Math.max(0, requested);
-        int safeDailyLimit = Math.max(0, dailyLimit);
-        if (safeRequested == 0 || safeDailyLimit == 0) {
-            return new UsageReservation(usedToday(provider, date), safeDailyLimit, 0, safeRequested, true);
+    /**
+     * How much of a provider's day is left, for sizing the cycle and for logging.
+     *
+     * @param usedToday  stations already charged to this provider today
+     * @param dailyLimit the configured ceiling
+     * @param remaining  what this cycle may still spend
+     * @param persisted  whether the ledger is readable/writable; {@code false} forces a skip
+     */
+    public record UsageSnapshot(int usedToday, int dailyLimit, int remaining, boolean persisted) {
+    }
+
+    /** Reads today's usage without charging anything. */
+    public synchronized UsageSnapshot snapshot(String provider, LocalDate date, int dailyLimit) {
+        int safeLimit = Math.max(0, dailyLimit);
+        try {
+            Files.createDirectories(usageDir());
+            int used = usedOn(readRetainedEntries(date), provider, date);
+            return new UsageSnapshot(used, safeLimit, Math.max(0, safeLimit - used), true);
+        } catch (IOException ex) {
+            logLedgerFailure(ex, provider, safeLimit);
+            return new UsageSnapshot(0, safeLimit, 0, false);
+        }
+    }
+
+    /**
+     * Charges one station against the provider's daily allowance.
+     *
+     * @return {@code true} when the station may be fetched. {@code false} means the allowance is spent
+     *         (or the ledger is unwritable) and the caller must stop — nothing was charged.
+     */
+    public synchronized boolean tryConsume(String provider, LocalDate date, int dailyLimit) {
+        int safeLimit = Math.max(0, dailyLimit);
+        if (safeLimit == 0) {
+            return false;
         }
 
         try {
             Files.createDirectories(usageDir());
             List<UsageEntry> entries = readRetainedEntries(date);
-            int usedBefore = entries.stream()
-                    .filter(entry -> entry.date().equals(date) && entry.provider().equals(provider))
-                    .mapToInt(UsageEntry::reserved)
-                    .sum();
-            int remaining = Math.max(0, safeDailyLimit - usedBefore);
-            int reserved = Math.min(safeRequested, remaining);
-            if (reserved > 0) {
-                entries.add(new UsageEntry(date, provider, reserved));
+            if (usedOn(entries, provider, date) >= safeLimit) {
+                return false;
             }
+
+            // One aggregated row per (date, provider): incremented in place, so the file stays a few
+            // lines long however many stations a day runs.
+            int index = -1;
+            for (int i = 0; i < entries.size(); i++) {
+                UsageEntry entry = entries.get(i);
+                if (entry.date().equals(date) && entry.provider().equals(provider)) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index >= 0) {
+                UsageEntry existing = entries.get(index);
+                entries.set(index, new UsageEntry(existing.date(), existing.provider(), existing.reserved() + 1));
+            } else {
+                entries.add(new UsageEntry(date, provider, 1));
+            }
+
+            // Written before the fetch, so a crash mid-station costs that station's slot rather than
+            // letting the restart re-spend it.
             writeEntries(entries);
-            return new UsageReservation(usedBefore, safeDailyLimit, reserved, safeRequested, true);
+            return true;
         } catch (IOException ex) {
-            log.error("Could not persist weather API usage reservation; skipping provider to avoid "
-                    + "exceeding daily limit after restart. provider={} requested={} dailyLimit={} stateDir={}",
-                    provider, safeRequested, safeDailyLimit, stateDir, ex);
-            return new UsageReservation(0, safeDailyLimit, 0, safeRequested, false);
+            logLedgerFailure(ex, provider, safeLimit);
+            return false;
         }
     }
 
-    private int usedToday(String provider, LocalDate date) {
-        try {
-            return readRetainedEntries(date).stream()
-                    .filter(entry -> entry.date().equals(date) && entry.provider().equals(provider))
-                    .mapToInt(UsageEntry::reserved)
-                    .sum();
-        } catch (IOException ex) {
-            return 0;
-        }
+    private void logLedgerFailure(IOException ex, String provider, int dailyLimit) {
+        log.error("Could not read/write the weather API usage ledger; skipping provider to avoid "
+                        + "exceeding the daily limit after restart. provider={} dailyLimit={} stateDir={}",
+                provider, dailyLimit, stateDir, ex);
+    }
+
+    private static int usedOn(List<UsageEntry> entries, String provider, LocalDate date) {
+        return entries.stream()
+                .filter(entry -> entry.date().equals(date) && entry.provider().equals(provider))
+                .mapToInt(UsageEntry::reserved)
+                .sum();
     }
 
     private List<UsageEntry> readRetainedEntries(LocalDate today) throws IOException {
@@ -114,14 +170,6 @@ public class WeatherApiUsageTracker {
 
     private Path usagePath() {
         return usageDir().resolve(USAGE_FILE);
-    }
-
-    public record UsageReservation(
-            int usedBefore,
-            int dailyLimit,
-            int reserved,
-            int requested,
-            boolean persisted) {
     }
 
     private record UsageEntry(LocalDate date, String provider, int reserved) {

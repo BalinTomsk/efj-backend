@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fishfind.weather.domain.StationRef;
+import com.fishfind.weather.repo.WeatherStationCoverageRepository;
 import com.fishfind.weather.repo.WeatherStationRepository;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -28,7 +29,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class StationWorkerTest {
 
-    private static final long EIGHT_HOURS_MS = 8L * 60 * 60 * 1000;
+    private static final long TWELVE_HOURS_MS = 12L * 60 * 60 * 1000;
+    /** weather-gov daily limit is 900, so the derived gap is 12h/900 = 48s per station. */
+    private static final long DERIVED_GAP_MS = TWELVE_HOURS_MS / 900;
 
     private WeatherStationRepository stationRepository;
     private StationProcessorOpen processor;
@@ -38,6 +41,7 @@ class StationWorkerTest {
     private StationProcessorWeatherCanada weatherCanadaProcessor;
     private StationPostProcessingService postProcessing;
     private WeatherApiUsageTracker usageTracker;
+    private WeatherStationCoverageRepository coverageRepository;
 
     private final List<Long> recordedSleeps = new ArrayList<>();
     private RecordingWorker worker;
@@ -57,16 +61,15 @@ class StationWorkerTest {
         weatherCanadaProcessor = Mockito.mock(StationProcessorWeatherCanada.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
         usageTracker = Mockito.mock(WeatherApiUsageTracker.class);
+        coverageRepository = Mockito.mock(WeatherStationCoverageRepository.class);
         when(stationRepository.countSupportedStations(anyString())).thenReturn(THREE_STATIONS.size());
         when(stationRepository.findSupportedStations(anyString(), anyInt())).thenAnswer(invocation -> {
             int limit = invocation.getArgument(1);
             return THREE_STATIONS.subList(0, Math.min(limit, THREE_STATIONS.size()));
         });
-        when(usageTracker.reserve(anyString(), any(LocalDate.class), anyInt(), anyInt())).thenAnswer(invocation -> {
-            int requested = invocation.getArgument(2);
-            int dailyLimit = invocation.getArgument(3);
-            return new WeatherApiUsageTracker.UsageReservation(0, dailyLimit, requested, requested, true);
-        });
+        when(usageTracker.snapshot(anyString(), any(LocalDate.class), anyInt())).thenAnswer(invocation ->
+                new WeatherApiUsageTracker.UsageSnapshot(0, invocation.getArgument(2), invocation.getArgument(2), true));
+        when(usageTracker.tryConsume(anyString(), any(LocalDate.class), anyInt())).thenReturn(true);
         worker = new RecordingWorker();
         ReflectionTestUtils.setField(worker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(worker, "weatherGovDailyLimit", 900);
@@ -74,14 +77,23 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(worker, "visualCrossingDailyLimit", 1000);
         ReflectionTestUtils.setField(worker, "googleWeatherDailyLimit", 161);
         ReflectionTestUtils.setField(worker, "weatherCanadaDailyLimit", 900);
+        // Both metered providers now refuse to start without a key; the background-mode tests expect
+        // all five workers, so give the fixture one.
+        ReflectionTestUtils.setField(worker, "visualCrossingApiKey", "test-key");
+        ReflectionTestUtils.setField(worker, "googleWeatherApiKey", "test-key");
     }
 
     @Test
     void calculatesPerStationDelayWithinTimeBudget() {
-        assertThat(worker.calculateDelayMs(0)).isEqualTo(2000L);
-        assertThat(worker.calculateDelayMs(1)).isEqualTo(2000L);
-        assertThat(worker.calculateDelayMs(2)).isEqualTo(EIGHT_HOURS_MS / 2);
-        assertThat(worker.calculateDelayMs(1_000_000)).isEqualTo(2000L);
+        // An explicit TIMEOUT is used verbatim, floor or no floor.
+        assertThat(StationWorker.calculateDelayMs(5, 1400)).isEqualTo(5000L);
+        assertThat(StationWorker.calculateDelayMs(1, 1400)).isEqualTo(1000L);
+        // Otherwise the daily allowance is spread over 12 hours.
+        assertThat(StationWorker.calculateDelayMs(0, 1400)).isEqualTo(TWELVE_HOURS_MS / 1400);
+        assertThat(StationWorker.calculateDelayMs(0, 900)).isEqualTo(DERIVED_GAP_MS);
+        // A nonsensically large limit must not turn the cycle into a burst.
+        assertThat(StationWorker.calculateDelayMs(0, 1_000_000)).isEqualTo(2000L);
+        assertThat(StationWorker.calculateDelayMs(0, 0)).isEqualTo(2000L);
     }
 
     @Test
@@ -104,7 +116,8 @@ class StationWorkerTest {
         inOrder.verify(weatherGovProcessor).process(THREE_STATIONS.get(2), "US");
         inOrder.verify(postProcessing).runAfterStationProcessing();
         assertThat(recordedSleeps).allMatch(ms -> ms <= 60 * 60 * 1000L);
-        assertThat(recordedSleeps.stream().mapToLong(Long::longValue).sum()).isEqualTo(EIGHT_HOURS_MS);
+        assertThat(recordedSleeps.stream().mapToLong(Long::longValue).sum())
+                .isEqualTo(THREE_STATIONS.size() * DERIVED_GAP_MS);
     }
 
     @Test
@@ -143,8 +156,10 @@ class StationWorkerTest {
 
     @Test
     void dailyReservationCapsStationsLoadedAndProcessed() throws Exception {
-        when(usageTracker.reserve(eq("weather-gov"), any(LocalDate.class), anyInt(), anyInt()))
-                .thenReturn(new WeatherApiUsageTracker.UsageReservation(898, 900, 2, 3, true));
+        // 898 of the day's 900 already spent, so only 2 stations may be loaded and charged.
+        when(usageTracker.snapshot(eq("weather-gov"), any(LocalDate.class), anyInt()))
+                .thenReturn(new WeatherApiUsageTracker.UsageSnapshot(898, 900, 2, true));
+        when(usageTracker.tryConsume(eq("weather-gov"), any(LocalDate.class), anyInt())).thenReturn(true);
         when(weatherGovProcessor.process(any(), anyString())).thenReturn(ProcessingOutcome.PROCESSED);
 
         StationWorker.RunResult result = worker.runOnce(null);
@@ -158,8 +173,9 @@ class StationWorkerTest {
 
     @Test
     void exhaustedDailyReservationSkipsProviderWithoutApiCalls() throws Exception {
-        when(usageTracker.reserve(eq("weather-gov"), any(LocalDate.class), anyInt(), anyInt()))
-                .thenReturn(new WeatherApiUsageTracker.UsageReservation(900, 900, 0, 3, true));
+        when(usageTracker.snapshot(eq("weather-gov"), any(LocalDate.class), anyInt()))
+                .thenReturn(new WeatherApiUsageTracker.UsageSnapshot(0, 900, 0, true));
+        when(usageTracker.tryConsume(eq("weather-gov"), any(LocalDate.class), anyInt())).thenReturn(false);
 
         StationWorker.RunResult result = worker.runOnce(null);
 
@@ -199,6 +215,8 @@ class StationWorkerTest {
 
     @Test
     void runOnceLogsHourlyProgressBeforeFinalCycleSummary() throws Exception {
+        // A 2-hour explicit gap, so each station's wait crosses the hourly-summary boundary.
+        ReflectionTestUtils.setField(worker, "weatherGovTimeoutSeconds", 7200);
         when(weatherGovProcessor.process(THREE_STATIONS.get(0), "US")).thenReturn(ProcessingOutcome.PROCESSED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(1), "US")).thenReturn(ProcessingOutcome.FAILED);
         when(weatherGovProcessor.process(THREE_STATIONS.get(2), "US")).thenReturn(ProcessingOutcome.PROCESSED);
@@ -261,7 +279,10 @@ class StationWorkerTest {
                 weatherCanadaProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
-                usageTracker);
+                usageTracker,
+                coverageRepository);
+        ReflectionTestUtils.setField(backgroundWorker, "visualCrossingApiKey", "test-key");
+        ReflectionTestUtils.setField(backgroundWorker, "googleWeatherApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
         ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
@@ -282,8 +303,8 @@ class StationWorkerTest {
                         "weather-data-worker-google-weather-us",
                         "weather-data-worker-weather-canada-ca");
 
-        verify(usageTracker, timeout(2000)).reserve(eq("google-weather"), any(LocalDate.class), eq(0), eq(161));
-        verify(usageTracker, timeout(2000)).reserve(eq("weather-canada"), any(LocalDate.class), eq(0), eq(900));
+        verify(usageTracker, timeout(2000)).snapshot(eq("google-weather"), any(LocalDate.class), eq(161));
+        verify(usageTracker, timeout(2000)).snapshot(eq("weather-canada"), any(LocalDate.class), eq(900));
 
         backgroundWorker.shutdown();
     }
@@ -305,7 +326,10 @@ class StationWorkerTest {
                 weatherCanadaProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
-                usageTracker);
+                usageTracker,
+                coverageRepository);
+        ReflectionTestUtils.setField(backgroundWorker, "visualCrossingApiKey", "test-key");
+        ReflectionTestUtils.setField(backgroundWorker, "googleWeatherApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "startupVerificationEnabled", true);
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
@@ -355,7 +379,8 @@ class StationWorkerTest {
                     weatherCanadaProcessor,
                     postProcessing,
                     new CycleReportRecorder(),
-                    usageTracker);
+                    usageTracker,
+                coverageRepository);
         }
 
         @Override

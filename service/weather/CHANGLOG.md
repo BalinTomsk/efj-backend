@@ -4,6 +4,48 @@ All notable changes for this service must be recorded in this file.
 
 ## Unreleased
 
+- **Fix: every US station was being skipped.** `vwWeatherForecastToDay` is built from
+  `dbo.WaterStation`, so `mli` is a WATER gauge id -- all 2,219 US rows are numeric USGS site
+  numbers, never NWS call signs, so `/stations/{mli}/observations` returned 404 for every one of
+  them, permanently. The gauge's COORDINATE is now resolved to a nearby NWS station via
+  `/points/{lat},{lon}/stations` and the mapping cached in `dbo.weather_gov_station`
+  (`WeatherGovStationResolver` + `WeatherGovStationRepository`). Measured on the C# port: 0/25
+  sampled gauges resolved by mli, 25/25 by coordinate; live, 67/67 resolved with 2 skips.
+  Two API details this depends on: coordinates must be rounded to 4 decimal places, and `/points`
+  answers with a 301 that must be followed.
+
+- **Fix: the daily API allowance was booked up front**, so any restart forfeited the rest of the
+  day. `WeatherApiUsageTracker` now charges one station at a time immediately before each fetch
+  (`snapshot` + `tryConsume` replace `reserve`), so an interrupted cycle costs only what it used --
+  which also stays true after a hard kill, where nothing can credit anything back. Measured on the
+  C# port: three restarts had burned 3,200 station-slots for ~154 stations of real work.
+
+- **Flag which providers cannot serve which gauge.** New
+  `dbo.weather_station_coverage` (+ `fn_weather_uncovered_stations`, `sp_save_weather_station_coverage`),
+  written by `StationWorker` as each station completes. Only PROCESSED and SKIPPED are coverage
+  facts; a FAILURE is transient and is deliberately not recorded. A fallback worker reads the gaps
+  with their coordinates. SWOB has genuine geographic gaps -- roughly one Canadian gauge in six --
+  which previously skipped silently forever, invisible because a fully-skipped cycle still reports
+  healthy.
+
+- **Weather Canada bbox radius 0.05 -> 0.5 degrees.** At 0.05 (~5.5 km) NO sampled station matched
+  a SWOB site; 0.25 recovered 12/25 and 0.5 recovered 21/25.
+
+- **Per-provider `<PROVIDER>_ENABLE` toggles and `<PROVIDER>_TIMEOUT` pacing.** A disabled worker,
+  or a metered provider with a blank API key, is not started at all rather than started and failing
+  every station (which would push the cycle's failure rate past the threshold and suppress
+  post-processing for a country whose other providers were healthy). Pacing is now derived from the
+  provider's own daily-limit over 12 hours instead of the day's station count over 8 hours, making
+  the request rate predictable per provider.
+
+- **A failed cycle now waits one minute before retrying.** Every failure at that level happens
+  before the first station (the station COUNT query), so with the database down the loop spun at
+  thousands of iterations a second across five workers, pinning a core and burying the log.
+
+All of the above were first made and verified in the C# port (`efcs-backend/service/weather`,
+releases 10.0.1-10.0.3) and are ported back here. 137 tests pass.
+
+
 - Changed routine per-station success logs for fetch/save/processed events from INFO to DEBUG.
 - Kept startup verification success logs at INFO so deployment startup checks remain visible.
 

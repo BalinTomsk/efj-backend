@@ -236,6 +236,19 @@ weather:
     open-meteo-base-url: https://api.open-meteo.com/v1/forecast
     weather-gov-base-url: https://api.weather.gov
     weather-gov-user-agent: ${WEATHER_GOV_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
+    weather-canada-bbox-radius-degrees: ${WEATHER_CANADA_BBOX_RADIUS_DEGREES:0.5}
+    enable:                              # false stops that worker starting at all; omitted = true,
+      weather-gov: ${WEATHER_GOV_ENABLE:true}          # so a provider is opted OUT explicitly
+      open-meteo: ${OPEN_METEO_ENABLE:true}
+      visual-crossing: ${VISUAL_CROSSING_ENABLE:true}
+      google-weather: ${GOOGLE_WEATHER_ENABLE:true}
+      weather-canada: ${WEATHER_CANADA_ENABLE:true}
+    timeout:                             # seconds between calls; 0/absent = derive from daily-limit
+      weather-gov: ${WEATHER_GOV_TIMEOUT:0}            # spread over 12 hours, floored at 2s
+      open-meteo: ${OPEN_METEO_TIMEOUT:0}
+      visual-crossing: ${VISUAL_CROSSING_TIMEOUT:0}
+      google-weather: ${GOOGLE_WEATHER_TIMEOUT:0}
+      weather-canada: ${WEATHER_CANADA_TIMEOUT:0}
     rate-limit:                          # inline 429 Retry-After handling
       max-retries: 2
       default-wait-ms: 5000
@@ -479,7 +492,28 @@ HTTP FETCH (WeatherGovFetcher)
 ------------------------------
 Transport: HttpURLConnection, method GET.
 Base URL: weather.worker.weather-gov-base-url (default https://api.weather.gov).
-Endpoint: /stations/{station.mli}/observations/latest.
+Endpoint: TWO steps, because station.mli is NOT an NWS identifier.
+
+  vwWeatherForecastToDay is built from dbo.WaterStation, so mli is a WATER gauge id -- every US
+  row is a numeric USGS site number, never an NWS call sign. /stations/{mli}/observations/latest
+  therefore returned HTTP 404 for ALL 2,219 US stations, permanently. Measured 2026-08-08: 0 of 25
+  sampled gauges resolved by mli; 25 of 25 resolved by coordinate.
+
+  1. WeatherGovStationResolver.resolve(station):
+       - dbo.fn_weather_gov_station(mli) via WeatherGovStationRepository.
+         0 rows  = never asked -> call the API and cache the answer.
+         1 row   = already answered; station_id NULL is a NEGATIVE cache ("no station nearby"),
+                   which stops every cycle re-asking a point that will never resolve.
+       - On a miss: GET /points/{lat},{lon}/stations, take the first "stationIdentifier".
+         Coordinates MUST be rounded to 4 decimal places (more returns AdjustPointPrecision), and
+         the endpoint answers with a 301 that must be followed (HttpURLConnection does for GET).
+       - Store via dbo.sp_save_weather_gov_station. The mapping is geographic and effectively
+         permanent, so it is resolved once per gauge, not once per cycle -- resolving inline would
+         double the request count against a rate-limited public API for no benefit.
+  2. GET /stations/{resolvedNwsStation}/observations/latest.
+
+  A gauge with no NWS station nearby throws FileNotFoundException -> SKIPPED, like any unpublished
+  feed. The payload is saved under the WATER gauge's own mli: ows_meteo is keyed by mli.
 Headers:
   User-Agent: weather.worker.weather-gov-user-agent. Weather.gov requires this; include contact info.
   Accept: application/geo+json.
@@ -494,8 +528,9 @@ Resilience (fetch is annotated @Retry + @CircuitBreaker + @RateLimiter, instance
 Weather.gov service-limit note:
   The official docs do not publish a daily request limit. They state rate limits are reasonable,
   not public, generous for typical use, and 429 responses may usually be retried after the limit
-  clears, typically within about 5 seconds. The worker therefore spreads 900 US stations across
-  the 8-hour budget (about 32 seconds per station) and still handles 429 Retry-After explicitly.
+  clears, typically within about 5 seconds. The worker paces itself from its own daily-limit
+  (900 US stations spread over 12 hours = 48 s per station) and still handles 429 Retry-After
+  explicitly. Set WEATHER_GOV_TIMEOUT to override the derived gap.
 
 
 PERSISTENCE (WeatherDataRepository)
@@ -724,13 +759,20 @@ RECREATION CHECKLIST
     REPORT_EMAIL_FROM (all optional)
  5. StationRef record: mli, latitude, longitude, state
  6. WeatherStationRepository — vwWeatherForecastToDay US query
+ 6a. WeatherGovStationRepository — dbo.fn_weather_gov_station / dbo.sp_save_weather_gov_station
+ 6b. WeatherStationCoverageRepository — dbo.sp_save_weather_station_coverage
+ 6c. WeatherGovStationResolver — coordinate -> nearest NWS station, cached in the database
+ 6d. WeatherApiUsageTracker — per-station daily budget ledger (snapshot + tryConsume)
  7. OpenMeteoFetcher — HttpURLConnection; honest User-Agent; verbatim UTF-8 body (no replace)
  8. WeatherDataRepository — UPDATE dbo.ows_meteo, two stored procedure methods, Resilience4j
  9. StationProcessorBase — template method exception handling
 10. StationProcessorOpen — fetch + save flow
 11. StationPostProcessingService — exact procedure order
-12. StationWorker — background thread, 8-hour dynamic delay, midnight sleep, records a
-    CycleReportEntry per completed cycle
+12. StationWorker — one background thread per ENABLED provider, per-provider pacing, midnight
+    sleep, records a CycleReportEntry per completed cycle. Also: charges the API budget ONE
+    STATION AT A TIME before each fetch, flags per-provider coverage, skips a provider whose
+    <PROVIDER>_ENABLE is false or whose metered API key is blank, and waits one minute after a
+    failed cycle before retrying
 13. ConsoleDebugRunner — --console + --station one-shot mode
 14. CycleReportEntry record + CycleReportRecorder — in-memory last-7-days-per-worker buffer (not persisted)
 15. IncidentEntry record + ServiceLifecycleTracker — marker-file crash detection + log-tail
@@ -750,3 +792,48 @@ RECREATION CHECKLIST
     for crash tracking to survive redeploys and not misreport every deploy as a crash
 24. Unit tests for all functional classes (see TESTING) using the sleep/exit/base-url seams
 25. Verify: mvn test
+
+DAILY API BUDGET (WeatherApiUsageTracker)
+-----------------------------------------
+File: {weather.lifecycle.state-dir}/api-usage.log, one aggregated row per (date, provider),
+"date|provider|count", 8-day retention.
+
+Budget is charged ONE STATION AT A TIME, immediately before that station is fetched --
+never booked up front for a whole cycle.
+
+  snapshot(provider, date, dailyLimit) -> usedToday / remaining / persisted. Used only to size the
+      station page and for the log line; it charges nothing.
+  tryConsume(provider, date, dailyLimit) -> boolean. Charges one station, or returns false when the
+      allowance is spent (nothing is charged) and the cycle ends normally -- post-processing still
+      runs for the stations that did complete.
+
+WHY: the previous version reserved the entire daily limit at cycle start, so any restart forfeited
+whatever the interrupted cycle had not used. Measured on the C# port 2026-08-08: three restarts
+burned 3,200 station-slots to do ~154 stations of real work, and the service then sat idle until
+the next UTC day. Charging per station also stays correct after a hard kill, where nothing gets the
+chance to credit anything back.
+
+If the ledger cannot be written the provider is SKIPPED rather than run unmetered -- an unwritable
+state directory is precisely when a restart loop would otherwise re-spend the budget repeatedly.
+
+
+PROVIDER COVERAGE (WeatherStationCoverageRepository)
+---------------------------------------------------
+Table dbo.weather_station_coverage, one row per (mli, provider), written as each station completes.
+
+Not every provider answers every coordinate. Weather Canada's SWOB is an OBSERVATION network with
+real geographic gaps -- measured 2026-08-08, even a 0.5 degree (~55 km) box found no station for
+roughly one Canadian gauge in six. Gridded providers (Open-Meteo, Visual Crossing, Google) have no
+gaps. Without this flag those gauges skip silently every cycle forever, and a fully-skipped cycle
+still reports HEALTHY, so nothing surfaces them.
+
+  PROCESSED -> covered = 1
+  SKIPPED   -> covered = 0
+  FAILED    -> nothing recorded. A failure is transient; treating a timeout or a 503 as "not
+               covered" would exile a well-served gauge to the fallback worker after one bad night.
+
+A fallback worker reads the gaps from dbo.fn_weather_uncovered_stations(@provider), which returns
+lat/lon/state/country as well as mli. The flag is a CURRENT FACT, not a log: one row per pair,
+updated in place, so a gap that later resolves simply clears.
+
+The coverage write can never fail a station -- the payload is already saved by the time it runs.
