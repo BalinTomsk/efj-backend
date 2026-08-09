@@ -192,11 +192,27 @@ weather:
     weather-gov-user-agent: ${WEATHER_GOV_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
     weather-canada-base-url: https://api.weather.gc.ca
     weather-canada-user-agent: ${WEATHER_CANADA_USER_AGENT:efj-backend-weather/1.0 (ops@fishfind.com)}
-    weather-canada-bbox-radius-degrees: ${WEATHER_CANADA_BBOX_RADIUS_DEGREES:0.05}
+    weather-canada-bbox-radius-degrees: ${WEATHER_CANADA_BBOX_RADIUS_DEGREES:0.5}
     visual-crossing-base-url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
     visual-crossing-api-key: ${VISUAL_CROSSING_API_KEY:}
     google-weather-base-url: https://weather.googleapis.com/v1/currentConditions:lookup
     google-weather-api-key: ${GOOGLE_WEATHER_API_KEY:}
+    enable:
+      # false stops that worker from starting at all; omitted means true, so a provider is opted
+      # OUT explicitly and adding a new one never requires touching every deployment env file.
+      weather-gov: ${WEATHER_GOV_ENABLE:true}
+      open-meteo: ${OPEN_METEO_ENABLE:true}
+      visual-crossing: ${VISUAL_CROSSING_ENABLE:true}
+      google-weather: ${GOOGLE_WEATHER_ENABLE:true}
+      weather-canada: ${WEATHER_CANADA_ENABLE:true}
+    timeout:
+      # Seconds between calls to that provider. 0 or absent = derive it, by spreading that
+      # provider daily-limit evenly over 12 hours. An explicit value is used verbatim.
+      weather-gov: ${WEATHER_GOV_TIMEOUT:0}
+      open-meteo: ${OPEN_METEO_TIMEOUT:0}
+      visual-crossing: ${VISUAL_CROSSING_TIMEOUT:0}
+      google-weather: ${GOOGLE_WEATHER_TIMEOUT:0}
+      weather-canada: ${WEATHER_CANADA_TIMEOUT:0}
     rate-limit:
       max-retries: 2
       default-wait-ms: 5000

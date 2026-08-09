@@ -9,54 +9,89 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 
+/**
+ * Covers the ledger that stops a restart loop from re-spending a provider's paid daily quota.
+ * Budget is charged per station, so an interrupted cycle costs only what it actually used.
+ */
 class WeatherApiUsageTrackerTest {
+
+    private static final LocalDate DAY = LocalDate.of(2026, 7, 15);
 
     @TempDir
     private Path tempDir;
 
     @Test
-    void reservesOnlyRemainingDailyLimitAcrossTrackerInstances() {
-        LocalDate day = LocalDate.of(2026, 7, 15);
-        WeatherApiUsageTracker first = tracker(tempDir);
+    void chargesOneStationAtATime() {
+        WeatherApiUsageTracker tracker = tracker(tempDir);
 
-        WeatherApiUsageTracker.UsageReservation firstReservation =
-                first.reserve("visual-crossing", day, 800, 1000);
+        assertThat(tracker.tryConsume("weather-gov", DAY, 3)).isTrue();
+        assertThat(tracker.tryConsume("weather-gov", DAY, 3)).isTrue();
 
-        assertThat(firstReservation.reserved()).isEqualTo(800);
-        assertThat(firstReservation.usedBefore()).isZero();
+        WeatherApiUsageTracker.UsageSnapshot snapshot = tracker.snapshot("weather-gov", DAY, 3);
+        assertThat(snapshot.usedToday()).isEqualTo(2);
+        assertThat(snapshot.remaining()).isEqualTo(1);
+    }
 
-        WeatherApiUsageTracker restarted = tracker(tempDir);
-        WeatherApiUsageTracker.UsageReservation secondReservation =
-                restarted.reserve("visual-crossing", day, 500, 1000);
+    @Test
+    void stopsAtTheDailyLimit() {
+        WeatherApiUsageTracker tracker = tracker(tempDir);
+        for (int i = 0; i < 3; i++) {
+            tracker.tryConsume("google-weather", DAY, 3);
+        }
 
-        assertThat(secondReservation.usedBefore()).isEqualTo(800);
-        assertThat(secondReservation.reserved()).isEqualTo(200);
+        assertThat(tracker.tryConsume("google-weather", DAY, 3)).isFalse();
+        assertThat(tracker.snapshot("google-weather", DAY, 3).usedToday()).isEqualTo(3);
+    }
+
+    @Test
+    void anInterruptedCycleOnlyCostsWhatItUsed() {
+        // The whole point of charging per station: the old up-front reservation booked the entire
+        // daily limit at cycle start, so a restart 5 stations in forfeited the other 895.
+        WeatherApiUsageTracker before = tracker(tempDir);
+        for (int i = 0; i < 5; i++) {
+            before.tryConsume("weather-gov", DAY, 900);
+        }
+
+        WeatherApiUsageTracker afterRestart = tracker(tempDir);
+        WeatherApiUsageTracker.UsageSnapshot snapshot = afterRestart.snapshot("weather-gov", DAY, 900);
+
+        assertThat(snapshot.usedToday()).isEqualTo(5);
+        assertThat(snapshot.remaining()).isEqualTo(895);
+        assertThat(afterRestart.tryConsume("weather-gov", DAY, 900)).isTrue();
     }
 
     @Test
     void keepsProviderBudgetsSeparate() {
-        LocalDate day = LocalDate.of(2026, 7, 15);
         WeatherApiUsageTracker tracker = tracker(tempDir);
+        tracker.tryConsume("visual-crossing", DAY, 1);
 
-        tracker.reserve("visual-crossing", day, 1000, 1000);
-        WeatherApiUsageTracker.UsageReservation weatherGov =
-                tracker.reserve("weather-gov", day, 900, 900);
-
-        assertThat(weatherGov.usedBefore()).isZero();
-        assertThat(weatherGov.reserved()).isEqualTo(900);
+        assertThat(tracker.tryConsume("visual-crossing", DAY, 1)).isFalse();
+        assertThat(tracker.tryConsume("weather-gov", DAY, 1)).isTrue();
     }
 
     @Test
-    void returnsZeroReservationWhenUsageCannotBePersisted() throws Exception {
+    void yesterdaysUsageDoesNotCountAgainstToday() {
+        WeatherApiUsageTracker tracker = tracker(tempDir);
+        tracker.tryConsume("open", DAY.minusDays(1), 1);
+
+        assertThat(tracker.snapshot("open", DAY, 1).usedToday()).isZero();
+        assertThat(tracker.tryConsume("open", DAY, 1)).isTrue();
+    }
+
+    @Test
+    void zeroDailyLimitDisablesTheProvider() {
+        assertThat(tracker(tempDir).tryConsume("weather-canada", DAY, 0)).isFalse();
+    }
+
+    @Test
+    void unwritableStateDirSkipsTheProviderInsteadOfRunningUnmetered() throws Exception {
+        // Without a durable ledger there is no way to know what today already cost, so spend nothing.
         Path notDirectory = tempDir.resolve("not-directory");
         Files.writeString(notDirectory, "x");
         WeatherApiUsageTracker tracker = tracker(notDirectory.resolve("state"));
 
-        WeatherApiUsageTracker.UsageReservation reservation =
-                tracker.reserve("visual-crossing", LocalDate.of(2026, 7, 15), 10, 1000);
-
-        assertThat(reservation.persisted()).isFalse();
-        assertThat(reservation.reserved()).isZero();
+        assertThat(tracker.tryConsume("visual-crossing", DAY, 1000)).isFalse();
+        assertThat(tracker.snapshot("visual-crossing", DAY, 1000).persisted()).isFalse();
     }
 
     private WeatherApiUsageTracker tracker(Path stateDir) {

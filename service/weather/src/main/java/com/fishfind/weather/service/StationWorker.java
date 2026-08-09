@@ -1,6 +1,7 @@
 package com.fishfind.weather.service;
 
 import com.fishfind.weather.domain.StationRef;
+import com.fishfind.weather.repo.WeatherStationCoverageRepository;
 import com.fishfind.weather.repo.WeatherStationRepository;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
@@ -25,6 +26,9 @@ public class StationWorker implements ApplicationRunner {
     private static final long MIN_DELAY_BETWEEN_STATIONS_MS = 2000L;
     private static final long SUMMARY_LOG_INTERVAL_MS = Duration.ofHours(1).toMillis();
     private static final Duration TIME_BUDGET = Duration.ofHours(8);
+    private static final Duration CYCLE_FAILURE_COOLDOWN = Duration.ofMinutes(1);
+    /** Window a provider's whole daily allowance is spread across when no TIMEOUT is set. */
+    private static final Duration DERIVED_PACING_WINDOW = Duration.ofHours(12);
     private static final long SHUTDOWN_JOIN_MS = 25_000L;
     private static final String DEFAULT_COUNTRY = "US";
     private static final WorkerDefinition WEATHER_GOV_US = new WorkerDefinition(
@@ -54,6 +58,7 @@ public class StationWorker implements ApplicationRunner {
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
     private final WeatherApiUsageTracker usageTracker;
+    private final WeatherStationCoverageRepository coverageRepository;
 
     @Value("${weather.worker.post-processing.max-failure-rate:0.5}")
     private double maxFailureRate;
@@ -76,6 +81,42 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.startup-verification.enabled:true}")
     private boolean startupVerificationEnabled;
 
+    @Value("${weather.worker.enable.weather-gov:true}")
+    private boolean weatherGovEnabled = true;
+
+    @Value("${weather.worker.enable.open-meteo:true}")
+    private boolean openMeteoEnabled = true;
+
+    @Value("${weather.worker.enable.visual-crossing:true}")
+    private boolean visualCrossingEnabled = true;
+
+    @Value("${weather.worker.enable.google-weather:true}")
+    private boolean googleWeatherEnabled = true;
+
+    @Value("${weather.worker.enable.weather-canada:true}")
+    private boolean weatherCanadaEnabled = true;
+
+    @Value("${weather.worker.timeout.weather-gov:0}")
+    private int weatherGovTimeoutSeconds;
+
+    @Value("${weather.worker.timeout.open-meteo:0}")
+    private int openMeteoTimeoutSeconds;
+
+    @Value("${weather.worker.timeout.visual-crossing:0}")
+    private int visualCrossingTimeoutSeconds;
+
+    @Value("${weather.worker.timeout.google-weather:0}")
+    private int googleWeatherTimeoutSeconds;
+
+    @Value("${weather.worker.timeout.weather-canada:0}")
+    private int weatherCanadaTimeoutSeconds;
+
+    @Value("${weather.worker.visual-crossing-api-key:${VISUAL_CROSSING_API_KEY:}}")
+    private String visualCrossingApiKey;
+
+    @Value("${weather.worker.google-weather-api-key:${GOOGLE_WEATHER_API_KEY:}}")
+    private String googleWeatherApiKey;
+
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
 
@@ -87,7 +128,8 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorWeatherCanada stationProcessorWeatherCanada,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder,
-                         WeatherApiUsageTracker usageTracker) {
+                         WeatherApiUsageTracker usageTracker,
+                         WeatherStationCoverageRepository coverageRepository) {
         this.stationRepository = stationRepository;
         this.stationProcessorOpen = stationProcessorOpen;
         this.stationProcessorWeatherGov = stationProcessorWeatherGov;
@@ -97,6 +139,7 @@ public class StationWorker implements ApplicationRunner {
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
         this.usageTracker = usageTracker;
+        this.coverageRepository = coverageRepository;
     }
 
     @Override
@@ -106,6 +149,13 @@ public class StationWorker implements ApplicationRunner {
         }
 
         for (WorkerDefinition worker : WORKERS) {
+            String disabledReason = workerDisabledReason(worker.provider());
+            if (disabledReason != null) {
+                log.warn("Weather worker not started. provider={} country={} reason={}",
+                        worker.reportName(), worker.country(), disabledReason);
+                continue;
+            }
+
             Thread thread = new Thread(() -> runStartupVerificationThenLoop(worker), workerThreadName(worker));
             thread.setDaemon(false);
             workerThreads.add(thread);
@@ -156,23 +206,25 @@ public class StationWorker implements ApplicationRunner {
         int requestedStations = requestedMli == null || requestedMli.isBlank()
                 ? Math.min(totalSupportedStations, dailyLimit)
                 : Math.min(1, totalSupportedStations);
-        WeatherApiUsageTracker.UsageReservation reservation = usageTracker.reserve(
-                worker.provider(), LocalDate.now(), requestedStations, dailyLimit);
+        LocalDate today = LocalDate.now();
+        WeatherApiUsageTracker.UsageSnapshot budget = usageTracker.snapshot(worker.provider(), today, dailyLimit);
+
+        // Budget is NOT booked here — each station is charged individually just before it is fetched,
+        // so an interrupted cycle costs only what it actually used. This is only the page size.
         int stationLimit = requestedMli == null || requestedMli.isBlank()
-                ? reservation.reserved()
-                : (reservation.reserved() > 0 ? Math.min(totalSupportedStations, dailyLimit) : 0);
+                ? budget.remaining()
+                : (budget.remaining() > 0 ? Math.min(totalSupportedStations, dailyLimit) : 0);
 
         log.info("Weather API daily budget. provider={} country={} totalSupportedStations={} "
-                        + "dailyLimit={} alreadyReservedToday={} requestedForCycle={} reservedForCycle={} "
-                        + "persisted={}",
+                        + "dailyLimit={} usedToday={} requestedForCycle={} remainingToday={} persisted={}",
                 worker.reportName(),
                 country,
                 totalSupportedStations,
-                reservation.dailyLimit(),
-                reservation.usedBefore(),
-                reservation.requested(),
-                reservation.reserved(),
-                reservation.persisted());
+                budget.dailyLimit(),
+                budget.usedToday(),
+                requestedStations,
+                budget.remaining(),
+                budget.persisted());
 
         List<StationRef> stations = stationLimit > 0
                 ? stationRepository.findSupportedStations(country, stationLimit)
@@ -183,12 +235,13 @@ public class StationWorker implements ApplicationRunner {
                 stations.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
-        long targetDelayMs = calculateDelayMs(stations.size());
-        log.info("Weather worker time budget. provider={} country={} budgetHours={} delayPerStationMs={}",
+        int timeoutSeconds = timeoutSecondsFor(worker);
+        long targetDelayMs = calculateDelayMs(timeoutSeconds, dailyLimit);
+        log.info("Weather worker pacing. provider={} country={} delayPerStationMs={} source={}",
                 worker.reportName(),
                 country,
-                TIME_BUDGET.toHours(),
-                targetDelayMs);
+                targetDelayMs,
+                timeoutSeconds > 0 ? "TIMEOUT" : "dailyLimit/" + DERIVED_PACING_WINDOW.toHours() + "h");
 
         int processed = 0;
         int skipped = 0;
@@ -197,6 +250,7 @@ public class StationWorker implements ApplicationRunner {
         String lastFailedStation = null;
         long nextSummaryLogAt = currentTimeMillis() + SUMMARY_LOG_INTERVAL_MS;
         boolean stoppedEarly = false;
+        boolean budgetExhausted = false;
 
         for (StationRef station : stations) {
             if (!running || Thread.currentThread().isInterrupted()) {
@@ -207,8 +261,16 @@ public class StationWorker implements ApplicationRunner {
                 continue;
             }
 
+            // Charge this one station before fetching it. A restart therefore forfeits at most the
+            // station in flight, not the rest of the day's allowance.
+            if (!usageTracker.tryConsume(worker.provider(), today, dailyLimit)) {
+                budgetExhausted = true;
+                break;
+            }
+
             long startedAt = currentTimeMillis();
             ProcessingOutcome outcome = processorFor(worker).process(station, country);
+            recordCoverage(worker, station, outcome);
             switch (outcome) {
                 case PROCESSED -> {
                     processed++;
@@ -232,6 +294,13 @@ public class StationWorker implements ApplicationRunner {
                 worker.reportName(), country, processed, skipped, failed, lastProcessedStation, lastFailedStation);
         logCountryPassSummary(summary);
 
+        if (budgetExhausted) {
+            // A normal end to the day's work, not a fault: the allowance ran out mid-pass. The stations
+            // that did run are sound, so post-processing still applies.
+            log.info("Daily API allowance spent; ending cycle. provider={} country={} processed={}",
+                    worker.reportName(), country, processed);
+        }
+
         if (stoppedEarly) {
             log.info("Worker stopped before cycle completion; skipping post-processing. "
                     + "processed={} skipped={} failed={}", processed, skipped, failed);
@@ -240,6 +309,29 @@ public class StationWorker implements ApplicationRunner {
 
         maybeRunPostProcessing(summary);
         return summary;
+    }
+
+    /**
+     * Flags whether this provider could serve this gauge, so {@code fn_weather_uncovered_stations} can
+     * hand the gaps to a fallback worker.
+     *
+     * <p>Only PROCESSED and SKIPPED are coverage facts. A failure is transient — a timeout or a 503
+     * says nothing about whether the provider covers the point, and recording it would send a
+     * perfectly-served gauge to the fallback worker on the strength of one bad night.
+     *
+     * <p>Never allowed to fail the station: the flag is an optimisation, and the payload for this
+     * cycle is already saved by the time we get here.
+     */
+    private void recordCoverage(WorkerDefinition worker, StationRef station, ProcessingOutcome outcome) {
+        if (outcome != ProcessingOutcome.PROCESSED && outcome != ProcessingOutcome.SKIPPED) {
+            return;
+        }
+        try {
+            coverageRepository.save(station.mli(), worker.provider(), outcome == ProcessingOutcome.PROCESSED);
+        } catch (RuntimeException ex) {
+            log.warn("Could not record provider coverage. provider={} station={}",
+                    worker.reportName(), station.mli(), ex);
+        }
     }
 
     private void runStartupVerificationThenLoop(WorkerDefinition worker) {
@@ -387,8 +479,18 @@ public class StationWorker implements ApplicationRunner {
                 log.info("Weather worker interrupted. thread={}", Thread.currentThread().getName());
                 return;
             } catch (Exception ex) {
-                log.error("Weather worker loop failed. provider={} country={}",
-                        worker.reportName(), worker.country(), ex);
+                // One bad cycle must not kill the loop. DELIBERATE COOLDOWN: every failure here happens
+                // before the first station (the station COUNT query), so with the database down there is
+                // nothing to slow the loop — it would spin at thousands of iterations a second across
+                // five workers, pinning a core and burying the log.
+                log.error("Weather worker loop failed. provider={} country={} retryInSeconds={}",
+                        worker.reportName(), worker.country(), CYCLE_FAILURE_COOLDOWN.toSeconds(), ex);
+                try {
+                    sleep(CYCLE_FAILURE_COOLDOWN.toMillis());
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
         }
         log.info("Weather worker loop exited. thread={}", Thread.currentThread().getName());
@@ -403,13 +505,72 @@ public class StationWorker implements ApplicationRunner {
         return System.currentTimeMillis();
     }
 
-    long calculateDelayMs(int stationCount) {
-        if (stationCount <= 1) {
+    /**
+     * Explains why a provider's worker must not start, or {@code null} when it is good to go. The
+     * text is logged verbatim, so it names the environment variable an operator has to change.
+     *
+     * <p>Two independent reasons, checked in this order: the operator turned it off
+     * ({@code <PROVIDER>_ENABLE=false}), or a metered provider has no API key. The toggle is checked
+     * first so a deliberately disabled provider does not also nag about a key it will never use.
+     * Starting a keyed worker without its key would fail EVERY station it touched, pushing the
+     * cycle's failure rate past the threshold and suppressing post-processing for a country whose
+     * other providers were perfectly healthy.
+     */
+    String workerDisabledReason(String provider) {
+        return switch (provider) {
+            case "weather-gov" -> weatherGovEnabled ? null : "WEATHER_GOV_ENABLE is false";
+            case "open" -> openMeteoEnabled ? null : "OPEN_METEO_ENABLE is false";
+            case "weather-canada" -> weatherCanadaEnabled ? null : "WEATHER_CANADA_ENABLE is false";
+            case "visual-crossing" -> {
+                if (!visualCrossingEnabled) {
+                    yield "VISUAL_CROSSING_ENABLE is false";
+                }
+                yield isBlank(visualCrossingApiKey) ? "VISUAL_CROSSING_API_KEY is not configured" : null;
+            }
+            case "google-weather" -> {
+                if (!googleWeatherEnabled) {
+                    yield "GOOGLE_WEATHER_ENABLE is false";
+                }
+                yield isBlank(googleWeatherApiKey) ? "GOOGLE_WEATHER_API_KEY is not configured" : null;
+            }
+            default -> null;
+        };
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** Configured seconds between calls to this provider; 0 means derive from the daily limit. */
+    private int timeoutSecondsFor(WorkerDefinition worker) {
+        return switch (worker.provider()) {
+            case "weather-gov" -> weatherGovTimeoutSeconds;
+            case "visual-crossing" -> visualCrossingTimeoutSeconds;
+            case "google-weather" -> googleWeatherTimeoutSeconds;
+            case "weather-canada" -> weatherCanadaTimeoutSeconds;
+            default -> openMeteoTimeoutSeconds;
+        };
+    }
+
+    /**
+     * Seconds between calls to one provider, in milliseconds.
+     *
+     * <p>An explicit {@code <PROVIDER>_TIMEOUT} is honoured verbatim. Otherwise it is derived by
+     * spreading the provider's daily allowance over {@link #DERIVED_PACING_WINDOW}, floored at
+     * {@link #MIN_DELAY_BETWEEN_STATIONS_MS} so a nonsensically large limit cannot burst.
+     *
+     * <p>Keying this to the provider's own quota rather than the day's station count (the previous
+     * behaviour: an 8-hour budget divided by however many stations happened to load) makes the
+     * request rate predictable per provider and independent of the day's station count.
+     */
+    static long calculateDelayMs(int timeoutSeconds, int dailyLimit) {
+        if (timeoutSeconds > 0) {
+            return timeoutSeconds * 1000L;
+        }
+        if (dailyLimit <= 0) {
             return MIN_DELAY_BETWEEN_STATIONS_MS;
         }
-
-        long delayMs = TIME_BUDGET.toMillis() / stationCount;
-        return Math.max(delayMs, MIN_DELAY_BETWEEN_STATIONS_MS);
+        return Math.max(DERIVED_PACING_WINDOW.toMillis() / dailyLimit, MIN_DELAY_BETWEEN_STATIONS_MS);
     }
 
     long millisUntilNextMidnight() {

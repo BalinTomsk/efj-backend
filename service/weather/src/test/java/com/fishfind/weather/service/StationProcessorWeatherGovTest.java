@@ -25,6 +25,9 @@ class StationProcessorWeatherGovTest {
     private WeatherGovFetcher fetcher;
 
     @Mock
+    private WeatherGovStationResolver resolver;
+
+    @Mock
     private WeatherDataRepository weatherDataRepository;
 
     @InjectMocks
@@ -32,6 +35,7 @@ class StationProcessorWeatherGovTest {
 
     @Test
     void fetchesAndPersistsOnSuccess() throws Exception {
+        when(resolver.resolve(station)).thenReturn("KNYC");
         when(fetcher.fetchLatestObservation("KNYC")).thenReturn("{\"properties\":{}}");
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.PROCESSED);
@@ -41,6 +45,7 @@ class StationProcessorWeatherGovTest {
 
     @Test
     void skipsPersistWhenFeedNotPublished() throws Exception {
+        when(resolver.resolve(station)).thenReturn("KNYC");
         when(fetcher.fetchLatestObservation("KNYC")).thenThrow(new FileNotFoundException("no feed"));
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.SKIPPED);
@@ -50,6 +55,7 @@ class StationProcessorWeatherGovTest {
 
     @Test
     void swallowsFetchIoErrorWithoutPersisting() throws Exception {
+        when(resolver.resolve(station)).thenReturn("KNYC");
         when(fetcher.fetchLatestObservation("KNYC")).thenThrow(new IOException("HTTP 500"));
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED);

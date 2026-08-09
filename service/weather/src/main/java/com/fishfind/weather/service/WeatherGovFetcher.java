@@ -12,6 +12,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +27,8 @@ import org.springframework.stereotype.Service;
 public class WeatherGovFetcher {
     private static final Logger log = LoggerFactory.getLogger(WeatherGovFetcher.class);
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
+    private static final Pattern STATION_IDENTIFIER =
+            Pattern.compile("\"stationIdentifier\"\s*:\s*\"([^\"]+)\"");
 
     @Value("${weather.worker.connect-timeout-ms:15000}")
     private int connectTimeoutMs;
@@ -99,6 +104,59 @@ public class WeatherGovFetcher {
                 connection.disconnect();
             }
         }
+    }
+
+    /**
+     * Resolves a coordinate to the nearest NWS observation station, or {@code null} when Weather.gov
+     * reports none.
+     *
+     * <p>This exists because {@code WaterStation.MLI} is a water-gauge id (a USGS site number), never
+     * an NWS call sign — fetching observations by {@code mli} 404s for every US station. The answer is
+     * cached in the database, so this runs once per station, not once per cycle.
+     *
+     * <p>Two API quirks: Weather.gov rejects more than 4 decimal places on a point with an
+     * {@code AdjustPointPrecision} error, and answers {@code /points} with a 301 redirect that must be
+     * followed ({@link HttpURLConnection} does that for GET by default).
+     */
+    @Retry(name = "weatherGov")
+    @CircuitBreaker(name = "weatherGov")
+    @RateLimiter(name = "weatherGov")
+    public String findNearestStation(double latitude, double longitude) throws IOException {
+        String point = String.format(Locale.ROOT, "%.4f,%.4f", latitude, longitude);
+        String url = baseUrl.replaceAll("/+$", "") + "/points/" + point + "/stations";
+
+        HttpURLConnection connection = open(url);
+        try {
+            int status = connection.getResponseCode();
+            if (status == HttpURLConnection.HTTP_NOT_FOUND) {
+                // Outside NWS coverage entirely (e.g. a non-US coordinate). A permanent answer.
+                return null;
+            }
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("Weather.gov returned HTTP " + status + " for point " + point);
+            }
+
+            try (InputStream inputStream = connection.getInputStream()) {
+                byte[] body = inputStream.readNBytes(maxResponseBytes + 1);
+                if (body.length > maxResponseBytes) {
+                    throw new IOException("Weather.gov response exceeded " + maxResponseBytes
+                            + " bytes for point " + point);
+                }
+                return firstStationIdentifier(new String(body, StandardCharsets.UTF_8));
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
+     * Pulls the first {@code stationIdentifier} out of the GeoJSON feature collection. Deliberately a
+     * regex rather than a JSON parse: this class stores payloads verbatim and has no parser wired in,
+     * and the field is a simple quoted string in a well-known government schema.
+     */
+    static String firstStationIdentifier(String json) {
+        Matcher matcher = STATION_IDENTIFIER.matcher(json);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private HttpURLConnection open(String url) throws IOException {
