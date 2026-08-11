@@ -39,6 +39,7 @@ class StationWorkerTest {
     private StationProcessorVisualCrossing visualCrossingProcessor;
     private StationProcessorGoogleWeather googleWeatherProcessor;
     private StationProcessorWeatherCanada weatherCanadaProcessor;
+    private StationProcessorWunderground wundergroundProcessor;
     private StationPostProcessingService postProcessing;
     private WeatherApiUsageTracker usageTracker;
     private WeatherStationCoverageRepository coverageRepository;
@@ -59,6 +60,7 @@ class StationWorkerTest {
         visualCrossingProcessor = Mockito.mock(StationProcessorVisualCrossing.class);
         googleWeatherProcessor = Mockito.mock(StationProcessorGoogleWeather.class);
         weatherCanadaProcessor = Mockito.mock(StationProcessorWeatherCanada.class);
+        wundergroundProcessor = Mockito.mock(StationProcessorWunderground.class);
         postProcessing = Mockito.mock(StationPostProcessingService.class);
         usageTracker = Mockito.mock(WeatherApiUsageTracker.class);
         coverageRepository = Mockito.mock(WeatherStationCoverageRepository.class);
@@ -77,10 +79,12 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(worker, "visualCrossingDailyLimit", 1000);
         ReflectionTestUtils.setField(worker, "googleWeatherDailyLimit", 161);
         ReflectionTestUtils.setField(worker, "weatherCanadaDailyLimit", 900);
-        // Both metered providers now refuse to start without a key; the background-mode tests expect
-        // all five workers, so give the fixture one.
+        ReflectionTestUtils.setField(worker, "wundergroundDailyLimit", 450);
+        // All metered providers now refuse to start without a key; the background-mode tests expect
+        // all six workers, so give the fixture one.
         ReflectionTestUtils.setField(worker, "visualCrossingApiKey", "test-key");
         ReflectionTestUtils.setField(worker, "googleWeatherApiKey", "test-key");
+        ReflectionTestUtils.setField(worker, "wundergroundApiKey", "test-key");
     }
 
     @Test
@@ -264,11 +268,11 @@ class StationWorkerTest {
         worker.run(new DefaultApplicationArguments("--console"));
 
         verifyNoInteractions(processor, weatherGovProcessor, visualCrossingProcessor, googleWeatherProcessor,
-                weatherCanadaProcessor, postProcessing);
+                weatherCanadaProcessor, wundergroundProcessor, postProcessing);
     }
 
     @Test
-    void backgroundModeStartsWeatherGovUsOpenMeteoCaVisualCrossingUsGoogleWeatherUsAndWeatherCanadaCaWorkers() {
+    void backgroundModeStartsWeatherGovUsOpenMeteoCaVisualCrossingUsGoogleWeatherUsWeatherCanadaCaAndWundergroundUsWorkers() {
         when(stationRepository.countSupportedStations(anyString())).thenReturn(0);
         StationWorker backgroundWorker = new StationWorker(
                 stationRepository,
@@ -277,18 +281,21 @@ class StationWorkerTest {
                 visualCrossingProcessor,
                 googleWeatherProcessor,
                 weatherCanadaProcessor,
+                wundergroundProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
                 usageTracker,
                 coverageRepository);
         ReflectionTestUtils.setField(backgroundWorker, "visualCrossingApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "googleWeatherApiKey", "test-key");
+        ReflectionTestUtils.setField(backgroundWorker, "wundergroundApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
         ReflectionTestUtils.setField(backgroundWorker, "openMeteoDailyLimit", 10000);
         ReflectionTestUtils.setField(backgroundWorker, "visualCrossingDailyLimit", 1000);
         ReflectionTestUtils.setField(backgroundWorker, "googleWeatherDailyLimit", 161);
         ReflectionTestUtils.setField(backgroundWorker, "weatherCanadaDailyLimit", 900);
+        ReflectionTestUtils.setField(backgroundWorker, "wundergroundDailyLimit", 450);
 
         backgroundWorker.run(new DefaultApplicationArguments());
 
@@ -301,10 +308,12 @@ class StationWorkerTest {
                         "weather-data-worker-open-ca",
                         "weather-data-worker-visual-crossing-us",
                         "weather-data-worker-google-weather-us",
-                        "weather-data-worker-weather-canada-ca");
+                        "weather-data-worker-weather-canada-ca",
+                        "weather-data-worker-wunderground-us");
 
-        verify(usageTracker, timeout(2000)).snapshot(eq("google-weather"), any(LocalDate.class), eq(161));
-        verify(usageTracker, timeout(2000)).snapshot(eq("weather-canada"), any(LocalDate.class), eq(900));
+        verify(usageTracker, timeout(5000)).snapshot(eq("google-weather"), any(LocalDate.class), eq(161));
+        verify(usageTracker, timeout(5000)).snapshot(eq("weather-canada"), any(LocalDate.class), eq(900));
+        verify(usageTracker, timeout(5000)).snapshot(eq("wunderground"), any(LocalDate.class), eq(450));
 
         backgroundWorker.shutdown();
     }
@@ -317,6 +326,7 @@ class StationWorkerTest {
         when(visualCrossingProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
         when(googleWeatherProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
         when(weatherCanadaProcessor.verifyStartup(any(), eq("CA"))).thenReturn(ProcessingOutcome.PROCESSED);
+        when(wundergroundProcessor.verifyStartup(any(), eq("US"))).thenReturn(ProcessingOutcome.PROCESSED);
         StationWorker backgroundWorker = new StationWorker(
                 stationRepository,
                 processor,
@@ -324,12 +334,14 @@ class StationWorkerTest {
                 visualCrossingProcessor,
                 googleWeatherProcessor,
                 weatherCanadaProcessor,
+                wundergroundProcessor,
                 postProcessing,
                 new CycleReportRecorder(),
                 usageTracker,
                 coverageRepository);
         ReflectionTestUtils.setField(backgroundWorker, "visualCrossingApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "googleWeatherApiKey", "test-key");
+        ReflectionTestUtils.setField(backgroundWorker, "wundergroundApiKey", "test-key");
         ReflectionTestUtils.setField(backgroundWorker, "startupVerificationEnabled", true);
         ReflectionTestUtils.setField(backgroundWorker, "maxFailureRate", 0.5);
         ReflectionTestUtils.setField(backgroundWorker, "weatherGovDailyLimit", 900);
@@ -337,6 +349,7 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(backgroundWorker, "visualCrossingDailyLimit", 1000);
         ReflectionTestUtils.setField(backgroundWorker, "googleWeatherDailyLimit", 161);
         ReflectionTestUtils.setField(backgroundWorker, "weatherCanadaDailyLimit", 900);
+        ReflectionTestUtils.setField(backgroundWorker, "wundergroundDailyLimit", 450);
 
         backgroundWorker.run(new DefaultApplicationArguments());
 
@@ -345,6 +358,7 @@ class StationWorkerTest {
         verify(visualCrossingProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
         verify(googleWeatherProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
         verify(weatherCanadaProcessor, timeout(5000)).verifyStartup(any(), eq("CA"));
+        verify(wundergroundProcessor, timeout(5000)).verifyStartup(any(), eq("US"));
 
         backgroundWorker.shutdown();
     }
@@ -377,6 +391,7 @@ class StationWorkerTest {
                     visualCrossingProcessor,
                     googleWeatherProcessor,
                     weatherCanadaProcessor,
+                    wundergroundProcessor,
                     postProcessing,
                     new CycleReportRecorder(),
                     usageTracker,

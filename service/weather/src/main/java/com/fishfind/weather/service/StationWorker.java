@@ -46,8 +46,12 @@ public class StationWorker implements ApplicationRunner {
     private static final WorkerDefinition WEATHER_CANADA_CA = new WorkerDefinition(
             "weather-canada", "Weather Canada", "CA",
             new StationRef("STARTUP-WEATHER-CANADA-CA", 43.6532, -79.3832, "ON"));
+    private static final WorkerDefinition WUNDERGROUND_US = new WorkerDefinition(
+            "wunderground", "Wunderground", "US",
+            new StationRef("STARTUP-WUNDERGROUND-US", 48.3060, -120.6543, "WA"));
     private static final List<WorkerDefinition> WORKERS = List.of(
-            WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US, GOOGLE_WEATHER_US, WEATHER_CANADA_CA);
+            WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US, GOOGLE_WEATHER_US, WEATHER_CANADA_CA,
+            WUNDERGROUND_US);
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
@@ -55,6 +59,7 @@ public class StationWorker implements ApplicationRunner {
     private final StationProcessorVisualCrossing stationProcessorVisualCrossing;
     private final StationProcessorGoogleWeather stationProcessorGoogleWeather;
     private final StationProcessorWeatherCanada stationProcessorWeatherCanada;
+    private final StationProcessorWunderground stationProcessorWunderground;
     private final StationPostProcessingService postProcessingService;
     private final CycleReportRecorder cycleReportRecorder;
     private final WeatherApiUsageTracker usageTracker;
@@ -78,6 +83,9 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.daily-limit.weather-canada:900}")
     private int weatherCanadaDailyLimit;
 
+    @Value("${weather.worker.daily-limit.wunderground:450}")
+    private int wundergroundDailyLimit;
+
     @Value("${weather.worker.startup-verification.enabled:true}")
     private boolean startupVerificationEnabled;
 
@@ -96,6 +104,9 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.enable.weather-canada:true}")
     private boolean weatherCanadaEnabled = true;
 
+    @Value("${weather.worker.enable.wunderground:true}")
+    private boolean wundergroundEnabled = true;
+
     @Value("${weather.worker.timeout.weather-gov:0}")
     private int weatherGovTimeoutSeconds;
 
@@ -111,11 +122,17 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.timeout.weather-canada:0}")
     private int weatherCanadaTimeoutSeconds;
 
+    @Value("${weather.worker.timeout.wunderground:0}")
+    private int wundergroundTimeoutSeconds;
+
     @Value("${weather.worker.visual-crossing-api-key:${VISUAL_CROSSING_API_KEY:}}")
     private String visualCrossingApiKey;
 
     @Value("${weather.worker.google-weather-api-key:${GOOGLE_WEATHER_API_KEY:}}")
     private String googleWeatherApiKey;
+
+    @Value("${weather.worker.wunderground-api-key:${WUNDERGROUND_API_KEY:}}")
+    private String wundergroundApiKey;
 
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
@@ -126,6 +143,7 @@ public class StationWorker implements ApplicationRunner {
                          StationProcessorVisualCrossing stationProcessorVisualCrossing,
                          StationProcessorGoogleWeather stationProcessorGoogleWeather,
                          StationProcessorWeatherCanada stationProcessorWeatherCanada,
+                         StationProcessorWunderground stationProcessorWunderground,
                          StationPostProcessingService postProcessingService,
                          CycleReportRecorder cycleReportRecorder,
                          WeatherApiUsageTracker usageTracker,
@@ -136,6 +154,7 @@ public class StationWorker implements ApplicationRunner {
         this.stationProcessorVisualCrossing = stationProcessorVisualCrossing;
         this.stationProcessorGoogleWeather = stationProcessorGoogleWeather;
         this.stationProcessorWeatherCanada = stationProcessorWeatherCanada;
+        this.stationProcessorWunderground = stationProcessorWunderground;
         this.postProcessingService = postProcessingService;
         this.cycleReportRecorder = cycleReportRecorder;
         this.usageTracker = usageTracker;
@@ -533,6 +552,12 @@ public class StationWorker implements ApplicationRunner {
                 }
                 yield isBlank(googleWeatherApiKey) ? "GOOGLE_WEATHER_API_KEY is not configured" : null;
             }
+            case "wunderground" -> {
+                if (!wundergroundEnabled) {
+                    yield "WUNDERGROUND_ENABLE is false";
+                }
+                yield isBlank(wundergroundApiKey) ? "WUNDERGROUND_API_KEY is not configured" : null;
+            }
             default -> null;
         };
     }
@@ -548,6 +573,7 @@ public class StationWorker implements ApplicationRunner {
             case "visual-crossing" -> visualCrossingTimeoutSeconds;
             case "google-weather" -> googleWeatherTimeoutSeconds;
             case "weather-canada" -> weatherCanadaTimeoutSeconds;
+            case "wunderground" -> wundergroundTimeoutSeconds;
             default -> openMeteoTimeoutSeconds;
         };
     }
@@ -591,6 +617,7 @@ public class StationWorker implements ApplicationRunner {
             case "visual-crossing" -> stationProcessorVisualCrossing;
             case "google-weather" -> stationProcessorGoogleWeather;
             case "weather-canada" -> stationProcessorWeatherCanada;
+            case "wunderground" -> stationProcessorWunderground;
             default -> stationProcessorOpen;
         };
     }
@@ -601,6 +628,7 @@ public class StationWorker implements ApplicationRunner {
             case "visual-crossing" -> visualCrossingDailyLimit;
             case "google-weather" -> googleWeatherDailyLimit;
             case "weather-canada" -> weatherCanadaDailyLimit;
+            case "wunderground" -> wundergroundDailyLimit;
             default -> openMeteoDailyLimit;
         };
     }
