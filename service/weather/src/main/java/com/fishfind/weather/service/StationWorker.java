@@ -52,6 +52,10 @@ public class StationWorker implements ApplicationRunner {
     private static final List<WorkerDefinition> WORKERS = List.of(
             WEATHER_GOV_US, OPEN_METEO_CA, VISUAL_CROSSING_US, GOOGLE_WEATHER_US, WEATHER_CANADA_CA,
             WUNDERGROUND_US);
+    /** Total providers, whether or not each is actually enabled today. Drives {@link CycleReportRecorder}'s
+     * capacity so it always covers a full week no matter how many providers exist, without needing to be
+     * hand-updated every time one is added or removed. */
+    static final int WORKER_COUNT = WORKERS.size();
 
     private final WeatherStationRepository stationRepository;
     private final StationProcessorOpen stationProcessorOpen;
