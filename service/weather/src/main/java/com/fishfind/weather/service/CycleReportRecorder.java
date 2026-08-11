@@ -13,8 +13,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class CycleReportRecorder {
     static final int MAX_ENTRIES_PER_WORKER = 7;
-    static final int EXPECTED_WORKER_COUNT = 2;
-    static final int MAX_ENTRIES = MAX_ENTRIES_PER_WORKER * EXPECTED_WORKER_COUNT;
+    /** Derived from {@link StationWorker#WORKER_COUNT} rather than a hand-maintained constant, which
+     * previously went stale as providers were added (fixed at 2 while the worker count grew to 6) and
+     * silently shrank the report's effective window well below a week. */
+    static final int MAX_ENTRIES = MAX_ENTRIES_PER_WORKER * StationWorker.WORKER_COUNT;
 
     private final Deque<CycleReportEntry> entries = new ArrayDeque<>();
 
