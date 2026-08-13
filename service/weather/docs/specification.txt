@@ -21,7 +21,10 @@ GOAL
 ----
 - Poll up to 900 US weather stations and up to 1400 non-US weather stations from MSSQL
   (dbo.vwWeatherForecastToDay).
-- Fetch raw JSON latest-observation data from Weather.gov for US stations.
+- Fetch the GRIDPOINT FORECAST from Weather.gov for US stations: /points/{lat},{lon} gives the
+  grid cell's forecast URL, then that URL with units=si. Two calls per station; the forecast URL
+  is not derivable from a coordinate. (Was /stations/{id}/observations/latest, which is current
+  conditions and can never become forecast rows.)
 - Fetch raw JSON forecast data from Open-Meteo for CA stations.
 - Convert each provider's response to the CANONICAL ENVELOPE and store that in dbo.ows_meteo,
   stamping the column `type` with the PROVIDER that served the station (see CANONICAL FORECAST
@@ -77,6 +80,7 @@ com.fishfind.weather
 │   ├── ForecastConverter.java            interface: provider document -> envelope
 │   ├── ForecastConversionException.java  checked; a bad payload fails the station, loudly
 │   ├── OpenMeteoConverter.java           hourly/daily -> days[]; performs the daily reduction
+│   ├── WeatherGovConverter.java          NWS periods (half-days) -> days[]; already si units
 │   ├── VisualCrossingConverter.java      days[] -> days[]; US units -> metric
 │   └── WeatherSourceType.java            provider ids written to ows_meteo.type
 ├── domain
@@ -626,10 +630,19 @@ CONVERTERS
                                    database branches exist: those convert the same way, so the
                                    embedded raw document remains a valid fallback for these bytes.
 
+  WeatherGovConverter (type 5)     NWS publishes PERIODS of about half a day, flagged isDaytime,
+                                   not days: the daytime period carries the high and the night one
+                                   the low, and a response issued in the evening starts with
+                                   "Tonight" -- a day with no daytime half. Fetched with units=si so
+                                   nothing is converted. windSpeed is a human string
+                                   ("10 to 15 km/h"); the upper bound is taken. /forecast publishes
+                                   a precipitation CHANCE but no QUANTITY, so precipMm stays null
+                                   rather than being invented as 0, and NWS gives a cardinal
+                                   direction so windDegrees is null.
+
 NOT YET CONVERTED
-  weather.gov, Environment Canada, Weather Underground and Google Weather are fetched as CURRENT
-  OBSERVATIONS, not forecasts, so no converter can turn them into forecast rows. weather.gov would
-  need its fetcher pointed at the gridpoint forecast endpoint before a converter is worth writing.
+  Environment Canada, Weather Underground and Google Weather are fetched as CURRENT OBSERVATIONS,
+  not forecasts, so no converter can turn them into forecast rows.
 
 PROCESSING PIPELINE
 -------------------

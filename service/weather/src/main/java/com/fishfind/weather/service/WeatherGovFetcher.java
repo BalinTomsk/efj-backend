@@ -28,7 +28,11 @@ public class WeatherGovFetcher {
     private static final Logger log = LoggerFactory.getLogger(WeatherGovFetcher.class);
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
     private static final Pattern STATION_IDENTIFIER =
-            Pattern.compile("\"stationIdentifier\"\s*:\s*\"([^\"]+)\"");
+            Pattern.compile("\"stationIdentifier\"\s*:\s*\"([^\"]+)\"");
+
+    /** {@code "forecast": "https://api.weather.gov/gridpoints/BOU/62,61/forecast"} in a /points reply. */
+    private static final Pattern FORECAST_URL =
+            Pattern.compile("\"forecast\"\s*:\s*\"([^\"]+)\"");
 
     @Value("${weather.worker.connect-timeout-ms:15000}")
     private int connectTimeoutMs;
@@ -157,6 +161,87 @@ public class WeatherGovFetcher {
     static String firstStationIdentifier(String json) {
         Matcher matcher = STATION_IDENTIFIER.matcher(json);
         return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /**
+     * Fetches the GRIDPOINT FORECAST for a coordinate: the actual multi-day forecast, not the latest
+     * observation.
+     *
+     * <p>Two calls, because the forecast URL is not derivable from a coordinate: {@code /points/{lat,lon}}
+     * answers with the gauge's grid cell and, in {@code properties.forecast}, the URL of that cell's
+     * forecast. The same two API quirks as {@link #findNearestStation} apply -- coordinates must be
+     * rounded to 4 decimal places, and {@code /points} answers with a 301 that must be followed.
+     *
+     * <p>Requested with {@code units=si}, so the periods come back in degC and km/h and the converter
+     * has no unit conversion to do at all.
+     *
+     * <p>Returns {@code null} when the coordinate is outside NWS coverage, which the caller turns into
+     * a skip rather than a failure -- the same treatment an unpublished feed gets.
+     */
+    @Retry(name = "weatherGov")
+    @CircuitBreaker(name = "weatherGov")
+    @RateLimiter(name = "weatherGov")
+    public String fetchGridpointForecast(double latitude, double longitude) throws IOException {
+        String point = String.format(Locale.ROOT, "%.4f,%.4f", latitude, longitude);
+        String forecastUrl = findForecastUrl(point);
+        if (forecastUrl == null) {
+            return null;
+        }
+
+        String url = forecastUrl + (forecastUrl.contains("?") ? "&" : "?") + "units=si";
+        HttpURLConnection connection = open(url);
+        try {
+            int status = connection.getResponseCode();
+            if (status == HttpURLConnection.HTTP_NOT_FOUND) {
+                return null;
+            }
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("Weather.gov returned HTTP " + status + " for forecast " + url);
+            }
+            return readBody(connection, "forecast " + point);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** Reads {@code properties.forecast} out of a {@code /points} response, or null outside coverage. */
+    private String findForecastUrl(String point) throws IOException {
+        String url = baseUrl.replaceAll("/+$", "") + "/points/" + point;
+        HttpURLConnection connection = open(url);
+        try {
+            int status = connection.getResponseCode();
+            if (status == HttpURLConnection.HTTP_NOT_FOUND) {
+                // Outside NWS coverage entirely (e.g. a non-US coordinate). A permanent answer.
+                return null;
+            }
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("Weather.gov returned HTTP " + status + " for point " + point);
+            }
+            return forecastUrlOf(readBody(connection, "point " + point));
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
+     * Pulls {@code properties.forecast} from a {@code /points} document. Regex for the same reason
+     * {@link #firstStationIdentifier} uses one: a single quoted string in a stable government schema.
+     */
+    static String forecastUrlOf(String json) {
+        Matcher matcher = FORECAST_URL.matcher(json);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /** Reads a response body, enforcing the same size ceiling every other call here uses. */
+    private String readBody(HttpURLConnection connection, String what) throws IOException {
+        try (InputStream inputStream = connection.getInputStream()) {
+            byte[] body = inputStream.readNBytes(maxResponseBytes + 1);
+            if (body.length > maxResponseBytes) {
+                throw new IOException("Weather.gov response exceeded " + maxResponseBytes
+                        + " bytes for " + what);
+            }
+            return new String(body, StandardCharsets.UTF_8);
+        }
     }
 
     private HttpURLConnection open(String url) throws IOException {
