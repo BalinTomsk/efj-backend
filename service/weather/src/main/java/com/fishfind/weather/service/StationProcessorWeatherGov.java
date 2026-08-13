@@ -1,5 +1,6 @@
 package com.fishfind.weather.service;
 
+import com.fishfind.weather.canonical.WeatherSourceType;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherDataRepository;
 import java.io.FileNotFoundException;
@@ -31,7 +32,7 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
         String json = fetchForStation(station);
         log.debug("Saving Weather.gov payload. station={} state={} bytes={}", station.mli(), station.state(), json.length());
         // Persisted under the WATER gauge's own mli, not the NWS station's id — ows_meteo is keyed by mli.
-        weatherDataRepository.saveStationData(station.mli(), json);
+        weatherDataRepository.saveStationData(station.mli(), json, WeatherSourceType.WEATHER_GOV);
         log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 

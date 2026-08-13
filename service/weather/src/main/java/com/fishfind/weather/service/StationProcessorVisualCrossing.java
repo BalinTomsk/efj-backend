@@ -1,5 +1,8 @@
 package com.fishfind.weather.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.weather.canonical.CanonicalForecast;
+import com.fishfind.weather.canonical.VisualCrossingConverter;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherDataRepository;
 import org.slf4j.Logger;
@@ -15,19 +18,29 @@ public class StationProcessorVisualCrossing extends StationProcessorBase {
 
     private final VisualCrossingFetcher fetcher;
     private final WeatherDataRepository weatherDataRepository;
+    private final VisualCrossingConverter converter;
+    private final ObjectMapper mapper;
 
     public StationProcessorVisualCrossing(VisualCrossingFetcher fetcher,
-                                          WeatherDataRepository weatherDataRepository) {
+                                          WeatherDataRepository weatherDataRepository,
+                                          VisualCrossingConverter converter,
+                                          ObjectMapper mapper) {
         this.fetcher = fetcher;
         this.weatherDataRepository = weatherDataRepository;
+        this.converter = converter;
+        this.mapper = mapper;
     }
 
     @Override
     protected void processStation(StationRef station) throws Exception {
         String json = fetcher.fetchCurrent(station.latitude(), station.longitude());
-        log.debug("Saving Visual Crossing payload. station={} state={} bytes={}",
-                station.mli(), station.state(), json.length());
-        weatherDataRepository.saveStationData(station.mli(), json);
+        // Convert HERE, not in the database. A shape the converter does not recognise throws and is
+        // counted as a failed station; the old T-SQL parser could only fail silently.
+        CanonicalForecast forecast = converter.convert(json, station.mli());
+        String canonical = mapper.writeValueAsString(forecast);
+        log.debug("Saving Visual Crossing payload. station={} state={} days={} bytes={}",
+                station.mli(), station.state(), forecast.days().size(), canonical.length());
+        weatherDataRepository.saveStationData(station.mli(), canonical, converter.providerType());
         log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 

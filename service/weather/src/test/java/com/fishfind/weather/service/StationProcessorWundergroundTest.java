@@ -1,11 +1,13 @@
 package com.fishfind.weather.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fishfind.weather.canonical.WeatherSourceType;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherDataRepository;
 import java.io.FileNotFoundException;
@@ -36,7 +38,7 @@ class StationProcessorWundergroundTest {
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.PROCESSED);
 
-        verify(weatherDataRepository).saveStationData("KNYC", "{\"observations\":[]}");
+        verify(weatherDataRepository).saveStationData("KNYC", "{\"observations\":[]}", WeatherSourceType.WUNDERGROUND_OBSERVATIONS);
     }
 
     @Test
@@ -45,7 +47,7 @@ class StationProcessorWundergroundTest {
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.SKIPPED);
 
-        verify(weatherDataRepository, never()).saveStationData(anyString(), anyString());
+        verify(weatherDataRepository, never()).saveStationData(anyString(), anyString(), anyInt());
     }
 
     @Test
@@ -54,7 +56,7 @@ class StationProcessorWundergroundTest {
 
         assertThat(processor.process(station)).isEqualTo(ProcessingOutcome.FAILED);
 
-        verify(weatherDataRepository, never()).saveStationData(anyString(), anyString());
+        verify(weatherDataRepository, never()).saveStationData(anyString(), anyString(), anyInt());
     }
 
     @Test

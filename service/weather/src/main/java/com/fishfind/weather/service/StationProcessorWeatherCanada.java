@@ -1,5 +1,6 @@
 package com.fishfind.weather.service;
 
+import com.fishfind.weather.canonical.WeatherSourceType;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherDataRepository;
 import org.slf4j.Logger;
@@ -27,7 +28,7 @@ public class StationProcessorWeatherCanada extends StationProcessorBase {
         String json = fetcher.fetchLatestObservation(station.latitude(), station.longitude());
         log.debug("Saving Weather Canada payload. station={} state={} bytes={}",
                 station.mli(), station.state(), json.length());
-        weatherDataRepository.saveStationData(station.mli(), json);
+        weatherDataRepository.saveStationData(station.mli(), json, WeatherSourceType.ENVIRONMENT_CANADA);
         log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 

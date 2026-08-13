@@ -84,7 +84,7 @@ public class StationWorker implements ApplicationRunner {
     @Value("${weather.worker.daily-limit.google-weather:161}")
     private int googleWeatherDailyLimit;
 
-    @Value("${weather.worker.daily-limit.weather-canada:900}")
+    @Value("${weather.worker.daily-limit.weather-canada:2300}")
     private int weatherCanadaDailyLimit;
 
     @Value("${weather.worker.daily-limit.wunderground:450}")

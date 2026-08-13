@@ -1,5 +1,6 @@
 package com.fishfind.weather.repo;
 
+import com.fishfind.weather.canonical.WeatherSourceType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,11 +38,11 @@ class WeatherDataRepositoryTest {
 
     @Test
     void saveStationDataUpdatesRowWithExpectedSql() {
-        repository.saveStationData("MLI-1", "{\"x\":1}");
+        repository.saveStationData("MLI-1", "{\"x\":1}", WeatherSourceType.VISUAL_CROSSING);
 
         verify(jdbc).update(
                 "UPDATE dbo.ows_meteo SET type = ?, ows = ?, stamp = GETDATE() WHERE mli = ?",
-                2,
+                WeatherSourceType.VISUAL_CROSSING,
                 "{\"x\":1}",
                 "MLI-1");
     }
@@ -55,7 +56,7 @@ class WeatherDataRepositoryTest {
         appender.start();
         logger.addAppender(appender);
         try {
-            repository.saveStationData("MLI-404", "{\"x\":1}");
+            repository.saveStationData("MLI-404", "{\"x\":1}", WeatherSourceType.OPEN_METEO);
         } finally {
             logger.detachAppender(appender);
         }
@@ -70,17 +71,17 @@ class WeatherDataRepositoryTest {
 
     @Test
     void saveStationDataRejectsBlankMli() {
-        assertThatThrownBy(() -> repository.saveStationData("  ", "{}"))
+        assertThatThrownBy(() -> repository.saveStationData("  ", "{}", WeatherSourceType.OPEN_METEO))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> repository.saveStationData(null, "{}"))
+        assertThatThrownBy(() -> repository.saveStationData(null, "{}", WeatherSourceType.OPEN_METEO))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(jdbc);
     }
 
     @Test
     void saveStationDataSkipsBlankPayload() {
-        repository.saveStationData("MLI-1", "   ");
-        repository.saveStationData("MLI-1", null);
+        repository.saveStationData("MLI-1", "   ", WeatherSourceType.OPEN_METEO);
+        repository.saveStationData("MLI-1", null, WeatherSourceType.OPEN_METEO);
 
         verify(jdbc, never()).update(anyString(), any(), any(), any());
     }
@@ -128,7 +129,7 @@ class WeatherDataRepositoryTest {
     void fallbackSaveWrapsCause() {
         RuntimeException cause = new RuntimeException("boom");
 
-        assertThatThrownBy(() -> repository.fallbackSave("MLI-1", "{}", cause))
+        assertThatThrownBy(() -> repository.fallbackSave("MLI-1", "{}", WeatherSourceType.OPEN_METEO, cause))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("MLI-1")
                 .hasCause(cause);

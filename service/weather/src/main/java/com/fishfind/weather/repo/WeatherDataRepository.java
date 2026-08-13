@@ -32,10 +32,20 @@ public class WeatherDataRepository {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Stores one station's payload and records WHICH PROVIDER produced it in {@code type}.
+     *
+     * <p>{@code type} used to be hardcoded to 2 for every provider, which made the column useless as
+     * provenance and forced {@code dbo.TR_ows_meteo} to infer the document's shape — four providers'
+     * payloads were indistinguishable from Open-Meteo and were silently discarded. Callers now pass
+     * their own {@link com.fishfind.weather.canonical.WeatherSourceType}.
+     *
+     * @param sourceType provider identity; see {@code WeatherSourceType}
+     */
     @Transactional
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fallbackSave")
-    public void saveStationData(String mli, String jsonData) {
+    public void saveStationData(String mli, String jsonData, int sourceType) {
         if (mli == null || mli.isBlank()) {
             throw new IllegalArgumentException("mli must not be null or blank");
         }
@@ -45,7 +55,7 @@ public class WeatherDataRepository {
 
         int rows = jdbc.update(
                 "UPDATE dbo.ows_meteo SET type = ?, ows = ?, stamp = GETDATE() WHERE mli = ?",
-                2,
+                sourceType,
                 jsonData,
                 mli
         );
@@ -76,7 +86,8 @@ public class WeatherDataRepository {
     }
 
     @SuppressWarnings("unused")
-    public void fallbackSave(String mli, String jsonData, Throwable ex) {
+    /** Must mirror {@link #saveStationData}'s parameters plus the throwable, or resilience4j cannot bind it. */
+    public void fallbackSave(String mli, String jsonData, int sourceType, Throwable ex) {
         throw new RuntimeException("SQL save failed for station " + mli, ex);
     }
 
