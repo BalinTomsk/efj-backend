@@ -1,5 +1,6 @@
 package com.fishfind.weather.service;
 
+import com.fishfind.weather.canonical.WeatherSourceType;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherDataRepository;
 import org.slf4j.Logger;
@@ -27,7 +28,7 @@ public class StationProcessorWunderground extends StationProcessorBase {
         String json = fetcher.fetchCurrent(station.latitude(), station.longitude());
         log.debug("Saving Wunderground payload. station={} state={} bytes={}",
                 station.mli(), station.state(), json.length());
-        weatherDataRepository.saveStationData(station.mli(), json);
+        weatherDataRepository.saveStationData(station.mli(), json, WeatherSourceType.WUNDERGROUND_OBSERVATIONS);
         log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
 

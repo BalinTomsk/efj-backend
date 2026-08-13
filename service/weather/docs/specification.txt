@@ -23,7 +23,11 @@ GOAL
   (dbo.vwWeatherForecastToDay).
 - Fetch raw JSON latest-observation data from Weather.gov for US stations.
 - Fetch raw JSON forecast data from Open-Meteo for CA stations.
-- Store the raw JSON as-is into dbo.ows_meteo with source type 2. Do NOT parse JSON in Java.
+- Convert each provider's response to the CANONICAL ENVELOPE and store that in dbo.ows_meteo,
+  stamping the column `type` with the PROVIDER that served the station (see CANONICAL FORECAST
+  ENVELOPE). The provider's own document is embedded in the envelope as `raw`, so nothing is lost.
+  Providers that publish only observations (weather.gov, Environment Canada, Weather Underground,
+  Google Weather) still store their raw document and only gain a correct `type`.
 - After each full pass, run post-processing stored procedures in order:
     1. dbo.spPushSpeciesFromLakeToStation
     2. dbo.spTotalUpdateProbability
@@ -67,6 +71,14 @@ PACKAGE LAYOUT
 --------------
 com.fishfind.weather
 ├── WeatherStationPusherApplication.java   main class + dotenv bootstrap
+├── canonical
+│   ├── CanonicalForecast.java            record: the stored envelope (schema/provider/days/raw)
+│   ├── ForecastDay.java                  record: one forecast day, metric, 1:1 with weather_Forecast
+│   ├── ForecastConverter.java            interface: provider document -> envelope
+│   ├── ForecastConversionException.java  checked; a bad payload fails the station, loudly
+│   ├── OpenMeteoConverter.java           hourly/daily -> days[]; performs the daily reduction
+│   ├── VisualCrossingConverter.java      days[] -> days[]; US units -> metric
+│   └── WeatherSourceType.java            provider ids written to ows_meteo.type
 ├── domain
 │   └── StationRef.java                   record: mli, latitude, longitude, state
 ├── repo
@@ -535,16 +547,20 @@ Weather.gov service-limit note:
 
 PERSISTENCE (WeatherDataRepository)
 -------------------------------------
-Save raw JSON:
-  void saveStationData(String mli, String jsonData)
+Save a payload:
+  void saveStationData(String mli, String jsonData, int sourceType)
   - Reject blank mli → throw IllegalArgumentException
   - Blank/null jsonData → no-op
   - Runs in a transaction; @Retry(sqlRetry) + @CircuitBreaker(sqlBreaker)
   - If the UPDATE matches 0 rows (no ows_meteo row for that mli), log a WARNING
     with mli and payload size — the payload is dropped and must not vanish silently.
+  - sourceType identifies the PROVIDER (WeatherSourceType). It was hardcoded to 2 for every
+    provider, which made the column useless as provenance and forced dbo.TR_ows_meteo to infer
+    the document's shape from its contents.
+  - fallbackSave MUST mirror these parameters plus the Throwable, or resilience4j cannot bind it.
   SQL:
     UPDATE dbo.ows_meteo
-    SET type = 2, ows = ?, stamp = GETDATE()
+    SET type = ?, ows = ?, stamp = GETDATE()
     WHERE mli = ?
 
   NOTE: this raw-table UPDATE is an intentional, grandfathered exception to the house
@@ -561,6 +577,59 @@ Post-processing procedures:
   Each runs in a transaction; each protected by Resilience4j retry + circuit breaker.
   Procedures may emit incidental result sets — drain with PreparedStatementCallback + getMoreResults.
 
+
+CANONICAL FORECAST ENVELOPE
+---------------------------
+Every forecast-capable provider is converted to one shape before storage, so the database has a
+single shredder (dbo.sp_ows_meteo_canonical) instead of a T-SQL parser per provider.
+
+  { "schema":"fishfind.weather.forecast/v1", "provider":"visual-crossing", "providerType":4,
+    "mli":"13068500", "fetchedUtc":"2026-08-13T04:12:00Z",
+    "days":[ { "date":"2026-08-13", "time":"00:00:00",
+               "tempHighC":.., "tempLowC":.., "tempC":.., "tempDayC":..,
+               "humidityPct":.., "windSpeedKmh":.., "windDegrees":.., "windDirection":"S",
+               "pressureHpa":.., "precipChancePct":.., "precipMm":..,
+               "precipDayMm":.., "precipNightMm":..,
+               "weatherCode":.., "icon":"om_2.png",
+               "conditionsShort":"..", "conditionsLong":".." } ],
+    "raw": { ...the provider's original document... } }
+
+WHY IT EXISTS
+  Parsing used to happen in dbo.TR_ows_meteo. A trigger CANNOT raise here: an error aborts this
+  service's UPDATE and discards the payload just fetched. So a document no parser understood wrote
+  no rows and reported no error, and an entire provider (Visual Crossing, ~230 US stations) went
+  unnoticed. A converter runs in this service, so it THROWS, and the station is counted as failed.
+
+RULES
+  - days[] members map 1:1 onto dbo.weather_Forecast columns. Values are already metric and already
+    reduced to one object per day; the database performs no conversion and no aggregation.
+  - time is never null. dbo.fnWeatherForecast selects WHERE tm IS NULL, so a null would expose these
+    rows to a caller no other forecast row reaches. Daily summaries use 00:00:00.
+  - raw is ignored by the database. It exists so a stored payload can be inspected and replayed,
+    which is what made the Visual Crossing diagnosis possible.
+  - schema is the contract. The database treats a version it does not know as a NO-OP rather than a
+    guess, so this service may be deployed ahead of the database safely. Bump the version only
+    alongside a database that understands it.
+  - Converters must be pure: same raw document + station -> same envelope. No I/O, no clock beyond
+    the injected one. That is what makes them testable against recorded provider payloads.
+
+CONVERTERS
+  OpenMeteoConverter (type 2)      already metric; reproduces the reduction the T-SQL performed --
+                                   latest hour of each day wins, rainfall splits at 06:00-17:59,
+                                   daytime temperature is a mean of the daytime hours.
+  VisualCrossingConverter (type 4) fetched with unitGroup=us, so it converts F->C, mph->km/h,
+                                   inches->mm. Clips the 15-day document to today..today+6 (its
+                                   first day is often YESTERDAY in the station's time zone) and
+                                   splits daily rainfall evenly, since a daily document has no
+                                   hourly resolution and the SUM is what consumers use.
+                                   The fetcher deliberately stays on unitGroup=us while the legacy
+                                   database branches exist: those convert the same way, so the
+                                   embedded raw document remains a valid fallback for these bytes.
+
+NOT YET CONVERTED
+  weather.gov, Environment Canada, Weather Underground and Google Weather are fetched as CURRENT
+  OBSERVATIONS, not forecasts, so no converter can turn them into forecast rows. weather.gov would
+  need its fetcher pointed at the gridpoint forecast endpoint before a converter is worth writing.
 
 PROCESSING PIPELINE
 -------------------

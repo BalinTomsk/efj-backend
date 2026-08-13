@@ -219,10 +219,10 @@ weather:
       max-wait-ms: 60000
     daily-limit:
       weather-gov: ${WEATHER_GOV_DAILY_LIMIT:900}
-      open-meteo: ${OPEN_METEO_DAILY_LIMIT:1400}
+      open-meteo: ${OPEN_METEO_DAILY_LIMIT:2300}      # covers all 2,219 CA stations in one day
       visual-crossing: ${VISUAL_CROSSING_DAILY_LIMIT:900}
       google-weather: ${GOOGLE_WEATHER_DAILY_LIMIT:161}
-      weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:900}
+      weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:2300} # ditto; CA-native provider
     post-processing:
       max-failure-rate: 0.5
   report:
