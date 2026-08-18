@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DocAPI Reference</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Full REST reference for docapi's five controllers (Health, News, Fish, Waterbody, Station), with live-captured request/response examples." />
+<style>
+  /* ============================= TOKENS ============================= */
+  :root {
+    --paper:        #EEF2F0;
+    --paper-raised: #FFFFFF;
+    --ink:          #14211E;
+    --ink-soft:     #4B5A56;
+    --ink-faint:    #7C8B87;
+    --accent:       #1F6F63;
+    --accent-deep:  #0F4A40;
+    --accent-tint:  #DCEBE7;
+    --line:         #D3DBD7;
+    --line-soft:    #E4E9E6;
+    --rust:         #B5692A;
+    --rust-tint:    #F5E6D8;
+    --slate:        #5C6F84;
+    --slate-tint:   #E4E9F0;
+    --code-bg:      #0F1B18;
+    --code-ink:     #DCEAE5;
+    --code-key:     #7FCDBB;
+    --code-str:     #E3B778;
+    --code-num:     #85A9F0;
+    --code-null:    #8A9895;
+    --code-punc:    #5C7A73;
+    --shadow:       0 1px 2px rgba(15, 27, 24, 0.06), 0 8px 24px -12px rgba(15, 27, 24, 0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:        #0D1615;
+      --paper-raised: #142220;
+      --ink:          #E7EEEC;
+      --ink-soft:     #A9BAB5;
+      --ink-faint:    #71847F;
+      --accent:       #5FC0AB;
+      --accent-deep:  #8FE0CB;
+      --accent-tint:  #16302A;
+      --line:         #253632;
+      --line-soft:    #1B2926;
+      --rust:         #E0955A;
+      --rust-tint:    #33251A;
+      --slate:        #9FB0C8;
+      --slate-tint:   #212B3A;
+      --code-bg:      #0A1210;
+      --code-ink:     #DCEAE5;
+      --code-key:     #7FCDBB;
+      --code-str:     #F0C48A;
+      --code-num:     #9AB8F5;
+      --code-null:    #7C8B87;
+      --code-punc:    #5C7A73;
+      --shadow:       0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px -12px rgba(0, 0, 0, 0.55);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:        #0D1615;
+    --paper-raised: #142220;
+    --ink:          #E7EEEC;
+    --ink-soft:     #A9BAB5;
+    --ink-faint:    #71847F;
+    --accent:       #5FC0AB;
+    --accent-deep:  #8FE0CB;
+    --accent-tint:  #16302A;
+    --line:         #253632;
+    --line-soft:    #1B2926;
+    --rust:         #E0955A;
+    --rust-tint:    #33251A;
+    --slate:        #9FB0C8;
+    --slate-tint:   #212B3A;
+    --code-bg:      #0A1210;
+    --code-ink:     #DCEAE5;
+    --code-key:     #7FCDBB;
+    --code-str:     #F0C48A;
+    --code-num:     #9AB8F5;
+    --code-null:    #7C8B87;
+    --code-punc:    #5C7A73;
+    --shadow:       0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px -12px rgba(0, 0, 0, 0.55);
+  }
+
+  /* ============================= RESET / BASE ============================= */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Roboto, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .display { font-family: Iowan Old Style, "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif; }
+
+  code, pre, .mono, .path, .status-code, .verb {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+  p { margin: 0; }
+
+  a { color: var(--accent-deep); text-decoration-color: color-mix(in srgb, var(--accent-deep) 40%, transparent); text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  ::selection { background: var(--accent-tint); color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+  }
+
+  /* ============================= LAYOUT SHELL ============================= */
+  .page { max-width: 1040px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* ============================= IDENTITY BAND ============================= */
+  .identity {
+    padding: 52px 0 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); display: inline-block; box-shadow: 0 0 0 3px var(--accent-tint);
+  }
+
+  .identity h1 { font-size: clamp(2.2rem, 4.2vw, 3rem); font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .identity .dek { max-width: 66ch; font-size: 1.08rem; color: var(--ink-soft); line-height: 1.65; }
+  .identity .dek code { color: var(--accent-deep); font-size: 0.92em; }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 7px;
+    background: var(--paper-raised); border: 1px solid var(--line);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12.5px; color: var(--ink-soft);
+  }
+  .chip .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+
+  /* ============================= STICKY CONTROLLER NAV ============================= */
+  .ctrl-nav {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 4px; flex-wrap: wrap;
+    padding: 12px 0;
+    background: color-mix(in srgb, var(--paper) 92%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 44px;
+  }
+  .ctrl-nav a {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px; font-weight: 600;
+    color: var(--ink-soft); text-decoration: none;
+    padding: 7px 12px; border-radius: 7px;
+    border: 1px solid transparent;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .ctrl-nav a:hover { color: var(--accent-deep); border-color: var(--line); background: var(--paper-raised); }
+  .ctrl-nav a .n { color: var(--ink-faint); margin-right: 5px; }
+  .ctrl-nav a.impl .n { color: var(--accent); }
+  .ctrl-nav a.stub .n { color: var(--rust); }
+
+  /* ============================= SECTION SCAFFOLDING ============================= */
+  section.block { margin-bottom: 68px; scroll-margin-top: 64px; }
+
+  .block-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  }
+  .block-head h2 { font-size: 1.55rem; font-weight: 600; letter-spacing: -0.005em; }
+  .block-head .tag {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); white-space: nowrap;
+  }
+
+  .prose { max-width: 70ch; color: var(--ink-soft); }
+  .prose + .prose { margin-top: 12px; }
+  .prose strong { color: var(--ink); font-weight: 600; }
+
+  /* ============================= ENVELOPE CARD ============================= */
+  .envelope-card {
+    display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px;
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 26px 28px; box-shadow: var(--shadow);
+  }
+  @media (max-width: 720px) { .envelope-card { grid-template-columns: 1fr; } }
+  .envelope-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; color: var(--ink); }
+
+  .field-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .field-list li { display: flex; gap: 10px; align-items: baseline; font-size: 0.92rem; }
+  .field-list .fname { font-family: ui-monospace, Consolas, monospace; color: var(--accent-deep); min-width: 62px; }
+  .field-list .fdesc { color: var(--ink-soft); }
+
+  /* ============================= CONTROLLER STATUS STRIP ============================= */
+  .status-strip {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 8px;
+  }
+  @media (max-width: 820px) { .status-strip { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 460px) { .status-strip { grid-template-columns: 1fr; } }
+  .status-tile {
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .status-tile .ctrl-name { font-weight: 600; font-size: 0.94rem; color: var(--ink); }
+  .status-tile .ctrl-state { font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; }
+  .status-tile .ctrl-state.live { color: var(--accent-deep); }
+  .status-tile .ctrl-state.stub { color: var(--rust); }
+  .status-tile .ctrl-note { font-size: 0.82rem; color: var(--ink-faint); line-height: 1.5; }
+
+  /* ============================= SPECIMEN TAG (endpoint header) ============================= */
+  .endpoint {
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); overflow: hidden; margin-bottom: 22px;
+  }
+  .specimen-tag {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding: 18px 26px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .specimen-tag .path-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  .verb {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    border-radius: 6px; padding: 3px 9px; border: 1px solid transparent;
+  }
+  .verb-get  { color: var(--accent-deep); background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .verb-post { color: var(--slate); background: var(--slate-tint); border-color: color-mix(in srgb, var(--slate) 35%, transparent); }
+  .verb-put  { color: var(--rust); background: var(--rust-tint); border-color: color-mix(in srgb, var(--rust) 35%, transparent); }
+
+  .path { font-size: 1.02rem; font-weight: 600; color: var(--ink); }
+  .path .param { color: var(--accent-deep); }
+
+  .specimen-label { font-family: Iowan Old Style, Palatino, Georgia, serif; font-style: italic; font-size: 0.9rem; color: var(--ink-faint); }
+
+  .endpoint-body { padding: 22px 26px 24px; }
+
+  /* ============================= PARAM TABLE ============================= */
+  table.params { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 4px 0 20px; }
+  table.params th {
+    text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line);
+  }
+  table.params td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: var(--ink-soft); }
+  table.params tr:last-child td { border-bottom: none; }
+  table.params td.pname { font-family: ui-monospace, Consolas, monospace; color: var(--ink); white-space: nowrap; }
+  table.params .req { color: var(--rust); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  table.params .opt { color: var(--ink-faint); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+  /* ============================= NOTES LIST ============================= */
+  ul.notes { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+  ul.notes li { position: relative; padding-left: 20px; font-size: 0.94rem; color: var(--ink-soft); line-height: 1.6; }
+  ul.notes li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 8px; height: 1.5px; background: var(--accent); }
+  ul.notes li strong { color: var(--ink); font-weight: 600; }
+  ul.notes li code { background: var(--line-soft); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; color: var(--accent-deep); }
+
+  /* ============================= EXAMPLE GRID ============================= */
+  .examples-label {
+    font-family: ui-monospace, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 12px; display: block;
+  }
+  .example-grid { display: flex; flex-direction: column; gap: 14px; }
+  .example { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--paper); }
+  .example-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; background: var(--paper-raised); border-bottom: 1px solid var(--line);
+  }
+  .example-head .caption { font-size: 0.88rem; color: var(--ink-soft); }
+  .example-head .caption strong { color: var(--ink); font-weight: 600; }
+
+  .status-code { font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 5px; letter-spacing: 0.02em; }
+  .status-200 { background: var(--accent-tint); color: var(--accent-deep); }
+  .status-400 { background: var(--rust-tint); color: var(--rust); }
+  .status-404 { background: var(--slate-tint); color: var(--slate); }
+  .status-405 { background: var(--slate-tint); color: var(--slate); }
+  .status-500 { background: var(--rust-tint); color: var(--rust); }
+
+  .req-line {
+    padding: 12px 16px; font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    color: var(--ink-soft); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: pre;
+  }
+  .req-line .verb-inline { color: var(--accent-deep); font-weight: 700; margin-right: 8px; }
+
+  pre.json {
+    margin: 0; padding: 16px; background: var(--code-bg); color: var(--code-ink);
+    font-size: 12.6px; line-height: 1.6; overflow-x: auto; position: relative;
+  }
+  .k { color: var(--code-key); }
+  .s { color: var(--code-str); }
+  .n { color: var(--code-num); }
+  .z { color: var(--code-null); font-style: italic; }
+  .p { color: var(--code-punc); }
+
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--code-ink); background: color-mix(in srgb, var(--code-ink) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--code-ink) 22%, transparent); border-radius: 5px;
+    padding: 4px 9px; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .copy-btn:hover { background: color-mix(in srgb, var(--code-ink) 18%, transparent); }
+  .copy-btn.copied { color: var(--code-key); border-color: var(--code-key); }
+
+  /* ============================= RULE / INFO CARDS ============================= */
+  .rules-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (max-width: 720px) { .rules-grid { grid-template-columns: 1fr; } }
+  .rule-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .rule-card .rule-title { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--accent-deep); font-weight: 700; margin-bottom: 8px; display: block; }
+  .rule-card p { font-size: 0.9rem; color: var(--ink-soft); line-height: 1.6; }
+  .rule-card .ex { display: block; margin-top: 10px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--ink); background: var(--line-soft); padding: 8px 10px; border-radius: 6px; overflow-x: auto; white-space: pre; }
+
+  /* ============================= STATUS / ACCESS TABLES ============================= */
+  table.status-tbl { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  table.status-tbl th {
+    text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; padding: 0 14px 10px 0; border-bottom: 1px solid var(--line);
+  }
+  table.status-tbl td { padding: 13px 14px 13px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); vertical-align: top; }
+  table.status-tbl tr:last-child td { border-bottom: none; }
+
+  .ref-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table.ref-tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 760px; }
+  table.ref-tbl th {
+    text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; padding: 12px 14px; background: var(--paper-raised);
+    border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  }
+  table.ref-tbl td { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); background: var(--paper-raised); }
+  table.ref-tbl tr:last-child td { border-bottom: none; }
+  table.ref-tbl td.qpath { font-family: ui-monospace, Consolas, monospace; color: var(--ink); font-size: 0.85em; }
+  table.ref-tbl td.qctrl { font-size: 0.8rem; color: var(--ink-faint); white-space: nowrap; }
+
+  footer {
+    margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+    font-size: 0.85rem; color: var(--ink-faint);
+  }
+  footer .fver { font-family: ui-monospace, Consolas, monospace; }
+  footer .fver strong { color: var(--ink-soft); }
+
+  @media (max-width: 560px) {
+    .page { padding: 0 18px 72px; }
+    .identity { padding: 36px 0 26px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="identity">
+    <div class="eyebrow">docapi · full REST reference</div>
+    <h1 class="display">DocAPI Reference</h1>
+    <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, water-body and station data. Five controllers, one response envelope, documented and example-verified against the live service.</p>
+    <div class="chip-row">
+      <span class="chip"><span class="live-dot"></span>docapi 1.4.1 — verified live 2026‑08‑18</span>
+      <span class="chip">Envelope: <code>{ data, error, meta }</code></span>
+      <span class="chip">Public gateway: GET only</span>
+    </div>
+  </header>
+
+  <nav class="ctrl-nav" aria-label="Controllers">
+    <a href="#health" class="impl"><span class="n">●</span>Health</a>
+    <a href="#news" class="impl"><span class="n">●</span>News</a>
+    <a href="#fish" class="impl"><span class="n">●</span>Fish</a>
+    <a href="#waterbody" class="stub"><span class="n">○</span>Waterbody</a>
+    <a href="#station" class="stub"><span class="n">○</span>Station</a>
+    <a href="#access">Access &amp; errors</a>
+    <a href="#quickref">Quick reference</a>
+  </nav>
+
+  <!-- ============================= OVERVIEW ============================= -->
+  <section class="block">
+    <div class="block-head">
+      <h2 class="display">How responses are shaped</h2>
+      <span class="tag">ApiResponse&lt;T&gt;</span>
+    </div>
+    <p class="prose">Every docapi response — success or failure, from any of the five controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
+
+    <div class="envelope-card" style="margin-top:20px;">
+      <div>
+        <h3>Envelope fields</h3>
+        <ul class="field-list">
+          <li><span class="fname">data</span><span class="fdesc">the payload on success. <code>null</code> on error.</span></li>
+          <li><span class="fname">error</span><span class="fdesc"><code>{ code, message }</code> on failure, <code>null</code> on success. Codes: <code>not_found</code> (404), <code>invalid_document</code> (400), <code>internal_error</code> (500).</span></li>
+          <li><span class="fname">meta</span><span class="fdesc">always present — currently just a response <code>timestamp</code>.</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3>A representative response</h3>
+        <pre class="json"><span class="p">{</span>
+  <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.4.1"</span><span class="p">},</span>
+  <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span>
+  <span class="k">"meta"</span><span class="p">:</span> <span class="p">{</span><span class="k">"timestamp"</span><span class="p">:</span> <span class="s">"2026-08-18T18:16:00Z"</span><span class="p">}</span>
+<span class="p">}</span></pre>
+      </div>
+    </div>
+
+    <div class="status-strip" style="margin-top:24px;">
+      <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
+      <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
+      <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
+      <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
+      <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
+    </div>
+  </section>
+
+  <!-- ============================= HEALTH ============================= -->
+  <section class="block" id="health">
+    <div class="block-head">
+      <h2 class="display">Health</h2>
+      <span class="tag">HealthController</span>
+    </div>
+    <p class="prose" style="margin-bottom:20px;">A lightweight liveness probe — the Docker <code>HEALTHCHECK</code> target. No envelope; deeper DB-aware checks live on the private Actuator management port, not here.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/health</span></div>
+        <span class="specimen-label">liveness</span>
+      </div>
+      <div class="endpoint-body" style="padding-bottom:20px;">
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">no parameters</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/health</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.4.1"</span><span class="p">,</span> <span class="k">"uptime"</span><span class="p">:</span> <span class="n">57</span><span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= GENERIC DOCUMENT CRUD ============================= -->
+  <section class="block" id="crud">
+    <div class="block-head">
+      <h2 class="display">The shared document CRUD contract</h2>
+      <span class="tag">AbstractDocumentController</span>
+    </div>
+    <p class="prose">News, Fish, Waterbody and Station each inherit the same three verbs on their own base path — only the entity and its backing stored procedures differ. The request body is consumed as a <strong>raw JSON string</strong>, so the shape of a document is whatever that entity's stored procedure expects, not something validated at this layer.</p>
+
+    <table class="params" style="margin-top:20px;">
+      <thead><tr><th style="width:210px;">Call</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td class="pname"><span class="verb verb-get" style="margin-right:6px;">GET</span>/&lt;entity&gt;/{id}</td><td>Returns the stored document as real nested JSON. Unknown id → 404 <code>not_found</code>.</td></tr>
+        <tr><td class="pname"><span class="verb verb-post" style="margin-right:6px;">POST</span>/&lt;entity&gt;</td><td>Inserts a new document. 201, body <code>{ "id": &lt;newId&gt; }</code>. Blank/malformed JSON → 400 <code>invalid_document</code>.</td></tr>
+        <tr><td class="pname"><span class="verb verb-put" style="margin-right:6px;">PUT</span>/&lt;entity&gt;/{id}</td><td>Updates an existing document. 200, body <code>{ "id": &lt;id&gt; }</code> (falls back to the supplied id if the update returns no scalar).</td></tr>
+      </tbody>
+    </table>
+
+    <ul class="notes" style="margin-top:4px;">
+      <li><strong>Only <code>news</code> is backed by real SQL objects today.</strong> <code>waterbody</code>, <code>fish</code>, and <code>station</code> route correctly but their <code>fn_&lt;entity&gt;_doc</code> / <code>sp_&lt;entity&gt;_doc_add</code> / <code>sp_&lt;entity&gt;_doc_update</code> functions were never created in <code>envfish-db</code> — every call 500s with the standard error envelope (no stack trace or SQL leaks). Once created, the expected status for a missing id becomes 404, same as News.</li>
+      <li>Writes are shown for completeness but are <strong>not exercised against production here</strong> — see <a href="#access">Access below</a> for why.</li>
+    </ul>
+  </section>
+
+  <!-- ============================= NEWS ============================= -->
+  <section class="block" id="news">
+    <div class="block-head">
+      <h2 class="display">News</h2>
+      <span class="tag">NewsController · /api/v1/news</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">The one entity with a fully-built backend: the generic CRUD above, plus five endpoints for the News-page UI and JSON import/export.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/list<span class="param">?country=&amp;offset=&amp;limit=</span></span></div>
+        <span class="specimen-label">paged latest news</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">country</td><td><span class="opt">Optional</span></td><td>ISO-2 code. Blank/absent = all countries. A thin non-CA country (&lt; 100 items) is padded with CA news up to 100. Malformed → 400.</td></tr>
+            <tr><td class="pname">offset</td><td><span class="opt">Optional</span></td><td>Rows to skip; negative/absent → 0.</td></tr>
+            <tr><td class="pname">limit</td><td><span class="opt">Optional</span></td><td>Page size; default 25, capped at 200.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Two Canadian items.</strong></span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/list?country=CA&amp;limit=2</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"rn"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"newsId"</span><span class="p">:</span> <span class="s">"E7795918-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Catfish bite tops summer fishing scene"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"parispi"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-08-14"</span><span class="p">,</span> <span class="k">"flag"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"hasPhoto"</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span> <span class="k">"blockOrd"</span><span class="p">:</span> <span class="n">0</span><span class="p">},</span>
+    <span class="p">{</span><span class="k">"rn"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span> <span class="k">"newsId"</span><span class="p">:</span> <span class="s">"D1CF7B95-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"The ties that bind them: …"</span><span class="p">,</span> <span class="p">…}</span>
+  <span class="p">],</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">107</span><span class="p">,</span> <span class="k">"offset"</span><span class="p">:</span> <span class="n">0</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">2</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Malformed country.</strong></span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/list?country=Canada</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"country must be a 2-letter ISO code (e.g. 'CA', 'US')"</span> <span class="p">}}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/default</span></div>
+        <span class="specimen-label">assembled home page</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px;">The News.aspx home page's item set, in display order — lead articles first, then the right-column picks. Each item is the full per-article document.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">no parameters, truncated below</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/default</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"news_id"</span><span class="p">:</span> <span class="s">"EF3FAE6E-…"</span><span class="p">,</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-08-10"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span>
+     <span class="k">"title"</span><span class="p">:</span> <span class="s">"Nipissing Township pushes for stronger ice fishing rules…"</span><span class="p">,</span>
+     <span class="k">"author"</span><span class="p">:</span> <span class="s">"Jennifer Hamilton-McCharles"</span><span class="p">,</span> <span class="p">…}</span><span class="p">,</span> <span class="p">…</span>
+  <span class="p">]},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/search<span class="param">?q=</span></span></div>
+        <span class="specimen-label">full-text-ish search</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody><tr><td class="pname">q</td><td><span class="req">Required</span></td><td>Trimmed, capped at 100 chars. Blank/missing → 400.</td></tr></tbody>
+        </table>
+        <p class="prose" style="margin-bottom:18px;">Matches the term against headline, source, paragraphs, photo alts, <em>and</em> the up-to-3 mentioned fishes' names — so a species search like <code>walleye</code> finds an article even when the headline doesn't mention it. Up to 100 matches, newest first.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>"walleye"</strong> — matches via the tagged-fish field, not just the headline.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/search?q=walleye</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"A0D04C56-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"It's a Free-for-All to Catch and Keep the Fish…"</span><span class="p">,</span> <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[]},</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"9942134F-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Hook a bass at this Georgia lake"</span><span class="p">,</span> <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[</span><span class="s">"Alabama Bass"</span><span class="p">]},</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"A2230445-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Walleye Fishing is Boost to Local Economy"</span><span class="p">,</span> <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[</span><span class="s">"Walleye"</span><span class="p">]},</span> <span class="p">…</span>
+  <span class="p">],</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">14</span><span class="p">,</span> <span class="k">"query"</span><span class="p">:</span> <span class="s">"walleye"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/{id}</span></div>
+        <span class="specimen-label">single article (CRUD read)</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px;">The generic CRUD read, backed by <code>dbo.fn_news_doc</code>. Only <strong>published</strong> news is returned — an unpublished draft resolves the same as an unknown id.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">a real article, truncated below</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/E7795918-0513-4D80-ACF8-02709C1077B3</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"news_id"</span><span class="p">:</span> <span class="s">"E7795918-…"</span><span class="p">,</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-08-14"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span>
+  <span class="k">"title"</span><span class="p">:</span> <span class="s">"Catfish bite tops summer fishing scene"</span><span class="p">,</span> <span class="k">"author"</span><span class="p">:</span> <span class="s">"STEVE McCADAMS"</span><span class="p">,</span>
+  <span class="k">"source"</span><span class="p">:</span> <span class="s">"parispi"</span><span class="p">,</span> <span class="k">"paragraph0"</span><span class="p">:</span> <span class="s">"Kentucky Lake's midsummer fishing scene…"</span><span class="p">,</span> <span class="p">…}</span><span class="p">,</span>
+  <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption">unknown id</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"No news document found for id '00000000-0000-0000-0000-000000000000'"</span> <span class="p">}}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row">
+          <span class="verb verb-get" style="margin-right:2px;">GET</span><span class="path mono" style="margin-right:14px;">/export/{id}</span>
+          <span class="verb verb-post" style="margin-right:2px;">POST</span><span class="path mono">/import</span>
+        </div>
+        <span class="specimen-label">full interchange round-trip</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:14px;"><strong>The only endpoints carrying the full document</strong> — every field plus all three paragraph photos embedded as base64 — the same <code>fn_news_json</code> format the portal's News.aspx "Save JSON" / "Import from JSON" round-trip uses. Both literal paths are matched ahead of the templated <code>/{id}</code> route.</p>
+        <ul class="notes">
+          <li><span class="verb verb-get" style="margin-right:6px;">GET</span><code>/api/v1/news/export/{id}</code> — the interchange document; unknown id → 404.</li>
+          <li><span class="verb verb-post" style="margin-right:6px;">POST</span><code>/api/v1/news/import</code> — creates a new <strong>published</strong> article from an interchange-format body (base64 photos decoded to binary); 201 with <code>{ "id": &lt;newId&gt; }</code>. <code>news_title</code> is unique, so importing an existing title raises a duplicate-key error.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= FISH ============================= -->
+  <section class="block" id="fish">
+    <div class="block-head">
+      <h2 class="display">Fish</h2>
+      <span class="tag">FishController · /api/v1/fish</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">The generic CRUD above (not yet DB-backed for Fish — see the status table), a relevance-ranked catalogue search, and two Latin-name lookups on the controller's own base path.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish/search<span class="param">?q=</span></span></div>
+        <span class="specimen-label">relevance-ranked catalogue search</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody><tr><td class="pname">q</td><td><span class="req">Required</span></td><td>Trimmed, capped at 64 chars. Matches primary name, Latin name, and synonyms — the same lookup the Editor's <code>FishList.aspx</code> search box uses. Blank/missing → 400.</td></tr></tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Exact-name hit</strong>, rank 0.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish/search?q=burbot</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"fishId"</span><span class="p">:</span> <span class="s">"A43B401D-…"</span><span class="p">,</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Burbot"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Lota lota"</span><span class="p">,</span> <span class="k">"rank"</span><span class="p">:</span> <span class="n">0</span><span class="p">}</span>
+  <span class="p">],</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"query"</span><span class="p">:</span> <span class="s">"burbot"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish<span class="param">?province=&amp;codes=&amp;country=</span></span></div>
+        <span class="specimen-label">regional code → Latin name</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose">Resolves the short codes provincial agencies use for fish species to a Latin binomial. <code>dbo.fish_code</code> is keyed on <strong>country + state + code</strong>, so a bare code has no meaning on its own — <code>province</code> is required the moment <code>codes</code> is supplied.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">province</td><td><span class="req">Required*</span></td><td>Two-letter province/state code. *Required whenever <code>codes</code> is present.</td></tr>
+            <tr><td class="pname">codes</td><td><span class="opt">Optional</span></td><td>Codes to resolve. Omit entirely to fetch every code in the province, ordered by code.</td></tr>
+            <tr><td class="pname">country</td><td><span class="opt">Optional</span></td><td>Defaults to any — only <code>CA</code> exists in the catalogue today, but country is part of the key.</td></tr>
+          </tbody>
+        </table>
+        <ul class="notes">
+          <li><strong>One element per match, not per code.</strong> A code can legitimately name more than one species — BC <code>RB</code> is both <em>Rock Bass</em> and <em>Rainbow Trout</em> on the live catalogue. Picking a single "best" match would silently discard the other.</li>
+          <li><strong>Order is preserved</strong> and a code with no match still occupies its slot — <code>latin: null</code> — rather than vanishing.</li>
+          <li>An <strong>unknown province is not an error</strong> — codes simply resolve to <code>null</code>.</li>
+          <li>Up to <strong>100 codes</strong> per call — beyond that the whole request is refused with a 400.</li>
+        </ul>
+
+        <span class="examples-label">Examples — captured live</span>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Two codes, both resolve.</strong></span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish?province=AB&amp;codes={"BURB", "WALL"}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">[</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"BURB"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Lota lota"</span><span class="p">},</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"WALL"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Stizostedion vitreum"</span><span class="p">}</span>
+<span class="p">],</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Ambiguous code.</strong> BC's <code style="background:none;padding:0;color:inherit;">RB</code> names two real species.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish?province=BC&amp;codes=RB</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">[</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"RB"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Ambloplites rupestris"</span><span class="p">},</span> <span class="p">// Rock Bass</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"RB"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Oncorhynchus mykiss"</span><span class="p">}</span>  <span class="p">// Rainbow Trout</span>
+<span class="p">],</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>A miss keeps its slot.</strong></span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish?province=AB&amp;codes=BURB,NOPE,WALL</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">[</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"BURB"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Lota lota"</span><span class="p">},</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"NOPE"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="z">null</span><span class="p">},</span>
+  <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"WALL"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Stizostedion vitreum"</span><span class="p">}</span>
+<span class="p">],</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Codes without a province.</strong> Refused.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish?codes=BURB</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"province is required when codes are supplied"</span> <span class="p">}}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish<span class="param">?fishes=</span></span></div>
+        <span class="specimen-label">common name → Latin name, batch</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody><tr><td class="pname">fishes</td><td><span class="req">Required</span></td><td>Names to resolve. Wins over <code>province</code>/<code>codes</code> if both are present.</td></tr></tbody>
+        </table>
+        <ul class="notes">
+          <li>Matching is a <strong>substring</strong> of the common or Latin name — a near-miss spelling like <code>Walley</code> still resolves to <code>Walleye</code>.</li>
+          <li>Each result carries <strong><code>query</code></strong> — the exact spelling sent — so the response can be zipped back against the request.</li>
+          <li>Order preserved, a miss keeps its slot as <code>null</code>. Capped at 100 names.</li>
+        </ul>
+        <span class="examples-label">Example — captured live</span>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Batch lookup, one near-miss spelling.</strong></span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/fish?fishes={"Walley", "Burbot"}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">[</span>
+  <span class="p">{</span><span class="k">"query"</span><span class="p">:</span> <span class="s">"Walley"</span><span class="p">,</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Walleye"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Stizostedion vitreum"</span><span class="p">},</span>
+  <span class="p">{</span><span class="k">"query"</span><span class="p">:</span> <span class="s">"Burbot"</span><span class="p">,</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Burbot"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Lota lota"</span><span class="p">}</span>
+<span class="p">],</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rule-card" style="margin-top: 4px;">
+      <span class="rule-title">How <code>codes</code> and <code>fishes</code> parse</span>
+      <p>Both lookups above share one parser. More than one value for a key means the parameter was <strong>repeated</strong>, and each is taken verbatim — the only way to pass an entry containing a comma without quoting it. Exactly one value is <strong>split</strong> on commas/semicolons, honouring quotes; one layer of <code>{…}</code>/<code>[…]</code> around the whole list is stripped first. This exists because roughly three in four names in the catalogue contain a comma of their own (<em>"Bass, Guadalupe"</em>), so a naive split on <code>,</code> alone would tear most of it in half.</p>
+      <span class="ex">?codes=BURB&amp;codes=WALL         → 2 entries, verbatim
+?fishes="Bass, Guadalupe",Burbot → 2 entries, quote-aware split</span>
+    </div>
+  </section>
+
+  <!-- ============================= WATERBODY / STATION ============================= -->
+  <section class="block" id="waterbody">
+    <div class="block-head">
+      <h2 class="display">Waterbody</h2>
+      <span class="tag">WaterbodyController · /api/v1/waterbody</span>
+    </div>
+    <p class="prose">The generic CRUD contract only — <code>WaterbodyController</code> adds nothing of its own. <code>waterbody</code> = the <code>dbo.lake</code> entity. Its <code>fn_waterbody_doc</code> / <code>sp_waterbody_doc_add</code> / <code>sp_waterbody_doc_update</code> objects have not been created in <code>envfish-db</code> yet, so every call currently 500s.</p>
+    <div class="example-grid" style="margin-top:18px;">
+      <div class="example">
+        <div class="example-head"><span class="caption">not yet backed by SQL objects</span><span class="status-code status-500">500</span></div>
+        <div class="example-body">
+          <div class="req-line"><span class="verb-inline">GET</span>/api/v1/waterbody/1</div>
+          <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"internal_error"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"An unexpected error occurred"</span> <span class="p">}}</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="station">
+    <div class="block-head">
+      <h2 class="display">Station</h2>
+      <span class="tag">StationController · /api/v1/station</span>
+    </div>
+    <p class="prose">The generic CRUD contract only. Same story as Waterbody — routes are live, <code>fn_station_doc</code> / <code>sp_station_doc_add</code> / <code>sp_station_doc_update</code> don't exist yet, so every call 500s the same way.</p>
+  </section>
+
+  <!-- ============================= ACCESS & ERRORS ============================= -->
+  <section class="block" id="access">
+    <div class="block-head">
+      <h2 class="display">Access &amp; errors</h2>
+      <span class="tag">cross-cutting</span>
+    </div>
+
+    <div class="rules-grid">
+      <div class="rule-card">
+        <span class="rule-title">Public gateway is GET-only</span>
+        <p>docapi sits behind a reverse-proxy gateway that only forwards <code>GET</code> today — every <code>POST</code>/<code>PUT</code>, including the CRUD writes and <code>/news/import</code>, is refused at the gateway before it ever reaches docapi.</p>
+        <span class="ex">POST /api/v1/news → 405
+{"error":{"code":"method_not_allowed", …}}</span>
+      </div>
+      <div class="rule-card">
+        <span class="rule-title">A different envelope on 405</span>
+        <p>That 405 comes from the gateway, not docapi, so it does <strong>not</strong> carry the <code>{ data, error, meta }</code> shape — only <code>{ error: { code, message } }</code>. Every response that actually reaches docapi uses the full envelope.</p>
+      </div>
+    </div>
+
+    <table class="status-tbl" style="margin-top:22px;">
+      <thead><tr><th style="width:70px;">Status</th><th>When</th><th>Error code</th></tr></thead>
+      <tbody>
+        <tr><td><span class="status-code status-200">200</span></td><td>Request understood — including zero matches on a lookup, which is not an error.</td><td>—</td></tr>
+        <tr><td><span class="status-code status-404">404</span></td><td>Unknown document id, an unpublished news draft, or a path no controller (and no static resource) claims.</td><td><code>not_found</code></td></tr>
+        <tr><td><span class="status-code status-400">400</span></td><td>Missing/blank required parameter, malformed body, a value outside its accepted form (bad country code, batch over 100), or unreadable JSON.</td><td><code>invalid_document</code></td></tr>
+        <tr><td><span class="status-code status-500">500</span></td><td>The underlying SQL call failed — including "SQL object doesn't exist yet" for Waterbody/Fish-CRUD/Station. Never leaks a stack trace or SQL text.</td><td><code>internal_error</code></td></tr>
+        <tr><td><span class="status-code status-405">405</span></td><td>Gateway-level only — method not forwarded. docapi itself never returns this.</td><td>gateway's own shape</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================= QUICK REFERENCE ============================= -->
+  <section class="block" id="quickref" style="margin-bottom: 0;">
+    <div class="block-head">
+      <h2 class="display">Quick reference</h2>
+      <span class="tag">verified live · docapi 1.4.1</span>
+    </div>
+    <div class="ref-wrap">
+      <table class="ref-tbl">
+        <thead><tr><th>Controller</th><th>Request</th><th>Status</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="qctrl">Health</td><td class="qpath">GET /health</td><td>200</td><td>liveness + version</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/list?country=CA&amp;limit=2</td><td>200</td><td>2 items of 107</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/default</td><td>200</td><td>assembled home page</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/search?q=walleye</td><td>200</td><td>14 matches</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;guid&gt;</td><td>200</td><td>full article</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;unknown-guid&gt;</td><td>404</td><td>not_found</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/search?q=burbot</td><td>200</td><td>1 exact match</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=AB&amp;codes={"BURB","WALL"}</td><td>200</td><td>2 resolved</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=BC&amp;codes=RB</td><td>200</td><td>2 results — ambiguous code</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?codes=BURB</td><td>400</td><td>province required with codes</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?fishes={"Walley","Burbot"}</td><td>200</td><td>2 resolved, near-miss spelling handled</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/1</td><td>500</td><td>CRUD doc SQL objects not created</td></tr>
+          <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
+          <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
+          <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>docapi — <code>com.fishfind.docapi</code> · 5 controllers: Health, News, Fish, Waterbody, Station</span>
+    <span class="fver">deployed <strong>1.4.1</strong> · smoke-tested end to end 2026‑08‑18</span>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var pre = btn.closest('pre');
+        var clone = pre.cloneNode(true);
+        var b = clone.querySelector('[data-copy]');
+        if (b) b.remove();
+        var text = clone.textContent.replace(/^\s+|\s+$/g, '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            btn.textContent = 'Copied';
+            btn.classList.add('copied');
+            setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1400);
+          });
+        }
+      });
+    });
+  })();
+</script>
+</body>
+</html>

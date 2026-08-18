@@ -66,6 +66,48 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   exact) and rows are returned best-first. The term is trimmed and capped at 64 chars
   (`SearchFishList` takes a `varchar(64)`). Blank or missing `q` ⇒ 400 `invalid_document`.
 
+**Fish Latin-name lookups** (fish only, on the `FishController` base path — call
+`dbo.fn_fish_code_latin_json` / `dbo.fn_fish_latin_json`, which already exist in `envfish-db`):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `GET` | `/api/v1/fish?province=&codes=&country=` | 200 | `[{ code, latin }]` — one element per match, in requested order |
+| `GET` | `/api/v1/fish?fishes=` | 200 | `[{ query, name, latin }]` — one element per requested name, in order |
+
+Both live on `GET` of the base path and are told apart by which parameter is present; `fishes` wins if
+both are supplied. The path is free because `/{id}` and `/search` are more specific. They mirror the
+portal's `/WebService/Fish/` endpoint.
+
+- `GET /api/v1/fish?province=AB&codes=BURB,WALL` — regional fish code → Latin name for one province,
+  backed by `dbo.fn_fish_code_latin_json(@country, @state, @codes)`. **`province` is required whenever
+  `codes` are supplied** — `dbo.fish_code` is keyed on country+state+code, so a bare code has no meaning
+  and the same code names different species in different provinces; omitting it ⇒ 400
+  `invalid_document`. With no `codes` the **whole province** is published, ordered by code. `country` is
+  optional and defaults to any (only `CA` exists today, but country is part of the key).
+  **One element per match, not per requested code**: a code may legitimately name several species — on
+  the live database BC `RB` is both Rock Bass and Rainbow Trout, `LS` both Lake Sturgeon and Largescale
+  Sucker — so an ambiguous code returns several elements sharing the code rather than an arbitrary
+  single winner. A code matching nothing still yields exactly one element with `latin` null, so the
+  array never silently shrinks relative to the request. An **unknown province is not an error**: the
+  codes come back unresolved, which cannot be mistaken for a larger result set. `code` echoes the
+  requested spelling; matching is exact and case-insensitive by DB collation.
+
+- `GET /api/v1/fish?fishes=Walleye,Burbot` — batch common name → Latin name, backed by
+  `dbo.fn_fish_latin_json(@names)`. One element per requested name **in the requested order**, `query`
+  echoing the caller's spelling so the response can be zipped back against the request. An unresolved
+  name **keeps its slot** with null `name`/`latin`; dropping it would shift every later element and
+  mis-pair everything after the first miss. Matching is a substring of the common or Latin name, so
+  `Walley` resolves to `Walleye`.
+
+**List parsing (both parameters).** Accepts `{…}` / `[…]` wrappers, comma or semicolon separators,
+quoted items, and repeated parameters. The rule: **more than one value means the parameter was
+repeated**, and each value is one entry verbatim; **exactly one value is split**, honouring quotes.
+This matters because **762 of the 1041 species names contain a comma** ("Bass, Guadalupe",
+"Dace, Longnose") — so `"Bass, Guadalupe",Burbot` and `?fishes=Bass, Guadalupe&fishes=Burbot` both
+yield two entries. The values are read with `HttpServletRequest.getParameterValues`, **not**
+`@RequestParam List<String>`, because Spring splits the latter on commas and would tear most of the
+catalogue in half. Blank entries are dropped; a batch over 100 entries ⇒ 400 `invalid_document`.
+
 - `GET /api/v1/news/list` — one page of the latest news, backed by `dbo.fn_news_list(@country,
   @offset, @fetch)`. `country` is an optional ISO-2 code (blank/absent ⇒ all countries; a non-CA
   country with fewer than 100 items is padded with the latest Canadian news up to 100, marked
@@ -518,7 +560,7 @@ build artifacts. Never bake a real `.env` into the image.
   add normalization, blank/malformed body rejection, update id fallback.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
-- `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (7 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400.
+- `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

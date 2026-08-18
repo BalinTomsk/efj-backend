@@ -35,6 +35,29 @@ Treat every code change as two steps: ① change the code, ② update `docs/spec
 file, when behaviour/structure/config changes). Never leave the spec describing behaviour that no
 longer exists or omitting behaviour that was added.
 
+**`docs/api-reference.html`** is a standalone, self-contained (no CDN/external assets) human-readable
+reference for **every controller in this service** — `HealthController`, `NewsController`,
+`FishController`, `WaterbodyController`, `StationController` — with real request/response examples
+captured live against the deployed service. It is a full document (`<!DOCTYPE html>` … `</html>`), not
+an Artifact-style fragment; open it directly in a browser to review, no build step.
+
+**Any interface change in any controller must update this file too, in the same change as the spec**:
+
+- A new endpoint → a new "specimen tag" section (same pattern as the existing ones — method badge,
+  path, param table, notes list, examples).
+- A changed parameter, response shape, status code, or matching/parsing rule on an existing endpoint →
+  edit that endpoint's section and its examples.
+- An endpoint that no longer exists → remove its section.
+- A `waterbody`/`fish`/`station` CRUD entity going from "SQL objects not created" (500) to real (200/
+  404) → update that entity's status in the overview status strip, the `#waterbody`/`#station` section
+  text, and the quick-reference table's expected status for it.
+- A new controller entirely → add it to the sticky controller nav at the top, the status strip, and
+  give it its own `<section>` in the same style.
+
+Prefer editing examples in place over appending new ones — the point is that the file always reflects
+current behaviour, not a change history. Re-verify an example against the running service (or at least
+re-derive it from the code) rather than hand-editing JSON by guess.
+
 ---
 
 ## Git & DB rules
@@ -82,9 +105,10 @@ com.fishfind.docapi
 │   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
-│   ├── FishQueryRepository        # interface: search(query) (species-catalogue search)
+│   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
-│   └── JdbcFishQueryRepository    # JDBC backing — calls dbo.SearchFishList (relevance-ranked)
+│   └── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
+│                                  #   fn_fish_latin_json
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
 │   ├── NewsDocumentService … (one @Service per entity)
@@ -93,7 +117,8 @@ com.fishfind.docapi
 └── web
     ├── AbstractDocumentController # GET/POST/PUT shared surface; body consumed as raw JSON string
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
-    ├── FishController             # base-path CRUD + species-catalogue search (/search)
+    ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
+    │                              #   (?province=&codes= and ?fishes=)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -167,6 +192,25 @@ bean per profile.
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
 | `GET /api/v1/fish/search?q=` | `SELECT fish_name, fish_latin, fish_id, irank FROM dbo.SearchFishList(?) ORDER BY irank ASC` | relevance-ranked species search over primary name / Latin / `alt_name` synonyms; `SearchFishList` is a TVF that normalizes the term itself (no LIKE-escaping in Java), `varchar(64)` so the term is trimmed+capped at 64; `FishSearchItem` = (fishId, name, latin, rank — lower is better, 0 = exact); blank/missing `q` ⇒ 400. Literal `/search` matched ahead of `/{id}`. |
+
+### Fish Latin-name lookups (functions that already exist in `envfish-db`)
+
+`FishController` exposes two more read endpoints on its **base path**, told apart by the parameter
+supplied (`fishes` wins if both are given). `/{id}` and `/search` are more specific, so the base path
+was free. Both delegate to `FishQueryRepository` and mirror the portal's `/WebService/Fish/` endpoint.
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /api/v1/fish?province=&codes=&country=` | `SELECT dbo.fn_fish_code_latin_json(?, ?, ?)` | regional code → latin, `[{code, latin}]`. **`province` required with `codes`** (`dbo.fish_code` is keyed country+state+code, so a bare code is meaningless) ⇒ else 400; no `codes` ⇒ the whole province; `country` optional, default any. **One element per MATCH, not per code** — BC `RB` is both Rock Bass and Rainbow Trout, `LS`/`WS` likewise; `TOP 1` would hide half the answer. A miss keeps its slot with `latin` null; an unknown province is 200-with-nulls, not an error. |
+| `GET /api/v1/fish?fishes=` | `SELECT dbo.fn_fish_latin_json(?)` | batch name → latin, `[{query, name, latin}]`, one per requested name **in order**; `query` echoes the input so the response zips back against the request; a miss keeps its slot (dropping it would mis-pair everything after it). Substring match, so `Walley` → `Walleye`. |
+
+**List parsing.** Both accept `{…}`/`[…]` wrappers, comma or semicolon separators, quoted items, and
+repeated parameters: **>1 value ⇒ each is one entry verbatim; exactly 1 ⇒ split it, honouring quotes.**
+This is load-bearing — **762 of the 1041 species names contain a comma** ("Bass, Guadalupe"), so values
+are read via `HttpServletRequest.getParameterValues`, **not** `@RequestParam List<String>`, which Spring
+splits on commas and which would tear most of the catalogue in half. The DB argument is a JSON array
+built with Jackson (escaping handled), because `OPENJSON` also supplies the element index that preserves
+ordering. Batch cap 100 ⇒ 400.
 
 ### Interchange export / import (`fn_news_json` format)
 
