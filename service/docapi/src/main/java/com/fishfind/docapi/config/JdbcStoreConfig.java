@@ -74,8 +74,8 @@ public class JdbcStoreConfig {
      * fixed to cache.
      */
     @Bean
-    public FishQueryRepository fishQueryRepository(JdbcTemplate jdbc) {
-        return new JdbcFishQueryRepository(jdbc);
+    public FishQueryRepository fishQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcFishQueryRepository(jdbc, objectMapper);
     }
 
     @Bean
