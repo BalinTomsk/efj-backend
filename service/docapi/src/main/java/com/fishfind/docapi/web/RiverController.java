@@ -30,6 +30,12 @@ import java.util.Set;
  * {@code dbo.fn_lake_view_json}. The underlying content (name, description, stats, source/mouth) is
  * the same public data shown on {@code Resources/wfRiverViewer.aspx} to anonymous visitors — the
  * admin gate on the frontend export path is about that download convenience, not data sensitivity.
+ *
+ * <p>{@code GET /api/v1/river/fish/{guid}} returns the assigned-species document for one water body —
+ * a native docapi duplicate of the admin "Save JSON" Fishing-tab export
+ * ({@code Editor/EditLakeFish.aspx} → {@code HandlerImage.ashx?lakejson=&tab=fishing}), backed by the
+ * already-live {@code dbo.fn_lake_fishing_json}. Same public-data reasoning as {@code description}: the
+ * assigned species list is shown publicly on {@code Resources/wfRiverViewer.aspx}.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -82,6 +88,26 @@ public class RiverController {
     @GetMapping("/description/{guid}")
     public ApiResponse<JsonNode> description(@PathVariable String guid) {
         JsonNode document = queryRepository.description(guid);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * The assigned-species document for one water body: name/latin, conservation status, last-catch,
+     * and the external link, per species.
+     *
+     * <p>The literal {@code /fish/…} prefix is matched ahead of any future templated route on this
+     * controller, same as {@code /description/…}.
+     *
+     * @param guid the water body's GUID
+     * @return the document nested as real JSON in the response envelope
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/fish/{guid}")
+    public ApiResponse<JsonNode> fish(@PathVariable String guid) {
+        JsonNode document = queryRepository.fish(guid);
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
         }

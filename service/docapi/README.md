@@ -149,7 +149,7 @@ resolves to the right species), best match first. It reuses the **same** lookup 
 `FishList.aspx` search box uses (`dbo.SearchFishList`), so no new DB object is needed. Each hit is
 `{ fishId, name, latin, rank }` (`rank` — lower is better, 0 = exact); blank/missing `q` ⇒ 400.
 
-The River entity adds two lookups. `GET /api/v1/river/unfished?country=&state=&river=` — the next
+The River entity adds three lookups. `GET /api/v1/river/unfished?country=&state=&river=` — the next
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
@@ -162,6 +162,12 @@ names, description text, physical stats, source/mouth detail, assigned fish, pho
 A native duplicate of the admin "Save JSON" View-tab export
 (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already live
 in prod, no new DB object. Unknown guid ⇒ 404.
+
+`GET /api/v1/river/fish/{guid}` — the assigned-species document for one water body (every `lake_fish`
+row: name, latin, conservation status, last-catch, external link). A native duplicate of the admin
+"Save JSON" Fishing-tab export (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=
+fishing`), backed by `dbo.fn_lake_fishing_json` — already live in prod (same 2026-08-13 rollout as
+`fn_lake_view_json`), no new DB object. Unknown guid ⇒ 404.
 
 ### Response shape
 
@@ -209,6 +215,10 @@ Notes:
 - **River unfished** (`/api/v1/river/unfished`) → `dbo.fn_river_unfished_json(@country, @state, @river)`
   (returns the whole JSON object — the `vw_lake` TOP-1 lookup + `Tributaries side=2` throwing list;
   added in `envfish-db` with `unit_test@RiverUnfished.sql`).
+- **River description** (`/api/v1/river/description/{guid}`) → `dbo.fn_lake_view_json(@lake)`, and
+  **river fish** (`/api/v1/river/fish/{guid}`) → `dbo.fn_lake_fishing_json(@lake)` — both pre-existing
+  per-tab admin "Save JSON" export functions from the 2026-08-13 `envfish-db` rollout; docapi is the
+  only new code for either endpoint.
 
 ## Docker
 

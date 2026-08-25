@@ -30,4 +30,14 @@ public interface RiverQueryRepository {
      * @return the document as a JSON tree, or {@code null} if no water body exists for the id
      */
     JsonNode description(String lakeId);
+
+    /**
+     * The assigned-species document for one water body — every {@code lake_fish} row (name, latin,
+     * conservation status, last-catch, external link), the same export the portal's admin "Save JSON"
+     * (Fishing tab, {@code EditLakeFish.aspx}) uses. Backed by {@code dbo.fn_lake_fishing_json}.
+     *
+     * @param lakeId the water body's GUID
+     * @return the document as a JSON tree, or {@code null} if no water body exists for the id
+     */
+    JsonNode fish(String lakeId);
 }

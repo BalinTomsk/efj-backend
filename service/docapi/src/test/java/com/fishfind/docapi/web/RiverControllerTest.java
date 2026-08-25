@@ -102,4 +102,28 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.code").value("not_found"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
+
+    // ---- fish ----
+
+    @Test
+    void fishReturnsTheDocumentNestedInTheEnvelope() throws Exception {
+        when(queryRepository.fish("0c5343a8-849c-20c3-f4d1-0003eb237498")).thenReturn(
+                objectMapper.readTree("{\"lake_id\":\"0c5343a8-…\",\"fish\":[{\"name\":\"Walleye\",\"latin\":\"Stizostedion vitreum\"}]}"));
+
+        mockMvc.perform(get("/api/v1/river/fish/0c5343a8-849c-20c3-f4d1-0003eb237498"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fish[0].name").value("Walleye"))
+                .andExpect(jsonPath("$.error").doesNotExist())
+                .andExpect(jsonPath("$.meta.timestamp").exists());
+    }
+
+    @Test
+    void fishUnknownGuidReturns404() throws Exception {
+        when(queryRepository.fish("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/fish/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
 }
