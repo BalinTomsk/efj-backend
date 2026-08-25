@@ -77,4 +77,29 @@ class RiverControllerTest {
                 .andExpect(status().isOk());
         verify(queryRepository).unfished("CA", "BC", 4);
     }
+
+    // ---- description ----
+
+    @Test
+    void descriptionReturnsTheDocumentNestedInTheEnvelope() throws Exception {
+        when(queryRepository.description("0c5343a8-849c-20c3-f4d1-0003eb237498")).thenReturn(
+                objectMapper.readTree("{\"guid\":\"0C5343A8-…\",\"lakeName\":\"Undersill Lake\",\"cgndb\":\"FCYVT\"}"));
+
+        mockMvc.perform(get("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lakeName").value("Undersill Lake"))
+                .andExpect(jsonPath("$.data.cgndb").value("FCYVT"))
+                .andExpect(jsonPath("$.error").doesNotExist())
+                .andExpect(jsonPath("$.meta.timestamp").exists());
+    }
+
+    @Test
+    void descriptionUnknownGuidReturns404() throws Exception {
+        when(queryRepository.description("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/description/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
 }

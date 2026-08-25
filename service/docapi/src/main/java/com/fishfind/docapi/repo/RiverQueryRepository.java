@@ -20,4 +20,14 @@ public interface RiverQueryRepository {
      *         CGNDB, throwing }} (fields null when {@code found} is false)
      */
     JsonNode unfished(String country, String state, int river);
+
+    /**
+     * The full description document for one water body — name/alt names, description text, physical
+     * stats, source/mouth detail, assigned fish, and the photo gallery (base64) — the same export the
+     * portal's admin "Save JSON" (View tab) uses. Backed by {@code dbo.fn_lake_view_json}.
+     *
+     * @param lakeId the water body's GUID
+     * @return the document as a JSON tree, or {@code null} if no water body exists for the id
+     */
+    JsonNode description(String lakeId);
 }
