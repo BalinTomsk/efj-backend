@@ -31,4 +31,10 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
     public JsonNode description(String lakeId) {
         return null;
     }
+
+    /** No database: nothing to list, so every id is "not found" (controller maps to 404). */
+    @Override
+    public JsonNode fish(String lakeId) {
+        return null;
+    }
 }

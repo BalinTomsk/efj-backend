@@ -26,6 +26,13 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
      */
     static final String DESCRIPTION_SQL = "SELECT dbo.fn_lake_view_json(?)";
 
+    /**
+     * Assigned-species document for one water body. Same function the admin "Save JSON" Fishing-tab
+     * export uses ({@code Editor/EditLakeFish.aspx} → {@code HandlerImage.ashx?lakejson=&tab=fishing});
+     * already live in {@code envfish-db} — no new DB object for this endpoint.
+     */
+    static final String FISH_SQL = "SELECT dbo.fn_lake_fishing_json(?)";
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -69,6 +76,21 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode descriptionFallback(String lakeId, Throwable ex) {
         throw new RuntimeException("SQL river-description query failed for id " + lakeId, ex);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fishFallback")
+    public JsonNode fish(String lakeId) {
+        List<String> rows = jdbc.query(FISH_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #fish}. */
+    @SuppressWarnings("unused")
+    public JsonNode fishFallback(String lakeId, Throwable ex) {
+        throw new RuntimeException("SQL river-fish query failed for id " + lakeId, ex);
     }
 
     private JsonNode parse(String json) {

@@ -417,7 +417,7 @@
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
-      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description lookups backed</span></div>
+      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
     </div>
@@ -761,7 +761,7 @@
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">Two native duplicates of frontend admin/tooling endpoints: the next un-processed water body (backing the add-fish skill), and a water body's full description document (backing the admin "Save JSON" export). Both are public, unauthenticated GETs — the source data on both is the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>.</p>
+    <p class="prose" style="margin-bottom:22px;">Three native duplicates of frontend admin/tooling endpoints: the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively). All three are public, unauthenticated GETs — the source data is the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -812,6 +812,32 @@
             <div class="example-head"><span class="caption"><strong>Unknown guid</strong>.</span><span class="status-code status-404">404</span></div>
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/description/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/fish/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">assigned-species document — admin Save-JSON Fishing-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">A native duplicate of <code>Editor/EditLakeFish.aspx</code>'s Save JSON button (<code>HandlerImage.ashx?lakejson=&amp;tab=fishing</code>), backed by <code>dbo.fn_lake_fishing_json</code> — already live in prod from the same 2026-08-13 per-tab Save-JSON rollout as <code>fn_lake_view_json</code>, so this endpoint needed <strong>no new DB object</strong> either. Returns every assigned <code>lake_fish</code> row for the water body: name, latin, conservation status, last-catch, and its external link. An unknown or malformed guid → <code>404</code>. The literal <code>/fish/…</code> prefix is matched ahead of any future templated route on this controller, same as <code>/description/…</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Known water body</strong> — assigned species.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/fish/0c5343a8-849c-20c3-f4d1-0003eb237498</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lake_id"</span><span class="p">:</span> <span class="s">"0C5343A8-…"</span><span class="p">,</span> <span class="k">"fish"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Walleye"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Stizostedion vitreum"</span><span class="p">,</span> <span class="k">"status"</span><span class="p">:</span> <span class="n">0</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/fish/00000000-0000-0000-0000-000000000000</div>
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
             </div>
           </div>
@@ -903,6 +929,8 @@
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/unfished?country=CA&amp;state=NL&amp;river=2</td><td>200</td><td>Adies River (next un-fished)</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/description/0c5343a8-…</td><td>200</td><td>Undersill Lake (full document)</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/description/00000000-…</td><td>404</td><td>not_found</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/0c5343a8-…</td><td>200</td><td>Undersill Lake (assigned species)</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/00000000-…</td><td>404</td><td>not_found</td></tr>
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>
