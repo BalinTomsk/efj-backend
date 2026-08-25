@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
@@ -49,6 +50,13 @@ import java.util.Set;
  * {@code dbo.sp_lake_fish_upsert_batch}. Deliberately narrow — a species already assigned to the lake
  * <strong>with</strong> a source link is left untouched ({@code action: "skipped"}) rather than
  * overwritten, so callers should only send species that are new or still missing a link.
+ *
+ * <p>{@code PATCH /api/v1/river/description/{guid}} is a second, independent write — a JSON merge
+ * patch of the {@code Editor/LakeEditor.aspx} "General" tab's editable fields, via
+ * {@code dbo.sp_lake_description_update}. Only keys present in the body are touched. Deliberately
+ * protects the identity/linkage fields that page shows read-only in this exact spot —
+ * {@code lakeName}, {@code source}/{@code sourceId}, {@code mouth}/{@code mouthId} — reporting them
+ * back as {@code protectedFields} rather than silently dropping or applying them.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -65,15 +73,21 @@ public class RiverController {
     private static final Set<Integer> VALID_RIVER =
             Set.of(1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192);
 
+    /** Refuses a patch this large; a single water body's editable fields never come close. */
+    static final int MAX_PATCH_FIELDS = 100;
+
     private final RiverQueryRepository queryRepository;
     private final RiverFishCommandRepository fishCommandRepository;
+    private final RiverDescriptionCommandRepository descriptionCommandRepository;
     private final ObjectMapper objectMapper;
 
     public RiverController(RiverQueryRepository queryRepository,
                             RiverFishCommandRepository fishCommandRepository,
+                            RiverDescriptionCommandRepository descriptionCommandRepository,
                             ObjectMapper objectMapper) {
         this.queryRepository = queryRepository;
         this.fishCommandRepository = fishCommandRepository;
+        this.descriptionCommandRepository = descriptionCommandRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -173,6 +187,48 @@ public class RiverController {
         }
         if (node.size() > MAX_FISH_BATCH) {
             throw new InvalidDocumentException("Request body must not exceed " + MAX_FISH_BATCH + " fish entries");
+        }
+        return node;
+    }
+
+    /**
+     * Applies a JSON merge-patch to one water body's editable fields.
+     *
+     * @param guid the water body's GUID
+     * @param body a JSON object of field-name → new value; a JSON {@code null} clears that field
+     * @return {@code {lakeId, updated, ignored, protectedFields}} nested in the response envelope —
+     *         see {@link RiverDescriptionCommandRepository#patchDescription} for the field names and
+     *         what gets protected
+     * @throws InvalidDocumentException  if the body is missing, not a well-formed JSON object, empty,
+     *                                    or over {@value #MAX_PATCH_FIELDS} keys (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @PatchMapping(value = "/description/{guid}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> patchDescription(@PathVariable String guid, @RequestBody(required = false) String body) {
+        JsonNode patch = requireDescriptionPatch(body);
+        JsonNode document = descriptionCommandRepository.patchDescription(guid, patch.toString());
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /** Validates the description PATCH body is a non-empty, size-capped JSON object. */
+    private JsonNode requireDescriptionPatch(String body) {
+        if (body == null || body.isBlank()) {
+            throw new InvalidDocumentException("Request body must be a non-empty JSON object of fields to patch");
+        }
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(body);
+        } catch (JsonProcessingException ex) {
+            throw new InvalidDocumentException("Request body is not well-formed JSON: " + ex.getOriginalMessage(), ex);
+        }
+        if (!node.isObject() || node.isEmpty()) {
+            throw new InvalidDocumentException("Request body must be a non-empty JSON object of fields to patch");
+        }
+        if (node.size() > MAX_PATCH_FIELDS) {
+            throw new InvalidDocumentException("Request body must not exceed " + MAX_PATCH_FIELDS + " fields");
         }
         return node;
     }

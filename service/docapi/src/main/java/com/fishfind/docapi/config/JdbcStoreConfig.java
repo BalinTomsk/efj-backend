@@ -6,8 +6,10 @@ import com.fishfind.docapi.repo.FishDocumentRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.JdbcFishQueryRepository;
 import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
+import com.fishfind.docapi.repo.JdbcRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
+import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
@@ -100,6 +102,16 @@ public class JdbcStoreConfig {
     @Bean
     public RiverFishCommandRepository riverFishCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverFishCommandRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed river-description command repository ({@code dbo.sp_lake_description_update}),
+     * a bean in its own right so Resilience4j can proxy it — see {@link #jdbcNewsStore} for why this
+     * matters. Separate from {@link #riverQueryRepository} because it writes, not reads.
+     */
+    @Bean
+    public RiverDescriptionCommandRepository riverDescriptionCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcRiverDescriptionCommandRepository(jdbc, objectMapper);
     }
 
     @Bean

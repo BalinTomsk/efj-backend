@@ -367,9 +367,9 @@
   <header class="identity">
     <div class="eyebrow">docapi · full REST reference</div>
     <h1 class="display">DocAPI Reference</h1>
-    <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, water-body and station data. Five controllers, one response envelope, documented and example-verified against the live service.</p>
+    <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, river, water-body and station data. Six controllers, one response envelope, documented and example-verified against the live service.</p>
     <div class="chip-row">
-      <span class="chip"><span class="live-dot"></span>docapi 1.4.1 — verified live 2026‑08‑18</span>
+      <span class="chip"><span class="live-dot"></span>docapi 1.5.4 — verified live 2026‑08‑25</span>
       <span class="chip">Envelope: <code>{ data, error, meta }</code></span>
       <span class="chip">Public gateway: GET only</span>
     </div>
@@ -417,7 +417,7 @@
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
-      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed, fish PATCH VPC-only</span></div>
+      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed, both PATCH writes fronted (day-key gated)</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
     </div>
@@ -761,7 +761,7 @@
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">Three native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively) — plus one write: a batch upsert of assigned species duplicating the Fishing tab's "Add" form. The three GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; the PATCH is this service's first write outside document CRUD and is not yet fronted through cproxy — see below.</p>
+    <p class="prose" style="margin-bottom:22px;">Three native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively) — plus two independent writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, and a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>. The three GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; both PATCHes are gated by cproxy's day-key credential (see the cproxy API guide) — a wrong or missing key answers a generic <code>500</code>.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -872,6 +872,34 @@
         </div>
       </div>
     </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/description/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">JSON merge patch — admin Save-JSON "General"-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">A second, independent write — a JSON <strong>merge patch</strong> of the <code>Editor/LakeEditor.aspx</code> "General" tab's editable fields, backed by the new <code>dbo.sp_lake_description_update</code>. Body is a JSON <strong>object</strong> (not an array like the fish endpoint); only keys actually present are touched — an explicit JSON <code>null</code> clears a field, an omitted key leaves it alone. Covers every field <code>fn_lake_description_json</code> exports — name variants, <code>link</code>, <code>type</code>, the size/measurement fields, <code>cgndb</code>, <code>roadAccess</code>, <code>fishingProhibited</code>, <code>isolated</code>, <code>noFish</code>, <code>reviewed</code>, <code>description</code> — <strong>except</strong> the identity/linkage fields that same admin page shows read-only in this exact spot: <code>lakeName</code>, <code>source</code>/<code>sourceId</code>, <code>mouth</code>/<code>mouthId</code>. Those are reported back as <code>protectedFields</code> rather than silently dropped or applied. <code>noFish</code> is blocked (reported <code>ignored</code>) while the lake has any assigned species, mirroring the page's own client-side rule. An empty, non-object, or over-100-key body → <code>400 invalid_document</code> before any SQL runs; an unknown lake guid → <code>404</code>.</p>
+        <p class="prose" style="margin:2px 0 14px;"><strong>Fronted through cproxy automatically</strong> — the day-key gate (0.6.1) applies to every PATCH request, not a specific path, so no cproxy change was needed. Verified live end-to-end through the public gateway.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Patch two fields, try to hijack the name</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/description/a55caadf-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"description"</span><span class="p">:</span> <span class="s">"A small headwater stream."</span><span class="p">,</span> <span class="k">"reviewed"</span><span class="p">:</span> <span class="z">true</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"hijacked"</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"A55CAADF-…"</span><span class="p">,</span> <span class="k">"updated"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"description"</span><span class="p">},</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"reviewed"</span><span class="p">}</span> <span class="p">],</span> <span class="k">"ignored"</span><span class="p">:</span> <span class="p">[],</span> <span class="k">"protectedFields"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"lakeName"</span><span class="p">,</span><span class="k">"reason"</span><span class="p">:</span><span class="s">"not editable through this endpoint"</span><span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Empty object</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/description/a55caadf-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ============================= WATERBODY / STATION ============================= -->
@@ -936,7 +964,7 @@
   <section class="block" id="quickref" style="margin-bottom: 0;">
     <div class="block-head">
       <h2 class="display">Quick reference</h2>
-      <span class="tag">verified live · docapi 1.4.1</span>
+      <span class="tag">verified live · docapi 1.5.4</span>
     </div>
     <div class="ref-wrap">
       <table class="ref-tbl">
@@ -959,6 +987,8 @@
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/description/00000000-…</td><td>404</td><td>not_found</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/0c5343a8-…</td><td>200</td><td>Undersill Lake (assigned species)</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/00000000-…</td><td>404</td><td>not_found</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">PATCH /api/v1/river/description/a55caadf-…</td><td>200</td><td>description + reviewed updated, lakeName protected</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">PATCH /api/v1/river/description/a55caadf-… {}</td><td>400</td><td>invalid_document</td></tr>
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>
@@ -968,7 +998,7 @@
   </section>
 
   <footer>
-    <span>docapi — <code>com.fishfind.docapi</code> · 5 controllers: Health, News, Fish, Waterbody, Station</span>
+    <span>docapi — <code>com.fishfind.docapi</code> · 6 controllers: Health, News, Fish, River, Waterbody, Station</span>
     <span class="fver">deployed <strong>1.4.1</strong> · smoke-tested end to end 2026‑08‑18</span>
   </footer>
 

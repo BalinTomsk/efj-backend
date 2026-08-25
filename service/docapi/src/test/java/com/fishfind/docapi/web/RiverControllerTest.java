@@ -1,6 +1,7 @@
 package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class RiverControllerTest {
 
     @MockBean
     private RiverFishCommandRepository fishCommandRepository;
+
+    @MockBean
+    private RiverDescriptionCommandRepository descriptionCommandRepository;
 
     @Test
     void unfishedMapsTheRepositoryResultIntoTheEnvelope() throws Exception {
@@ -205,5 +209,75 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
 
         verify(fishCommandRepository, never()).upsertFish(anyString(), anyString());
+    }
+
+    // ---- PATCH description (merge patch) ----
+
+    @Test
+    void patchDescriptionReturnsTheResultNestedInTheEnvelope() throws Exception {
+        String body = "{\"link\":\"http://x\",\"description\":\"a small stream\"}";
+        when(descriptionCommandRepository.patchDescription("0c5343a8-849c-20c3-f4d1-0003eb237498", body))
+                .thenReturn(objectMapper.readTree(
+                        "{\"lakeId\":\"0C5343A8-…\",\"updated\":[{\"field\":\"link\"},{\"field\":\"description\"}],\"ignored\":[],\"protectedFields\":[]}"));
+
+        mockMvc.perform(patch("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.updated[0].field").value("link"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void patchDescriptionUnknownLakeGuidReturns404() throws Exception {
+        when(descriptionCommandRepository.patchDescription(eq("00000000-0000-0000-0000-000000000000"), anyString()))
+                .thenReturn(null);
+
+        mockMvc.perform(patch("/api/v1/river/description/00000000-0000-0000-0000-000000000000")
+                        .contentType("application/json").content("{\"link\":\"http://x\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void patchDescriptionEmptyObjectReturns400WithoutCallingTheRepository() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(descriptionCommandRepository, never()).patchDescription(anyString(), anyString());
+    }
+
+    @Test
+    void patchDescriptionArrayBodyReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content("[{\"link\":\"http://x\"}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void patchDescriptionMissingBodyReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void patchDescriptionOversizedBodyReturns400() throws Exception {
+        StringBuilder body = new StringBuilder("{");
+        for (int i = 0; i < RiverController.MAX_PATCH_FIELDS + 1; i++) {
+            if (i > 0) body.append(',');
+            body.append("\"field").append(i).append("\":\"x\"");
+        }
+        body.append('}');
+
+        mockMvc.perform(patch("/api/v1/river/description/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content(body.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(descriptionCommandRepository, never()).patchDescription(anyString(), anyString());
     }
 }
