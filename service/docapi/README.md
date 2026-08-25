@@ -182,6 +182,19 @@ cproxy as of 0.6.1** (`deploy/compose.yml`, `CPROXY_ALLOWED_METHODS` now include
 a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API
 key — see `efc-proxy` `CLAUDE.md` → "Day-key store".
 
+`PATCH /api/v1/river/description/{guid}` — a second, independent write: a JSON **merge patch** (only
+keys present in the body are touched) of the `Editor/LakeEditor.aspx` "General" tab's editable
+fields, via the new `dbo.sp_lake_description_update`. Covers every field
+`fn_lake_description_json` exports — name variants, `link`, `type`, the size/measurement fields,
+`cgndb`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description` —
+**except** the identity/linkage fields the same admin page shows read-only in this exact spot:
+`lakeName`, `source`/`sourceId`, `mouth`/`mouthId`. Those are reported back as `protectedFields`
+rather than silently dropped or applied. `noFish` is blocked (reported `ignored`) while the lake has
+assigned species, mirroring the page's own client-side rule. Empty/non-object/over-100-key body ⇒
+400; unknown lake guid ⇒ 404. Response: `{lakeId, updated:[{field}], ignored:[{field,reason}],
+protectedFields:[{field,reason}]}`. Fronted through cproxy automatically — the day-key gate applies
+to every PATCH, not a specific path.
+
 ### Response shape
 
 Success:
@@ -233,10 +246,13 @@ Notes:
   pre-existing per-tab admin "Save JSON" export functions from the 2026-08-13 `envfish-db` rollout;
   docapi is the only new code for either endpoint.
 - **River fish write** (`PATCH /api/v1/river/fish/{guid}`) → `EXEC dbo.sp_lake_fish_upsert_batch @lake,
-  @fish` (new proc, `envfish-db` 2026-08-25, `unit_test@LakeFishUpsertBatch.sql`) — the only write
-  procedure this service calls outside the generic `sp_<entity>_doc_add`/`_update` pair above. Invoked
-  via `jdbc.execute` with a manual result-set drain (see `JdbcDocumentRepository.executeReturningScalar`
-  / `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
+  @fish` (new proc, `envfish-db` 2026-08-25, `unit_test@LakeFishUpsertBatch.sql`), and **river
+  description write** (`PATCH /api/v1/river/description/{guid}`) →
+  `EXEC dbo.sp_lake_description_update @lake, @patch` (new proc, `envfish-db` 2026-08-25,
+  `unit_test@LakeDescriptionUpdate.sql`) — the two write procedures this service calls outside the
+  generic `sp_<entity>_doc_add`/`_update` pair above. Both invoked via `jdbc.execute` with a manual
+  result-set drain (see `JdbcDocumentRepository.executeReturningScalar` /
+  `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
   proc's DML can interleave update counts with its final `SELECT`.
 
 ## Docker
