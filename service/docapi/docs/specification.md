@@ -66,6 +66,20 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   exact) and rows are returned best-first. The term is trimmed and capped at 64 chars
   (`SearchFishList` takes a `varchar(64)`). Blank or missing `q` ⇒ 400 `invalid_document`.
 
+**River / water-body lookup** (added on `RiverController` — calls `dbo.fn_river_unfished_json`, which
+exists in `envfish-db`; see [Data access](#data-access)):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`) |
+
+- `GET /api/v1/river/unfished` — the next un-processed water body of a type in a state (no fish
+  assigned, not flagged No Fish), a native duplicate of the frontend `Resources/wbUnFish.aspx` endpoint
+  used by the add-fish tooling. `throwing` is the comma-joined `CGNDB` of the `side=2` ("Throw")
+  tributaries. `country` is echoed only (the query filters by state). Parameter handling mirrors the
+  page: a bad `country`/`state` falls back to the default (`CA`/`ON`) and a bad `river` to `2`, so the
+  endpoint always answers (no 400s).
+
 **Fish Latin-name lookups** (fish only, on the `FishController` base path — call
 `dbo.fn_fish_code_latin_json` / `dbo.fn_fish_latin_json`, which already exist in `envfish-db`):
 
@@ -175,6 +189,9 @@ src/main/java/com/fishfind/docapi/repo/JdbcNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/FishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryFishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcFishQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/RiverQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryRiverQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcRiverQueryRepository.java
 src/main/java/com/fishfind/docapi/service/DocumentService.java
 src/main/java/com/fishfind/docapi/service/NewsDocumentService.java
 src/main/java/com/fishfind/docapi/service/WaterbodyDocumentService.java
@@ -237,18 +254,20 @@ copied into JVM-global system properties. `main()` only calls `SpringApplication
 ## Profiles / storage backends
 
 Storage is behind the `DocumentStore` interface, chosen by Spring profile. Additionally,
-`NewsQueryRepository` and `FishQueryRepository` each have two implementations registered per profile:
+`NewsQueryRepository`, `FishQueryRepository`, and `RiverQueryRepository` each have two implementations
+registered per profile:
 
 - **default (no profile)** — `InMemoryStoreConfig` (`@Profile("!jdbc")`) registers four
   `InMemoryDocumentStore` beans (`newsStore`, `waterbodyStore`, `fishStore`, `stationStore`), one
-  `InMemoryNewsQueryRepository` bean, and one `InMemoryFishQueryRepository` bean. No DB.
-  `application.yml` sets `spring.autoconfigure.exclude`
+  `InMemoryNewsQueryRepository` bean, one `InMemoryFishQueryRepository` bean, and one
+  `InMemoryRiverQueryRepository` bean. No DB. `application.yml` sets `spring.autoconfigure.exclude`
   to `DataSourceAutoConfiguration`, `DataSourceTransactionManagerAutoConfiguration`,
   `JdbcTemplateAutoConfiguration`, and disables the actuator `db` health indicator (readiness group =
   `readinessState` only).
 - **`jdbc` profile** — `JdbcStoreConfig` (`@Profile("jdbc")`) registers four `JdbcDocumentRepository`
   beans under the **same names**, each taking the shared `JdbcTemplate`, one `JdbcNewsQueryRepository`
-  bean, and one `JdbcFishQueryRepository` bean. `application-jdbc.yml` clears the auto-configure
+  bean, one `JdbcFishQueryRepository` bean, and one `JdbcRiverQueryRepository` bean.
+  `application-jdbc.yml` clears the auto-configure
   exclusion, configures the datasource, and re-enables the `db` health indicator + readiness `db` group.
 
 Because both configs use the same bean names, each service/controller injects by name/qualifier
@@ -415,6 +434,30 @@ substring). Because it normalizes and builds its own match variants, the Java la
 unlike `/news/list` — there is no cache decorator and no `@Primary`: just the one proxied bean per
 profile.
 
+### River query repository (`RiverQueryRepository`)
+
+The river lookup is delegated to `RiverQueryRepository`, same pattern. Two implementations:
+
+- **`InMemoryRiverQueryRepository`** (default profile) — returns `{ found:false, country, state, river }`;
+  no database access.
+- **`JdbcRiverQueryRepository`** (jdbc profile) — calls `dbo.fn_river_unfished_json`, added in
+  `envfish-db` (`mssql/script02_Funct.sql`, `UNIT_TESTS/unit_test@RiverUnfished.sql`, 4 tests). Carries
+  `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")` with a fallback.
+
+| Query | SQL | Returns |
+|-------|-----|---------|
+| next un-processed water body | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | one JSON object, parsed to `JsonNode` |
+
+**Interface:** `JsonNode unfished(String country, String state, int river)`.
+
+**SQL details:** `dbo.fn_river_unfished_json(@country char(2), @state char(2), @river int)` returns the
+whole document: a `TOP 1 … FROM dbo.vw_lake WHERE @state IN (source_state, mouth_state) AND locType =
+@river AND ISNULL(isFish,0)=0 AND ISNULL(noFish,0)=0 ORDER BY lake_name` (mirroring `wbUnFish.aspx`),
+plus `throwing` = `STRING_AGG(CGNDB, ',')` of the `dbo.Tributaries side=2` rows joined to `dbo.Lake`.
+The raw-table access lives inside the function (per the no-raw-table rule); the Java layer just parses
+the returned JSON. The controller cleans the parameters (bad `country`/`state`→default, bad `river`→2)
+before the call. **Not cached** — one proxied bean per profile.
+
 ## Service layer
 
 ### `DocumentService` (abstract)
@@ -465,7 +508,10 @@ than binding a fixed DTO. `idNode` builds `{ "id": … }` via the injected `Obje
 
 `NewsController`/`WaterbodyController`/`FishController`/`StationController`, each
 `@RequestMapping(value="/api/v1/<entity>", produces=JSON)`, constructor injecting the entity service
-+ `ObjectMapper` into `super(...)`.
++ `ObjectMapper` into `super(...)`. `RiverController` (`/api/v1/river`) is a **standalone**
+`@RestController` (no document CRUD) that injects only `RiverQueryRepository` and adds
+`@GetMapping("/unfished")` — cleaning `country`/`state`/`river` (defaults on bad input) before
+delegating.
 
 `NewsController` additionally injects `NewsQueryRepository` and adds the two News-page read queries
 as delegations to the repository:
@@ -549,7 +595,7 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 76 tests, none requiring a database:
+`mvn test` runs 95 tests, none requiring a database:
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
@@ -561,6 +607,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (4 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), and lower-case state upper-casing.
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

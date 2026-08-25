@@ -37,8 +37,8 @@ longer exists or omitting behaviour that was added.
 
 **`docs/api-reference.html`** is a standalone, self-contained (no CDN/external assets) human-readable
 reference for **every controller in this service** — `HealthController`, `NewsController`,
-`FishController`, `WaterbodyController`, `StationController` — with real request/response examples
-captured live against the deployed service. It is a full document (`<!DOCTYPE html>` … `</html>`), not
+`FishController`, `RiverController`, `WaterbodyController`, `StationController` — with real
+request/response examples captured live against the deployed service. It is a full document (`<!DOCTYPE html>` … `</html>`), not
 an Artifact-style fragment; open it directly in a browser to review, no build step.
 
 **Any interface change in any controller must update this file too, in the same change as the spec**:
@@ -107,8 +107,11 @@ com.fishfind.docapi
 │   ├── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
-│   └── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
-│                                  #   fn_fish_latin_json
+│   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
+│   │                              #   fn_fish_latin_json
+│   ├── RiverQueryRepository       # interface: unfished(country, state, river) (next un-processed water body)
+│   ├── InMemoryRiverQueryRepository # default backing — found:false (no DB)
+│   └── JdbcRiverQueryRepository   # JDBC backing — dbo.fn_river_unfished_json
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
 │   ├── NewsDocumentService … (one @Service per entity)
@@ -119,6 +122,7 @@ com.fishfind.docapi
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
     ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
+    ├── RiverController            # GET /river/unfished (next un-processed water body; wbUnFish.aspx duplicate)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -212,6 +216,19 @@ splits on commas and which would tear most of the catalogue in half. The DB argu
 built with Jackson (escaping handled), because `OPENJSON` also supplies the element index that preserves
 ordering. Batch cap 100 ⇒ 400.
 
+### River / water-body query (`RiverController`)
+
+`RiverController` exposes one read endpoint, delegating to `RiverQueryRepository` (interface +
+`InMemoryRiverQueryRepository` default / `JdbcRiverQueryRepository` jdbc). It is a **native docapi
+duplicate of the frontend `Resources/wbUnFish.aspx`** endpoint the add-fish tooling uses — backed by
+`dbo.fn_river_unfished_json`, which already exists in prod (added test-first,
+`unit_test@RiverUnfished.sql`, 4 tests). Same `sqlRetry`/`sqlBreaker` guards; **not cached** (the
+result changes as fish get assigned) — one proxied bean per profile.
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /api/v1/river/unfished?country=&state=&river=` | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | the next un-processed water body of a type in a state (no fish assigned, not flagged No Fish), as `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`). `throwing` = comma-joined `CGNDB` of the `side=2` ("Throw") tributaries. `country` is **echoed only** (the query filters by state). **No 400s** — a bad `country`/`state` falls back to the default (CA/ON) and a bad `river` to `2`, mirroring `wbUnFish.aspx` `CleanCode`/`ParseRiver`. The DB function keeps the raw-table access (`Tributaries`/`Lake`) inside the DB per the no-raw-table rule. |
+
 ### Interchange export / import (`fn_news_json` format)
 
 `NewsController` also exposes an **export** (read) and **import** (write) pair on `NewsQueryRepository`,
@@ -298,7 +315,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (76 tests):
+`mvn test` — no DB needed (95 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
@@ -317,6 +334,9 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `FishControllerTest` — `@WebMvcTest` slice: CRUD envelope (200 doc / 404) **plus** `/fish/search`
   via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
   `q` ⇒ 400.
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (4):
+  `/river/unfished` result mapping, default fallback (missing params → CA/ON/2), bad-code/river cleaning
+  (never rejected), and lower-case state upper-casing.
 
 ---
 
@@ -330,6 +350,21 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Changelog
 
+- 2026-08-24: **1.5.0 — river endpoint `GET /api/v1/river/unfished` (wbUnFish.aspx duplicate).** Returns
+  the next un-processed water body of a type in a state (no fish assigned, not flagged No Fish) —
+  `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` — a native docapi
+  duplicate of the frontend `Resources/wbUnFish.aspx` endpoint the add-fish tooling uses. `country`
+  echoed only; bad `country`/`state`→default, bad `river`→2 (mirrors the page; no 400s). New
+  `RiverController` + `RiverQueryRepository` (interface + proxied `Jdbc…` with `sqlRetry`/`sqlBreaker` +
+  in-memory default); not cached. **DB (envfish-db):** new `dbo.fn_river_unfished_json(@country,@state,@river)`
+  in `script02_Funct.sql` (TOP-1 `vw_lake` query mirroring the page + `STRING_AGG` throwing from
+  `Tributaries side=2`; raw-table access kept inside the DB), `unit_test@RiverUnfished.sql` 4 tests pass
+  via `autorun.bat`. Tests: `RiverControllerTest` (+4) → **95 pass** (incl. this session's fish-code work).
+  **Deployed to prod 2026-08-24 as 1.5.0** in order: DB function applied via `sqlcmd` (verified
+  `CA/NL/2` → "Adies River", matches the raw wbUnFish query) → image `ghcr.io/balintomsk/docapi:1.5.0`
+  (digest `sha256:87480f68…`) deployed with the VPC dual-bind. Verified end-to-end through **cproxy**
+  (`http://<cproxy>/api/v1/river/unfished?country=CA&state=NL&river=2` → real data). cproxy needs no
+  change — it already forwards GET `/api/*`.
 - 2026-08-04: **Fish search endpoint `GET /api/v1/fish/search?q=`.** Relevance-ranked species search
   over the primary name, Latin name, and `alt_name` synonyms — the **same lookup the Editor
   `FishList.aspx` search box uses**, so "rosefish" / "ling" resolves to the right species even when it

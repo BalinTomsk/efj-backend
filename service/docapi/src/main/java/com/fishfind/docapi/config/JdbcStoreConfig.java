@@ -6,6 +6,8 @@ import com.fishfind.docapi.repo.FishDocumentRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.JdbcFishQueryRepository;
 import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
+import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
+import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
 import com.fishfind.docapi.repo.NewsDocumentRepository;
@@ -76,6 +78,16 @@ public class JdbcStoreConfig {
     @Bean
     public FishQueryRepository fishQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcFishQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed river query repository ({@code dbo.fn_river_unfished_json}), a bean in its own
+     * right so Resilience4j can proxy it — see {@link #jdbcNewsStore} for why this matters. Not cached
+     * (the result changes as fish get assigned), so just the one proxied bean per profile.
+     */
+    @Bean
+    public RiverQueryRepository riverQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcRiverQueryRepository(jdbc, objectMapper);
     }
 
     @Bean
