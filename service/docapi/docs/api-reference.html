@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <title>DocAPI Reference</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Full REST reference for docapi's five controllers (Health, News, Fish, Waterbody, Station), with live-captured request/response examples." />
+<meta name="description" content="Full REST reference for docapi's six controllers (Health, News, Fish, River, Waterbody, Station), with live-captured request/response examples." />
 <style>
   /* ============================= TOKENS ============================= */
   :root {
@@ -379,6 +379,7 @@
     <a href="#health" class="impl"><span class="n">●</span>Health</a>
     <a href="#news" class="impl"><span class="n">●</span>News</a>
     <a href="#fish" class="impl"><span class="n">●</span>Fish</a>
+    <a href="#river" class="impl"><span class="n">●</span>River</a>
     <a href="#waterbody" class="stub"><span class="n">○</span>Waterbody</a>
     <a href="#station" class="stub"><span class="n">○</span>Station</a>
     <a href="#access">Access &amp; errors</a>
@@ -391,7 +392,7 @@
       <h2 class="display">How responses are shaped</h2>
       <span class="tag">ApiResponse&lt;T&gt;</span>
     </div>
-    <p class="prose">Every docapi response — success or failure, from any of the five controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
+    <p class="prose">Every docapi response — success or failure, from any of the six controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
 
     <div class="envelope-card" style="margin-top:20px;">
       <div>
@@ -416,6 +417,7 @@
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
+      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished lookup backed (wbUnFish duplicate)</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
     </div>
@@ -753,6 +755,44 @@
     </div>
   </section>
 
+  <!-- ============================= RIVER ============================= -->
+  <section class="block" id="river">
+    <div class="block-head">
+      <h2 class="display">River</h2>
+      <span class="tag">RiverController · /api/v1/river</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">A native duplicate of the frontend <code>Resources/wbUnFish.aspx</code> endpoint the add-fish tooling uses: the next un-processed water body of a type in a state — one with no fish assigned and not flagged "No Fish". Backed by <code>dbo.fn_river_unfished_json</code>.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/unfished<span class="param">?country=&amp;state=&amp;river=</span></span></div>
+        <span class="specimen-label">next un-processed water body</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">country</td><td>Optional</td><td>ISO-2. <strong>Echoed only</strong> — the query filters by state, not country. Bad value → default <code>CA</code>.</td></tr>
+            <tr><td class="pname">state</td><td>Optional</td><td>ISO-2 state/province — the actual filter. Bad value → default <code>ON</code>.</td></tr>
+            <tr><td class="pname">river</td><td>Optional</td><td>locType value (<code>2</code> = river). Bad/invalid value → default <code>2</code>.</td></tr>
+          </tbody>
+        </table>
+        <p class="prose" style="margin:2px 0 14px;">No 400s: bad parameters fall back to defaults, so the endpoint always answers. <code>throwing</code> is the comma-joined <code>CGNDB</code> of the <code>side=2</code> ("Throw") tributaries; all fields are <code>null</code> when <code>found</code> is <code>false</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Next un-fished river</strong> in Newfoundland.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/unfished?country=CA&amp;state=NL&amp;river=2</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"found"</span><span class="p">:</span> <span class="z">true</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"NL"</span><span class="p">,</span> <span class="k">"river"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span>
+    <span class="k">"lake_id"</span><span class="p">:</span> <span class="s">"4FCB30DF-…"</span><span class="p">,</span> <span class="k">"lake_name"</span><span class="p">:</span> <span class="s">"Adies River"</span><span class="p">,</span> <span class="k">"mouth_name"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span>
+    <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"AASRF"</span><span class="p">,</span> <span class="k">"throwing"</span><span class="p">:</span> <span class="s">""</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============================= WATERBODY / STATION ============================= -->
   <section class="block" id="waterbody">
     <div class="block-head">
@@ -833,6 +873,7 @@
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?codes=BURB</td><td>400</td><td>province required with codes</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?fishes={"Walley","Burbot"}</td><td>200</td><td>2 resolved, near-miss spelling handled</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/1</td><td>500</td><td>CRUD doc SQL objects not created</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/unfished?country=CA&amp;state=NL&amp;river=2</td><td>200</td><td>Adies River (next un-fished)</td></tr>
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>

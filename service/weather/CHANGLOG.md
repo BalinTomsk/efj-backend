@@ -2,7 +2,7 @@
 
 All notable changes for this service must be recorded in this file.
 
-## Unreleased
+## [1.8.7] - 2026-08-14
 
 - **weather.gov now fetches the GRIDPOINT FORECAST instead of the latest observation**, so it finally
   produces forecast rows. The service was calling `/stations/{id}/observations/latest` -- current
