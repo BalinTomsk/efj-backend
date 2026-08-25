@@ -417,7 +417,7 @@
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
-      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed</span></div>
+      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed, fish PATCH VPC-only</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
     </div>
@@ -761,7 +761,7 @@
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">Three native duplicates of frontend admin/tooling endpoints: the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively). All three are public, unauthenticated GETs — the source data is the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>.</p>
+    <p class="prose" style="margin-bottom:22px;">Three native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively) — plus one write: a batch upsert of assigned species duplicating the Fishing tab's "Add" form. The three GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; the PATCH is this service's first write outside document CRUD and is not yet fronted through cproxy — see below.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -839,6 +839,34 @@
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/fish/00000000-0000-0000-0000-000000000000</div>
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/fish/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">batch upsert assigned species — admin Save-JSON Fishing-tab "Add" form duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">The write counterpart of the endpoint above — a native duplicate of the <strong>Add</strong> form on that same <code>Editor/EditLakeFish.aspx</code> page (<code>AddFishToLake</code>), backed by the new <code>dbo.sp_lake_fish_upsert_batch</code>. Body is a JSON array of <code>{fishId, link, trustLevel, year, status}</code> entries — only <code>fishId</code> is required. <strong>Deliberately narrow about what it writes:</strong> a species not yet assigned to the lake is <code>inserted</code>; one already assigned but with an empty/NULL <code>link</code> is <code>updated</code>; one already assigned <strong>with</strong> a link is left alone (<code>skipped</code>) — this endpoint can never silently overwrite already-sourced data. <code>unknown_fish</code> covers a well-formed guid not in <code>dbo.fish</code>; <code>invalid_fish_id</code> covers a non-guid. An empty, non-array, or over-500-entry body → <code>400 invalid_document</code> before any SQL runs; an unknown lake guid → <code>404</code>.</p>
+        <p class="prose" style="margin:2px 0 14px;"><strong>Fronted through cproxy as of 0.6.1</strong> (deployed 2026-08-25) — <code>CPROXY_ALLOWED_METHODS</code> now admits <code>PATCH</code>, gated by a <strong>per-day rotating credential</strong> — an <code>X-Day-Guid</code> header checked against a small SQLite database of 365 GUIDs, one per day of the year — rather than a static API key, since a leaked day-key is worthless the next day. A wrong or missing key answers a generic <code>500</code>, never <code>401</code>. Verified live end-to-end through the public gateway.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>New + already-sourced species</strong> in one batch.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/fish/0c5343a8-849c-20c3-f4d1-0003eb237498</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"a85ebf22-4ab9-4a91-a14a-cef6c8e64d97"</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"http://example.com"</span><span class="p">,</span> <span class="k">"trustLevel"</span><span class="p">:</span> <span class="n">0</span><span class="p">,</span> <span class="k">"year"</span><span class="p">:</span> <span class="n">2024</span> <span class="p">}</span> <span class="p">]</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"A85EBF22-…"</span><span class="p">,</span> <span class="k">"fishName"</span><span class="p">:</span> <span class="s">"Bass, Largemouth"</span><span class="p">,</span> <span class="k">"action"</span><span class="p">:</span> <span class="s">"inserted"</span> <span class="p">}</span> <span class="p">],</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Empty body</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/fish/0c5343a8-849c-20c3-f4d1-0003eb237498</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
             </div>
           </div>
         </div>

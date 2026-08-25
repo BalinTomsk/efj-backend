@@ -67,14 +67,15 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   (`SearchFishList` takes a `varchar(64)`). Blank or missing `q` ⇒ 400 `invalid_document`.
 
 **River / water-body lookups** (added on `RiverController` — calls `dbo.fn_river_unfished_json` /
-`dbo.fn_lake_view_json` / `dbo.fn_lake_fishing_json`, all existing in `envfish-db`; see
-[Data access](#data-access)):
+`dbo.fn_lake_view_json` / `dbo.fn_lake_fishing_json` / `dbo.sp_lake_fish_upsert_batch`, all existing in
+`envfish-db`; see [Data access](#data-access)):
 
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`) |
 | `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth, fish, base64 photo gallery); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/fish/{guid}` | 200 | the assigned-species document (every `lake_fish` row: name, latin, conservation status, last-catch, external link); 404 if the guid is unknown |
+| `PATCH` | `/api/v1/river/fish/{guid}` | 200 | one result per input entry, in order: `[{fishId, fishName, action}, …]`, `action` one of `inserted`/`updated`/`skipped`/`unknown_fish`/`invalid_fish_id`; 400 on an invalid body, 404 if the guid is unknown |
 
 - `GET /api/v1/river/unfished` — the next un-processed water body of a type in a state (no fish
   assigned, not flagged No Fish), a native duplicate of the frontend `Resources/wbUnFish.aspx` endpoint
@@ -92,6 +93,19 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=fishing`), backed by
   `dbo.fn_lake_fishing_json` — already live in prod (same 2026-08-13 rollout as `fn_lake_view_json`),
   so no new DB object. Unknown/NULL guid ⇒ 404. Same public-data reasoning as `description`.
+- `PATCH /api/v1/river/fish/{guid}` — the write counterpart, a native duplicate of the "Add" form on
+  that same `EditLakeFish.aspx` (`AddFishToLake`). Body: a JSON array of `{fishId, link, trustLevel,
+  year, status}` entries (`fishId` required); batch-upserted via the new `dbo.sp_lake_fish_upsert_batch`
+  (`envfish-db`, 2026-08-25). Deliberately narrow: a species not yet assigned is `inserted`; one
+  assigned but missing its `link` is `updated`; one already assigned **with** a link is `skipped` and
+  left untouched — never silently overwritten. `unknown_fish` / `invalid_fish_id` cover a
+  well-formed-but-unrecognized guid and a non-guid. Body must be a non-empty JSON array of at most 500
+  entries or the request is rejected with 400 `invalid_document` before any SQL runs. This is the
+  service's first write path outside the generic document CRUD endpoints, and — unlike every other
+  river endpoint until now — is **fronted through cproxy as of 0.6.1**
+  (`CPROXY_ALLOWED_METHODS` now includes `PATCH` in `deploy/compose.yml`), gated by a per-day
+  rotating credential (`X-Day-Guid` checked against a SQLite-backed `DayKeyStore`), not a static API
+  key. Verified live end-to-end through the public gateway.
 
 **Fish Latin-name lookups** (fish only, on the `FishController` base path — call
 `dbo.fn_fish_code_latin_json` / `dbo.fn_fish_latin_json`, which already exist in `envfish-db`):
@@ -623,7 +637,7 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 99 tests, none requiring a database:
+`mvn test` runs 105 tests, none requiring a database:
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
@@ -635,7 +649,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (8 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `/river/description/{guid}` (200 doc / 404 on an unknown guid), and `/river/fish/{guid}` (200 doc / 404 on an unknown guid).
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` (14 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `/river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), and `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH` — the 400 cases also assert the repository is never invoked).
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

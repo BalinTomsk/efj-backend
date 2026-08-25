@@ -228,6 +228,7 @@ ordering. Batch cap 100 ⇒ 400.
 | `GET /api/v1/river/unfished?country=&state=&river=` | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | **Native docapi duplicate of the frontend `Resources/wbUnFish.aspx`** endpoint the add-fish tooling uses — backed by `dbo.fn_river_unfished_json`, added test-first (`unit_test@RiverUnfished.sql`, 4 tests). The next un-processed water body of a type in a state (no fish assigned, not flagged No Fish), as `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`). `throwing` = comma-joined `CGNDB` of the `side=2` ("Throw") tributaries. `country` is **echoed only** (the query filters by state). **No 400s** — a bad `country`/`state` falls back to the default (CA/ON) and a bad `river` to `2`, mirroring `wbUnFish.aspx` `CleanCode`/`ParseRiver`. The DB function keeps the raw-table access (`Tributaries`/`Lake`) inside the DB per the no-raw-table rule. |
 | `GET /api/v1/river/description/{guid}` | `SELECT dbo.fn_lake_view_json(?)` | **Native docapi duplicate of the admin "Save JSON" View-tab export** (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`). Returns the full description document — name/alt names, description text, physical stats, source/mouth detail, assigned fish, and the photo gallery (base64). `dbo.fn_lake_view_json` **already exists in prod** (added 2026-08-14 for the admin Save-JSON tabs — see the 2026-08-14 entry in the root `CLAUDE.md`), so this is a **docapi-only change with no new DB object**. `NULL` (unknown guid) ⇒ 404, mirroring `/news/export/{id}`. **Note on access:** the frontend export path is admin-gated (`IsRequestAdmin`), but the underlying data is the same content anonymous visitors already see on `Resources/wfRiverViewer.aspx` — the admin gate is about that download convenience, not data sensitivity, so exposing it as a public docapi GET matches the rest of this service's (unauthenticated) surface. Literal `/description/…` matched ahead of any future templated route on this controller. |
 | `GET /api/v1/river/fish/{guid}` | `SELECT dbo.fn_lake_fishing_json(?)` | **Native docapi duplicate of the admin "Save JSON" Fishing-tab export** (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=fishing`). Returns the assigned-species document for one water body — every `lake_fish` row (name, latin, conservation status, last-catch, external link). `dbo.fn_lake_fishing_json` **already exists in prod** (same 2026-08-13 per-tab Save-JSON rollout as `fn_lake_view_json`), so this is again a **docapi-only change with no new DB object**. `NULL` (unknown guid) ⇒ 404. Same public-data reasoning as `/description/{guid}` — the assigned species list is shown publicly on `Resources/wfRiverViewer.aspx`. Literal `/fish/…` matched ahead of any future templated route on this controller. |
+| `PATCH /api/v1/river/fish/{guid}` | `EXEC dbo.sp_lake_fish_upsert_batch ?, ?` | **The write counterpart — a native duplicate of the "Add" form on `Editor/EditLakeFish.aspx`** (`AddFishToLake`). Body is a JSON array of `{fishId, link, trustLevel, year, status}` entries (`fishId` required, the rest optional), upserted in one batch by `RiverFishCommandRepository` / `sp_lake_fish_upsert_batch` (new DB object, 2026-08-25). **Unlike every other river endpoint this is a genuine write** — the shared `sqlBreaker`/`sqlRetry` guards still apply, but there's no cache in front of it and it's a separate `RiverFishCommandRepository` bean (not a method on `RiverQueryRepository`) precisely because it mutates `lake_fish`. Per entry: `inserted` (new), `updated` (existing row whose `link` is empty/NULL — the only case an existing row is touched), `skipped` (existing row **with** a link — deliberately never overwritten), `unknown_fish` (guid not in `dbo.fish`), `invalid_fish_id` (not a guid). Empty/non-array/over-500-entry body ⇒ 400 `invalid_document`; unknown guid ⇒ 404. **Fronted through cproxy as of 0.6.1** (deployed 2026-08-25) — `CPROXY_ALLOWED_METHODS` now admits `PATCH`, gated by a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API key. Verified live end-to-end through the public gateway. See `efc-proxy` `CLAUDE.md` → "Day-key store". |
 
 ### Interchange export / import (`fn_news_json` format)
 
@@ -315,7 +316,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (99 tests):
+`mvn test` — no DB needed (105 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
@@ -334,10 +335,13 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `FishControllerTest` — `@WebMvcTest` slice: CRUD envelope (200 doc / 404) **plus** `/fish/search`
   via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
   `q` ⇒ 400.
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (8):
-  `/river/unfished` result mapping, default fallback (missing params → CA/ON/2), bad-code/river cleaning
-  (never rejected), lower-case state upper-casing, `/river/description/{guid}` (200 doc / 404 on an
-  unknown guid), **and `/river/fish/{guid}`** (200 doc / 404 on an unknown guid).
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` +
+  `RiverFishCommandRepository` (14): `/river/unfished` result mapping, default fallback (missing params
+  → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing,
+  `/river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc /
+  404 on an unknown guid), **and `PATCH /river/fish/{guid}`** (6: 200 result envelope, 404 unknown
+  lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH` — the last
+  three also assert the repository is never called, i.e. validation happens before any SQL).
 
 ---
 
@@ -350,6 +354,46 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - Each service owns its data store exclusively.
 
 ## Changelog
+
+- 2026-08-25: **cproxy day-key decision, now deployed (no docapi change).** The security posture left
+  open in the 1.5.3 entry below — how/whether to front `PATCH /api/v1/river/fish/{guid}` through
+  cproxy — was resolved and shipped: cproxy 0.6.1 (0.6.0 plus a same-day Content-Type-forwarding fix
+  found during this deploy) adds a `DayKeyStore` (SQLite, 365 rows, one rotating GUID per day of the
+  year) gating every PATCH via a new `X-Day-Guid` header, in place of a static `CPROXY_API_KEY`.
+  **Deployed and verified end-to-end through the public gateway** — see `efc-proxy` `CLAUDE.md` →
+  "Day-key store" for the full design and the Content-Type bug. Nothing here changes: docapi's
+  endpoint itself is unaware of cproxy's auth layer.
+
+- 2026-08-25: **1.5.3 — river fish endpoint `PATCH /api/v1/river/fish/{guid}` (admin Save-JSON
+  Fishing-tab "Add" form duplicate) — the service's first genuine write path outside document CRUD.**
+  Native docapi duplicate of `Editor/EditLakeFish.aspx`'s "Add" form (`AddFishToLake`): body is a JSON
+  array of `{fishId, link, trustLevel, year, status}` entries, batch-upserted via the new
+  `dbo.sp_lake_fish_upsert_batch` (envfish-db, 2026-08-25) through a new `RiverFishCommandRepository`
+  bean (Jdbc via `jdbc.execute` + manual result-set drain — same pattern as every other
+  `EXEC dbo.sp_...` call in this service, not `jdbc.query`, since a proc's DML can interleave update
+  counts with its final `SELECT`; in-memory returns `null`). **Deliberately narrow about what it
+  writes:** a species not yet on the lake is `inserted`; one already assigned but with an empty/NULL
+  `link` is `updated`; one already assigned **with** a link is `skipped` — this batch endpoint can
+  never silently overwrite already-sourced data. `unknown_fish`/`invalid_fish_id` cover a
+  well-formed-but-unrecognized guid and a non-guid respectively. Request validation (non-empty JSON
+  array, ≤ `MAX_FISH_BATCH` = 500 entries) happens in the controller before any SQL — `RiverController`
+  reuses `InvalidDocumentException` (400 `invalid_document`) rather than inventing a second validation
+  path. Unknown lake guid ⇒ 404, same contract as every other river endpoint.
+  **Security posture, deliberately left as-is for now:** cproxy's `CPROXY_ALLOWED_METHODS` is pinned to
+  `GET` in `deploy/compose.yml` ("write surface stays 405"), and docapi itself is never publicly bound
+  — so this PATCH is reachable only from inside the DigitalOcean VPC today, not from the public
+  internet. Fronting it through cproxy (allowing `PATCH` + requiring `CPROXY_API_KEY`) is a follow-up
+  decision, not bundled into this change. Tests: `RiverControllerTest` (+6) → **105 pass** (full
+  suite). DB: `unit_test@LakeFishUpsertBatch.sql` (8 tests) passes via `autorun.bat` (full DB suite 505
+  PASS / 2 pre-existing FAIL, unrelated). Docs: this file, `README.md`, `docs/specification.md`,
+  `docs/api-reference.html` (per the API-change rule). **Deployed to prod 2026-08-25 as 1.5.3**
+  (image `ghcr.io/balintomsk/docapi:1.5.3`, digest `sha256:01e98e89…dd66b`). `dbo.sp_lake_fish_
+  upsert_batch` applied to prod first, gated on a real insert/verify/delete smoke test inside one
+  transaction (committed only after the proc round-tripped correctly against "Little Somme River",
+  a real lake with zero assigned species). `/health` reports 1.5.3, clean startup, full smoke matrix
+  clean, breaker closed within 1 poll. `PATCH /river/fish/{guid}` verified directly against docapi
+  (insert → GET confirms it → test row deleted) and — once cproxy 0.6.1 shipped with the day-key gate
+  and a Content-Type-forwarding fix — through the public gateway too (see `efc-proxy` `CLAUDE.md`).
 
 - 2026-08-25: **1.5.2 — river fish endpoint `GET /api/v1/river/fish/{guid}` (admin Save-JSON
   Fishing-tab duplicate).** Native docapi duplicate of `Editor/EditLakeFish.aspx`'s Save JSON button

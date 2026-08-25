@@ -149,7 +149,7 @@ resolves to the right species), best match first. It reuses the **same** lookup 
 `FishList.aspx` search box uses (`dbo.SearchFishList`), so no new DB object is needed. Each hit is
 `{ fishId, name, latin, rank }` (`rank` — lower is better, 0 = exact); blank/missing `q` ⇒ 400.
 
-The River entity adds three lookups. `GET /api/v1/river/unfished?country=&state=&river=` — the next
+The River entity adds three lookups and one write. `GET /api/v1/river/unfished?country=&state=&river=` — the next
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
@@ -168,6 +168,19 @@ row: name, latin, conservation status, last-catch, external link). A native dupl
 "Save JSON" Fishing-tab export (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=
 fishing`), backed by `dbo.fn_lake_fishing_json` — already live in prod (same 2026-08-13 rollout as
 `fn_lake_view_json`), no new DB object. Unknown guid ⇒ 404.
+
+`PATCH /api/v1/river/fish/{guid}` — the write counterpart, a native duplicate of the "Add" form on that
+same `EditLakeFish.aspx` page. Body is a JSON array of `{fishId, link, trustLevel, year, status}`
+entries (`fishId` required, the rest optional), upserted in one batch by
+`dbo.sp_lake_fish_upsert_batch`. **Deliberately narrow:** a species not yet assigned to the lake is
+`inserted`; one already assigned but missing its `link` is `updated`; one already assigned **with** a
+link is left alone (`skipped`) — this endpoint can never silently overwrite already-sourced data.
+`unknown_fish` / `invalid_fish_id` cover an unrecognized guid and a non-guid. Empty/non-array/
+over-500-entry body ⇒ 400; unknown lake guid ⇒ 404. This service's first write outside the generic
+document CRUD endpoints — see the Database contract section below for the SQL. **Fronted through
+cproxy as of 0.6.1** (`deploy/compose.yml`, `CPROXY_ALLOWED_METHODS` now includes `PATCH`), gated by
+a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API
+key — see `efc-proxy` `CLAUDE.md` → "Day-key store".
 
 ### Response shape
 
@@ -216,9 +229,15 @@ Notes:
   (returns the whole JSON object — the `vw_lake` TOP-1 lookup + `Tributaries side=2` throwing list;
   added in `envfish-db` with `unit_test@RiverUnfished.sql`).
 - **River description** (`/api/v1/river/description/{guid}`) → `dbo.fn_lake_view_json(@lake)`, and
-  **river fish** (`/api/v1/river/fish/{guid}`) → `dbo.fn_lake_fishing_json(@lake)` — both pre-existing
-  per-tab admin "Save JSON" export functions from the 2026-08-13 `envfish-db` rollout; docapi is the
-  only new code for either endpoint.
+  **river fish read** (`GET /api/v1/river/fish/{guid}`) → `dbo.fn_lake_fishing_json(@lake)` — both
+  pre-existing per-tab admin "Save JSON" export functions from the 2026-08-13 `envfish-db` rollout;
+  docapi is the only new code for either endpoint.
+- **River fish write** (`PATCH /api/v1/river/fish/{guid}`) → `EXEC dbo.sp_lake_fish_upsert_batch @lake,
+  @fish` (new proc, `envfish-db` 2026-08-25, `unit_test@LakeFishUpsertBatch.sql`) — the only write
+  procedure this service calls outside the generic `sp_<entity>_doc_add`/`_update` pair above. Invoked
+  via `jdbc.execute` with a manual result-set drain (see `JdbcDocumentRepository.executeReturningScalar`
+  / `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
+  proc's DML can interleave update counts with its final `SELECT`.
 
 ## Docker
 
