@@ -1,12 +1,18 @@
 package com.fishfind.docapi.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
+import com.fishfind.docapi.service.InvalidDocumentException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +42,13 @@ import java.util.Set;
  * ({@code Editor/EditLakeFish.aspx} → {@code HandlerImage.ashx?lakejson=&tab=fishing}), backed by the
  * already-live {@code dbo.fn_lake_fishing_json}. Same public-data reasoning as {@code description}: the
  * assigned species list is shown publicly on {@code Resources/wfRiverViewer.aspx}.
+ *
+ * <p>{@code PATCH /api/v1/river/fish/{guid}} is the write counterpart, duplicating the "Add" form on
+ * that same {@code EditLakeFish.aspx} page ({@code AddFishToLake}): a JSON array body of
+ * {@code {fishId, link, trustLevel, year, status}} entries, upserted in one batch via
+ * {@code dbo.sp_lake_fish_upsert_batch}. Deliberately narrow — a species already assigned to the lake
+ * <strong>with</strong> a source link is left untouched ({@code action: "skipped"}) rather than
+ * overwritten, so callers should only send species that are new or still missing a link.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -45,14 +58,23 @@ public class RiverController {
     static final String DEFAULT_STATE = "ON";
     static final int DEFAULT_RIVER = 2;
 
+    /** Refuses a batch this large rather than looping unboundedly (mirrors the {@code ?fishes=} cap). */
+    static final int MAX_FISH_BATCH = 500;
+
     /** Valid locType values (water-body type bitmask; see the frontend RscRiverList / wbUnFish). */
     private static final Set<Integer> VALID_RIVER =
             Set.of(1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192);
 
     private final RiverQueryRepository queryRepository;
+    private final RiverFishCommandRepository fishCommandRepository;
+    private final ObjectMapper objectMapper;
 
-    public RiverController(RiverQueryRepository queryRepository) {
+    public RiverController(RiverQueryRepository queryRepository,
+                            RiverFishCommandRepository fishCommandRepository,
+                            ObjectMapper objectMapper) {
         this.queryRepository = queryRepository;
+        this.fishCommandRepository = fishCommandRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -112,6 +134,47 @@ public class RiverController {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
         }
         return ApiResponse.ok(document);
+    }
+
+    /**
+     * Upserts a batch of species assignments for one water body.
+     *
+     * @param guid the water body's GUID
+     * @param body a JSON array: {@code [{"fishId","link","trustLevel","year","status"}, …]} — only
+     *             {@code fishId} is required per entry; the rest are optional
+     * @return one result per input item, in order, nested in the response envelope
+     * @throws InvalidDocumentException if the body is missing, not a well-formed JSON array, empty, or
+     *                                   over {@value #MAX_FISH_BATCH} entries (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @PatchMapping(value = "/fish/{guid}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> patchFish(@PathVariable String guid, @RequestBody(required = false) String body) {
+        JsonNode items = requireFishArray(body);
+        JsonNode document = fishCommandRepository.upsertFish(guid, items.toString());
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /** Validates the PATCH body is a non-empty, size-capped JSON array. */
+    private JsonNode requireFishArray(String body) {
+        if (body == null || body.isBlank()) {
+            throw new InvalidDocumentException("Request body must be a non-empty JSON array of fish entries");
+        }
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(body);
+        } catch (JsonProcessingException ex) {
+            throw new InvalidDocumentException("Request body is not well-formed JSON: " + ex.getOriginalMessage(), ex);
+        }
+        if (!node.isArray() || node.isEmpty()) {
+            throw new InvalidDocumentException("Request body must be a non-empty JSON array of fish entries");
+        }
+        if (node.size() > MAX_FISH_BATCH) {
+            throw new InvalidDocumentException("Request body must not exceed " + MAX_FISH_BATCH + " fish entries");
+        }
+        return node;
     }
 
     /** Exactly-two A–Z letters, upper-cased; anything else falls back (mirrors wbUnFish CleanCode). */
