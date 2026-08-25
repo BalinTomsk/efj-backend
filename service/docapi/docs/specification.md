@@ -66,12 +66,13 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   exact) and rows are returned best-first. The term is trimmed and capped at 64 chars
   (`SearchFishList` takes a `varchar(64)`). Blank or missing `q` ⇒ 400 `invalid_document`.
 
-**River / water-body lookup** (added on `RiverController` — calls `dbo.fn_river_unfished_json`, which
-exists in `envfish-db`; see [Data access](#data-access)):
+**River / water-body lookups** (added on `RiverController` — calls `dbo.fn_river_unfished_json` /
+`dbo.fn_lake_view_json`, both existing in `envfish-db`; see [Data access](#data-access)):
 
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`) |
+| `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth, fish, base64 photo gallery); 404 if the guid is unknown |
 
 - `GET /api/v1/river/unfished` — the next un-processed water body of a type in a state (no fish
   assigned, not flagged No Fish), a native duplicate of the frontend `Resources/wbUnFish.aspx` endpoint
@@ -79,6 +80,12 @@ exists in `envfish-db`; see [Data access](#data-access)):
   tributaries. `country` is echoed only (the query filters by state). Parameter handling mirrors the
   page: a bad `country`/`state` falls back to the default (`CA`/`ON`) and a bad `river` to `2`, so the
   endpoint always answers (no 400s).
+- `GET /api/v1/river/description/{guid}` — a native duplicate of the admin "Save JSON" View-tab export
+  (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already
+  live in prod (added 2026-08-14 for the admin Save-JSON tabs), so no new DB object. Unknown/NULL guid
+  ⇒ 404, mirroring `/news/export/{id}`. The frontend export path is admin-gated, but the underlying
+  content is the same public data anonymous visitors already see on `Resources/wfRiverViewer.aspx` — a
+  public docapi GET matches the rest of this service's unauthenticated surface.
 
 **Fish Latin-name lookups** (fish only, on the `FishController` base path — call
 `dbo.fn_fish_code_latin_json` / `dbo.fn_fish_latin_json`, which already exist in `envfish-db`):
@@ -436,27 +443,42 @@ profile.
 
 ### River query repository (`RiverQueryRepository`)
 
-The river lookup is delegated to `RiverQueryRepository`, same pattern. Two implementations:
+The river lookups are delegated to `RiverQueryRepository`, same pattern. Two implementations:
 
-- **`InMemoryRiverQueryRepository`** (default profile) — returns `{ found:false, country, state, river }`;
-  no database access.
-- **`JdbcRiverQueryRepository`** (jdbc profile) — calls `dbo.fn_river_unfished_json`, added in
-  `envfish-db` (`mssql/script02_Funct.sql`, `UNIT_TESTS/unit_test@RiverUnfished.sql`, 4 tests). Carries
-  `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")` with a fallback.
+- **`InMemoryRiverQueryRepository`** (default profile) — `unfished` returns `{ found:false, country,
+  state, river }`; `description` returns `null` (→ 404). No database access.
+- **`JdbcRiverQueryRepository`** (jdbc profile) — `unfished` calls `dbo.fn_river_unfished_json`, added
+  in `envfish-db` (`mssql/script02_Funct.sql`, `UNIT_TESTS/unit_test@RiverUnfished.sql`, 4 tests);
+  `description` calls `dbo.fn_lake_view_json`, already live in `envfish-db` for the admin Save-JSON
+  tabs (no new DB object for this endpoint). Both carry `@Retry("sqlRetry")` +
+  `@CircuitBreaker("sqlBreaker")` with a fallback.
 
 | Query | SQL | Returns |
 |-------|-----|---------|
 | next un-processed water body | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | one JSON object, parsed to `JsonNode` |
+| water-body description | `SELECT dbo.fn_lake_view_json(?)` | one JSON object, parsed to `JsonNode`, or `null` if the function returns NULL/blank |
 
-**Interface:** `JsonNode unfished(String country, String state, int river)`.
+**Interface:** `JsonNode unfished(String country, String state, int river)` and
+`JsonNode description(String lakeId)`.
 
-**SQL details:** `dbo.fn_river_unfished_json(@country char(2), @state char(2), @river int)` returns the
-whole document: a `TOP 1 … FROM dbo.vw_lake WHERE @state IN (source_state, mouth_state) AND locType =
-@river AND ISNULL(isFish,0)=0 AND ISNULL(noFish,0)=0 ORDER BY lake_name` (mirroring `wbUnFish.aspx`),
-plus `throwing` = `STRING_AGG(CGNDB, ',')` of the `dbo.Tributaries side=2` rows joined to `dbo.Lake`.
-The raw-table access lives inside the function (per the no-raw-table rule); the Java layer just parses
-the returned JSON. The controller cleans the parameters (bad `country`/`state`→default, bad `river`→2)
-before the call. **Not cached** — one proxied bean per profile.
+**SQL details — `unfished`:** `dbo.fn_river_unfished_json(@country char(2), @state char(2), @river
+int)` returns the whole document: a `TOP 1 … FROM dbo.vw_lake WHERE @state IN (source_state,
+mouth_state) AND locType = @river AND ISNULL(isFish,0)=0 AND ISNULL(noFish,0)=0 ORDER BY lake_name`
+(mirroring `wbUnFish.aspx`), plus `throwing` = `STRING_AGG(CGNDB, ',')` of the `dbo.Tributaries side=2`
+rows joined to `dbo.Lake`. The raw-table access lives inside the function (per the no-raw-table rule);
+the Java layer just parses the returned JSON. The controller cleans the parameters (bad
+`country`/`state`→default, bad `river`→2) before the call.
+
+**SQL details — `description`:** `dbo.fn_lake_view_json(@lake_id uniqueidentifier)` returns
+`{ guid, lakeName, altName, nativeName, french, type, description, link, cgndb, basin, watershield,
+drainage, discharge, length_km, width_km, maxDepth_m, volume_km3, surface_km2, shoreline_km,
+sourceName, sourceId, sourceLat, sourceLon, …, mouthName, …, fish[], photos[] }` (assigned fish +
+base64 photo gallery included) or `NULL` for an unknown/`Guid.Empty` id. The controller passes the
+path `{guid}` straight through as a string — SQL Server converts it, so a malformed (non-GUID) value
+fails the same way it does on the analogous `/news/{id}` doc-CRUD route (a conversion error, not a
+client-side 400).
+
+Both queries are **not cached** — one proxied bean per profile.
 
 ## Service layer
 
@@ -595,7 +617,7 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 95 tests, none requiring a database:
+`mvn test` runs 97 tests, none requiring a database:
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
@@ -607,7 +629,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (4 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), and lower-case state upper-casing.
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (6 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, and `/river/description/{guid}` (200 doc / 404 on an unknown guid).
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

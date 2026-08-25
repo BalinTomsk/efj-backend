@@ -122,7 +122,7 @@ com.fishfind.docapi
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
     ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
-    ├── RiverController            # GET /river/unfished (next un-processed water body; wbUnFish.aspx duplicate)
+    ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid} (lakejson&tab=view duplicate)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -218,16 +218,14 @@ ordering. Batch cap 100 ⇒ 400.
 
 ### River / water-body query (`RiverController`)
 
-`RiverController` exposes one read endpoint, delegating to `RiverQueryRepository` (interface +
-`InMemoryRiverQueryRepository` default / `JdbcRiverQueryRepository` jdbc). It is a **native docapi
-duplicate of the frontend `Resources/wbUnFish.aspx`** endpoint the add-fish tooling uses — backed by
-`dbo.fn_river_unfished_json`, which already exists in prod (added test-first,
-`unit_test@RiverUnfished.sql`, 4 tests). Same `sqlRetry`/`sqlBreaker` guards; **not cached** (the
-result changes as fish get assigned) — one proxied bean per profile.
+`RiverController` exposes two read endpoints, delegating to `RiverQueryRepository` (interface +
+`InMemoryRiverQueryRepository` default / `JdbcRiverQueryRepository` jdbc). Same `sqlRetry`/
+`sqlBreaker` guards on both; **not cached** — one proxied bean per profile.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
-| `GET /api/v1/river/unfished?country=&state=&river=` | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | the next un-processed water body of a type in a state (no fish assigned, not flagged No Fish), as `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`). `throwing` = comma-joined `CGNDB` of the `side=2` ("Throw") tributaries. `country` is **echoed only** (the query filters by state). **No 400s** — a bad `country`/`state` falls back to the default (CA/ON) and a bad `river` to `2`, mirroring `wbUnFish.aspx` `CleanCode`/`ParseRiver`. The DB function keeps the raw-table access (`Tributaries`/`Lake`) inside the DB per the no-raw-table rule. |
+| `GET /api/v1/river/unfished?country=&state=&river=` | `SELECT dbo.fn_river_unfished_json(?, ?, ?)` | **Native docapi duplicate of the frontend `Resources/wbUnFish.aspx`** endpoint the add-fish tooling uses — backed by `dbo.fn_river_unfished_json`, added test-first (`unit_test@RiverUnfished.sql`, 4 tests). The next un-processed water body of a type in a state (no fish assigned, not flagged No Fish), as `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`). `throwing` = comma-joined `CGNDB` of the `side=2` ("Throw") tributaries. `country` is **echoed only** (the query filters by state). **No 400s** — a bad `country`/`state` falls back to the default (CA/ON) and a bad `river` to `2`, mirroring `wbUnFish.aspx` `CleanCode`/`ParseRiver`. The DB function keeps the raw-table access (`Tributaries`/`Lake`) inside the DB per the no-raw-table rule. |
+| `GET /api/v1/river/description/{guid}` | `SELECT dbo.fn_lake_view_json(?)` | **Native docapi duplicate of the admin "Save JSON" View-tab export** (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`). Returns the full description document — name/alt names, description text, physical stats, source/mouth detail, assigned fish, and the photo gallery (base64). `dbo.fn_lake_view_json` **already exists in prod** (added 2026-08-14 for the admin Save-JSON tabs — see the 2026-08-14 entry in the root `CLAUDE.md`), so this is a **docapi-only change with no new DB object**. `NULL` (unknown guid) ⇒ 404, mirroring `/news/export/{id}`. **Note on access:** the frontend export path is admin-gated (`IsRequestAdmin`), but the underlying data is the same content anonymous visitors already see on `Resources/wfRiverViewer.aspx` — the admin gate is about that download convenience, not data sensitivity, so exposing it as a public docapi GET matches the rest of this service's (unauthenticated) surface. Literal `/description/…` matched ahead of any future templated route on this controller. |
 
 ### Interchange export / import (`fn_news_json` format)
 
@@ -315,7 +313,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (95 tests):
+`mvn test` — no DB needed (97 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
@@ -334,9 +332,10 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `FishControllerTest` — `@WebMvcTest` slice: CRUD envelope (200 doc / 404) **plus** `/fish/search`
   via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
   `q` ⇒ 400.
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (4):
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` (6):
   `/river/unfished` result mapping, default fallback (missing params → CA/ON/2), bad-code/river cleaning
-  (never rejected), and lower-case state upper-casing.
+  (never rejected), lower-case state upper-casing, **and `/river/description/{guid}`** (200 doc / 404 on
+  an unknown guid).
 
 ---
 
@@ -350,6 +349,24 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Changelog
 
+- 2026-08-24: **1.5.1 — river description endpoint `GET /api/v1/river/description/{guid}`
+  (admin Save-JSON View-tab duplicate).** Native docapi duplicate of
+  `Editor/HandlerImage.ashx?lakejson=<guid>&tab=view` — the full description document (name/alt
+  names, description text, physical stats, source/mouth detail, assigned fish, photo gallery base64)
+  for one water body. Backed by `dbo.fn_lake_view_json`, which **already exists in prod** (added
+  2026-08-14 for the admin Save-JSON tabs) — **no new DB object**, pure docapi addition.
+  `RiverQueryRepository` gained `description(lakeId)` (Jdbc proxied + in-memory `null`); `NULL`/unknown
+  guid ⇒ 404, mirroring `/news/export/{id}`. **Access note:** the frontend export path is
+  admin-gated, but the content itself is the same public data `Resources/wfRiverViewer.aspx` already
+  shows anonymous visitors — the gate is about that download convenience, not sensitivity, so a public
+  docapi GET matches this service's existing (unauthenticated) surface. Tests: `RiverControllerTest`
+  (+2) → **97 pass**. Docs: this file, `README.md`, `docs/specification.md`, `docs/api-reference.html`
+  (per the API-change rule). **Deployed to prod 2026-08-24 as 1.5.1** (image
+  `ghcr.io/balintomsk/docapi:1.5.1`, digest `sha256:7afcaabb…deee`; no DB step — `fn_lake_view_json`
+  already live). `/health` reports 1.5.1, clean startup; `/river/description/{guid}` verified both
+  directly on docapi and through **cproxy** (`http://<cproxy-host>/api/v1/river/description/{guid}`)
+  — 200 with real data (Undersill Lake) for a known guid, 404 for an unknown one, 405 on POST. No
+  cproxy redeploy needed (generic `/api/*` passthrough); its `docs/api-guide.html` updated to match.
 - 2026-08-24: **1.5.0 — river endpoint `GET /api/v1/river/unfished` (wbUnFish.aspx duplicate).** Returns
   the next un-processed water body of a type in a state (no fish assigned, not flagged No Fish) —
   `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` — a native docapi

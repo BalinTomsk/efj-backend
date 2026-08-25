@@ -149,13 +149,19 @@ resolves to the right species), best match first. It reuses the **same** lookup 
 `FishList.aspx` search box uses (`dbo.SearchFishList`), so no new DB object is needed. Each hit is
 `{ fishId, name, latin, rank }` (`rank` — lower is better, 0 = exact); blank/missing `q` ⇒ 400.
 
-The River entity adds one lookup: `GET /api/v1/river/unfished?country=&state=&river=` — the next
+The River entity adds two lookups. `GET /api/v1/river/unfished?country=&state=&river=` — the next
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
 CGNDB, throwing }` (fields null when `found:false`); `country` is echoed only (the query filters by
 state), and a bad `country`/`state` falls back to the default (CA/ON), a bad `river` to `2` — mirroring
 the page (no 400s).
+
+`GET /api/v1/river/description/{guid}` — the full description document for one water body (name/alt
+names, description text, physical stats, source/mouth detail, assigned fish, photo gallery as base64).
+A native duplicate of the admin "Save JSON" View-tab export
+(`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already live
+in prod, no new DB object. Unknown guid ⇒ 404.
 
 ### Response shape
 

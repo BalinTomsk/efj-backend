@@ -25,4 +25,10 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
         node.put("river", river);
         return node;
     }
+
+    /** No database: nothing to describe, so every id is "not found" (controller maps to 404). */
+    @Override
+    public JsonNode description(String lakeId) {
+        return null;
+    }
 }

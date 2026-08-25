@@ -1,9 +1,12 @@
 package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.service.DocumentNotFoundException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +23,13 @@ import java.util.Set;
  * by {@code dbo.fn_river_unfished_json}. Parameter handling mirrors that page: a bad {@code country}/
  * {@code state} falls back to the default and a bad {@code river} to {@code 2} (no 400s), so the
  * endpoint always answers with a result for the effective parameters.
+ *
+ * <p>{@code GET /api/v1/river/description/{guid}} returns the full description document for one water
+ * body — a native docapi duplicate of the admin "Save JSON" View-tab export
+ * ({@code Editor/HandlerImage.ashx?lakejson=&tab=view}), backed by the already-live
+ * {@code dbo.fn_lake_view_json}. The underlying content (name, description, stats, source/mouth) is
+ * the same public data shown on {@code Resources/wfRiverViewer.aspx} to anonymous visitors — the
+ * admin gate on the frontend export path is about that download convenience, not data sensitivity.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -56,6 +66,26 @@ public class RiverController {
         String cleanState = cleanCode(state, DEFAULT_STATE);
         int cleanRiver = parseRiver(river);
         return ApiResponse.ok(queryRepository.unfished(cleanCountry, cleanState, cleanRiver));
+    }
+
+    /**
+     * The full description document for one water body: name/alt names, description text, physical
+     * stats, source/mouth detail, assigned fish, and the photo gallery (base64).
+     *
+     * <p>The literal {@code /description/…} prefix is matched ahead of any future templated route on
+     * this controller.
+     *
+     * @param guid the water body's GUID
+     * @return the document nested as real JSON in the response envelope
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/description/{guid}")
+    public ApiResponse<JsonNode> description(@PathVariable String guid) {
+        JsonNode document = queryRepository.description(guid);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
     }
 
     /** Exactly-two A–Z letters, upper-cased; anything else falls back (mirrors wbUnFish CleanCode). */
