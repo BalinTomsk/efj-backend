@@ -34,12 +34,13 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   `unit_test@RegulationUpsert.sql` (11 tests) + `unit_test@RegulationRead.sql` (3 tests), both pass via
   `autorun.bat` (2 pre-existing, unrelated `FishCodeLatinJson.sql` failures — not touched by this
   change).
-  **Not yet deployed to prod** — built and tested locally (DB + Java, both suites green); deploy
-  pending explicit approval per this repo's deploy policy.
+  **Deployed to prod 2026-08-26** — image `ghcr.io/balintomsk/docapi:1.6.0` on the droplet; startup
+  clean (no exceptions in the startup-window scan), `GET /health` reports `1.6.0`, and all three new
+  routes verified live: `GET /api/v1/river/regulation/{guid}`, `GET /api/v1/region/regulation/ca/on`,
+  `GET /api/v1/region/regulation/us` all `200` with real rows.
   Docs: this file, `README.md`, `docs/specification.md`, `docs/api-reference.html` (per the
-  API-change rule) — the `docs/api-reference.html` "verified live" version chips were deliberately
-  **left at 1.5.4** (only the controller-count text was bumped to seven) since this endpoint hasn't
-  been exercised against a live deployment yet; bump those chips to 1.6.0 once it has been.
+  API-change rule) — the `docs/api-reference.html` "verified live" version chips bumped to 1.6.0 now
+  that the endpoint has been exercised against the live deployment.
 
 - 2026-08-25: **1.5.4 — river description write `PATCH /api/v1/river/description/{guid}` (admin
   Save-JSON "General"-tab merge patch) — a second, independent write.** Native docapi duplicate of
