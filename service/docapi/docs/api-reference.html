@@ -417,7 +417,7 @@
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; CRUD not yet</span></div>
-      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed, both PATCH writes fronted (day-key gated)</span></div>
+      <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed, 3 PATCH writes fronted (day-key gated); source/mouth GET+PATCH implemented 1.7.0, pending deploy</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
     </div>
@@ -761,7 +761,7 @@
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">Three native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, and its assigned-species document (both backing the admin "Save JSON" export, View and Fishing tabs respectively) — plus two independent writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, and a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>. The three GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; both PATCHes are gated by cproxy's day-key credential (see the cproxy API guide) — a wrong or missing key answers a generic <code>500</code>.</p>
+    <p class="prose" style="margin-bottom:22px;">Five native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, its assigned-species document, and its Source/Mouth link documents (all four backing the admin "Save JSON" export — View, Fishing, Source and Mouth tabs respectively) — plus three independent writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>, and a JSON merge patch of the Source/Mouth tabs' editable fields duplicating <code>EditLakeLink.aspx</code> (one shared PATCH mechanism, two paths — <code>side=16</code> vs <code>side=32</code> of the same <code>Tributaries</code> row). The five GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; all three PATCHes are gated by cproxy's day-key credential (see the cproxy API guide) — a wrong or missing key answers a generic <code>500</code>.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -895,6 +895,114 @@
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/description/a55caadf-2892-e811-9104-00155d007b12</div>
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/source/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">Source-tab document — admin Save-JSON Source-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">A native duplicate of <code>Editor/EditLakeLink.aspx?Type=16</code>'s Save JSON button (<code>HandlerImage.ashx?lakejson=&amp;tab=source</code>), backed by <code>dbo.fn_lake_source_json</code> — already live in prod from the 2026-08-13 per-tab Save-JSON rollout, so this endpoint needed <strong>no new DB object</strong>. Returns the water body's own name/guid plus a <code>sources</code> array (normally one row — <code>UK_Tributaries_Source</code> allows at most one <code>side=16</code> link per water body) with the linked point's name/id and its location fields (lat/lon/elevation/country/state/county/city/district/municipality/region/zone/coast/location/description). An unknown or malformed guid → <code>404</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Known water body</strong> — source link.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/source/a1cc30df-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"guid"</span><span class="p">:</span> <span class="s">"A1CC30DF-…"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"White River"</span><span class="p">,</span> <span class="k">"sources"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"pointId"</span><span class="p">:</span> <span class="s">"A1CC30DF-…"</span><span class="p">,</span> <span class="k">"pointName"</span><span class="p">:</span> <span class="s">"White River"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">52.1</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-95.4</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/source/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/mouth/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">Mouth-tab document — admin Save-JSON Mouth-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Same shape as <code>/river/source/{guid}</code> above, but for the <code>side=32</code> link (<code>Editor/EditLakeLink.aspx?Type=32</code> → <code>HandlerImage.ashx?lakejson=&amp;tab=mouth</code>, backed by <code>dbo.fn_lake_mouth_json</code>): the water body's own name/guid plus a <code>mouths</code> array (at most one row — <code>UK_Tributaries_Mouth</code>). An unknown or malformed guid → <code>404</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Known water body</strong> — mouth link.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/mouth/a1cc30df-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"guid"</span><span class="p">:</span> <span class="s">"A1CC30DF-…"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"White River"</span><span class="p">,</span> <span class="k">"mouths"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"pointId"</span><span class="p">:</span> <span class="s">"9F1D…"</span><span class="p">,</span> <span class="k">"pointName"</span><span class="p">:</span> <span class="s">"Hudson Bay"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">51.9</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-94.8</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/mouth/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/source/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">JSON merge patch — admin Save-JSON Source-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">The write counterpart of the Source GET — a JSON <strong>merge patch</strong> of <code>Editor/EditLakeLink.aspx?Type=16</code>'s editable fields, backed by the new <code>dbo.sp_lake_source_update</code>. Body is a JSON <strong>object</strong>; only keys actually present are touched. Covers <code>lat</code>, <code>lon</code>, <code>elevation</code>, <code>country</code>, <code>state</code>, <code>county</code>, <code>city</code>, <code>district</code>, <code>municipality</code>, <code>region</code>, <code>zone</code>, <code>coast</code>, <code>location</code>, <code>description</code> — <strong>except</strong> every identity/linkage field that same admin page shows read-only in this exact spot: the water body's own <code>lakeName</code>/<code>guid</code>, and the linked point's <code>pointName</code>/<code>pointId</code> (plus the row's internal <code>id</code>/<code>stamp</code>, neither a user-editable form field). Those are reported back as <code>protectedFields</code> rather than silently dropped or applied — same contract as <code>description</code>. An empty, non-object, or over-100-key body → <code>400 invalid_document</code> before any SQL runs; an unknown lake guid → <code>404</code>.</p>
+        <p class="prose" style="margin:2px 0 14px;"><strong>Fronted through cproxy automatically</strong> — the day-key gate (0.6.1) applies to every PATCH request, not a specific path, so no cproxy change was needed.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Patch coordinates, try to relink the point</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/source/a1cc30df-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">52.1</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-95.4</span><span class="p">,</span> <span class="k">"pointId"</span><span class="p">:</span> <span class="s">"00000000-…"</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"A1CC30DF-…"</span><span class="p">,</span> <span class="k">"updated"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"lat"</span><span class="p">},</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"lon"</span><span class="p">}</span> <span class="p">],</span> <span class="k">"ignored"</span><span class="p">:</span> <span class="p">[],</span> <span class="k">"protectedFields"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"pointId"</span><span class="p">,</span><span class="k">"reason"</span><span class="p">:</span><span class="s">"not editable through this endpoint"</span><span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Empty object</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/source/a1cc30df-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/mouth/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">JSON merge patch — admin Save-JSON Mouth-tab duplicate</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Same contract as <code>PATCH /river/source/{guid}</code> above, targeting the <code>side=32</code> row instead via the new <code>dbo.sp_lake_mouth_update</code>. Same editable-field list, same protected identity/linkage fields, same 400/404 rules.</p>
+        <p class="prose" style="margin:2px 0 14px;"><strong>Fronted through cproxy automatically</strong> — same day-key gate, no cproxy change needed.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Patch elevation</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/mouth/a1cc30df-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"elevation"</span><span class="p">:</span> <span class="n">198</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"A1CC30DF-…"</span><span class="p">,</span> <span class="k">"updated"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span><span class="k">"field"</span><span class="p">:</span><span class="s">"elevation"</span><span class="p">}</span> <span class="p">],</span> <span class="k">"ignored"</span><span class="p">:</span> <span class="p">[],</span> <span class="k">"protectedFields"</span><span class="p">:</span> <span class="p">[]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown lake guid</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/mouth/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
             </div>
           </div>
         </div>

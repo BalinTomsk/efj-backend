@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
+import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
@@ -57,6 +58,21 @@ import java.util.Set;
  * protects the identity/linkage fields that page shows read-only in this exact spot —
  * {@code lakeName}, {@code source}/{@code sourceId}, {@code mouth}/{@code mouthId} — reporting them
  * back as {@code protectedFields} rather than silently dropping or applying them.
+ *
+ * <p>{@code GET /api/v1/river/source/{guid}} and {@code GET /api/v1/river/mouth/{guid}} return the
+ * Source/Mouth tab documents — native docapi duplicates of the admin "Save JSON" export on
+ * {@code Editor/EditLakeLink.aspx?Type=16} / {@code ?Type=32} (the same "Save JSON" button, which
+ * downloads {@code HandlerImage.ashx?lakejson=&tab=source|mouth}), backed by the already-live
+ * {@code dbo.fn_lake_source_json} / {@code dbo.fn_lake_mouth_json}.
+ *
+ * <p>{@code PATCH /api/v1/river/source/{guid}} and {@code PATCH /api/v1/river/mouth/{guid}} are the
+ * write counterparts — a JSON merge patch of that tab's editable fields (lat/lon/elevation/country/
+ * state/county/city/district/municipality/region/zone/coast/location/description), via the new
+ * {@code dbo.sp_lake_source_update} / {@code dbo.sp_lake_mouth_update}. Deliberately protects every
+ * identity/linkage field {@code EditLakeLink.aspx} shows read-only in that exact spot — the main water
+ * body's own {@code lakeName}/{@code guid}, and the linked point's {@code pointName}/{@code pointId} —
+ * reporting them back as {@code protectedFields} rather than silently dropping or applying them, same
+ * as {@code description}.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -79,15 +95,18 @@ public class RiverController {
     private final RiverQueryRepository queryRepository;
     private final RiverFishCommandRepository fishCommandRepository;
     private final RiverDescriptionCommandRepository descriptionCommandRepository;
+    private final RiverLinkCommandRepository linkCommandRepository;
     private final ObjectMapper objectMapper;
 
     public RiverController(RiverQueryRepository queryRepository,
                             RiverFishCommandRepository fishCommandRepository,
                             RiverDescriptionCommandRepository descriptionCommandRepository,
+                            RiverLinkCommandRepository linkCommandRepository,
                             ObjectMapper objectMapper) {
         this.queryRepository = queryRepository;
         this.fishCommandRepository = fishCommandRepository;
         this.descriptionCommandRepository = descriptionCommandRepository;
+        this.linkCommandRepository = linkCommandRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -205,7 +224,7 @@ public class RiverController {
      */
     @PatchMapping(value = "/description/{guid}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<JsonNode> patchDescription(@PathVariable String guid, @RequestBody(required = false) String body) {
-        JsonNode patch = requireDescriptionPatch(body);
+        JsonNode patch = requireMergePatch(body);
         JsonNode document = descriptionCommandRepository.patchDescription(guid, patch.toString());
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
@@ -213,8 +232,71 @@ public class RiverController {
         return ApiResponse.ok(document);
     }
 
-    /** Validates the description PATCH body is a non-empty, size-capped JSON object. */
-    private JsonNode requireDescriptionPatch(String body) {
+    /**
+     * The Source-tab document for one water body: the linked point's name/id and its location fields.
+     *
+     * @param guid the water body's GUID
+     * @return the document nested as real JSON in the response envelope
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/source/{guid}")
+    public ApiResponse<JsonNode> source(@PathVariable String guid) {
+        JsonNode document = queryRepository.source(guid);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /** Same as {@link #source(String)}, for the Mouth tab. */
+    @GetMapping("/mouth/{guid}")
+    public ApiResponse<JsonNode> mouth(@PathVariable String guid) {
+        JsonNode document = queryRepository.mouth(guid);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * Applies a JSON merge-patch to one water body's Source-tab fields.
+     *
+     * @param guid the water body's GUID
+     * @param body a JSON object of field-name → new value; a JSON {@code null} clears that field
+     * @return {@code {lakeId, updated, ignored, protectedFields}} nested in the response envelope —
+     *         see {@link RiverLinkCommandRepository#patchSource} for the field names and what gets
+     *         protected
+     * @throws InvalidDocumentException  if the body is missing, not a well-formed JSON object, empty,
+     *                                    or over {@value #MAX_PATCH_FIELDS} keys (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @PatchMapping(value = "/source/{guid}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> patchSource(@PathVariable String guid, @RequestBody(required = false) String body) {
+        JsonNode patch = requireMergePatch(body);
+        JsonNode document = linkCommandRepository.patchSource(guid, patch.toString());
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /** Same as {@link #patchSource}, for the Mouth tab. */
+    @PatchMapping(value = "/mouth/{guid}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> patchMouth(@PathVariable String guid, @RequestBody(required = false) String body) {
+        JsonNode patch = requireMergePatch(body);
+        JsonNode document = linkCommandRepository.patchMouth(guid, patch.toString());
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * Validates a merge-patch PATCH body is a non-empty, size-capped JSON object. Shared by
+     * {@code description}/{@code source}/{@code mouth} — all three are the same JSON-merge-patch
+     * mechanism against a different table/row.
+     */
+    private JsonNode requireMergePatch(String body) {
         if (body == null || body.isBlank()) {
             throw new InvalidDocumentException("Request body must be a non-empty JSON object of fields to patch");
         }

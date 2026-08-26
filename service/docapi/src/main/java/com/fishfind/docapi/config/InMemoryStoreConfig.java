@@ -9,6 +9,7 @@ import com.fishfind.docapi.repo.InMemoryFishQueryRepository;
 import com.fishfind.docapi.repo.InMemoryNewsQueryRepository;
 import com.fishfind.docapi.repo.InMemoryRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverFishCommandRepository;
+import com.fishfind.docapi.repo.InMemoryRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverQueryRepository;
 import com.fishfind.docapi.repo.InMemoryRegulationCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRegulationQueryRepository;
@@ -17,6 +18,7 @@ import com.fishfind.docapi.repo.RegulationCommandRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
+import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -77,6 +79,11 @@ public class InMemoryStoreConfig {
     @Bean
     public RiverDescriptionCommandRepository riverDescriptionCommandRepository() {
         return new InMemoryRiverDescriptionCommandRepository();
+    }
+
+    @Bean
+    public RiverLinkCommandRepository riverLinkCommandRepository() {
+        return new InMemoryRiverLinkCommandRepository();
     }
 
     @Bean

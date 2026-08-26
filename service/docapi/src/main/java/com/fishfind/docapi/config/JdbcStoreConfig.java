@@ -8,6 +8,7 @@ import com.fishfind.docapi.repo.JdbcFishQueryRepository;
 import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
 import com.fishfind.docapi.repo.JdbcRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
+import com.fishfind.docapi.repo.JdbcRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
 import com.fishfind.docapi.repo.JdbcRegulationCommandRepository;
 import com.fishfind.docapi.repo.JdbcRegulationQueryRepository;
@@ -15,6 +16,7 @@ import com.fishfind.docapi.repo.RegulationCommandRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
+import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
@@ -116,6 +118,17 @@ public class JdbcStoreConfig {
     @Bean
     public RiverDescriptionCommandRepository riverDescriptionCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverDescriptionCommandRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed river-link command repository ({@code dbo.sp_lake_source_update} /
+     * {@code dbo.sp_lake_mouth_update}), a bean in its own right so Resilience4j can proxy it — see
+     * {@link #jdbcNewsStore} for why this matters. Separate from {@link #riverQueryRepository} because
+     * it writes, not reads.
+     */
+    @Bean
+    public RiverLinkCommandRepository riverLinkCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcRiverLinkCommandRepository(jdbc, objectMapper);
     }
 
     /**

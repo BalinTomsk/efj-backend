@@ -33,6 +33,16 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
      */
     static final String FISH_SQL = "SELECT dbo.fn_lake_fishing_json(?)";
 
+    /**
+     * Source-tab document (the {@code side = 16} Tributaries link). Same function the admin "Save
+     * JSON" Source-tab export uses ({@code Editor/EditLakeLink.aspx?Type=16} →
+     * {@code HandlerImage.ashx?lakejson=&tab=source}); already live in {@code envfish-db}.
+     */
+    static final String SOURCE_SQL = "SELECT dbo.fn_lake_source_json(?)";
+
+    /** Mouth-tab document ({@code side = 32}), same shape as {@link #SOURCE_SQL}. */
+    static final String MOUTH_SQL = "SELECT dbo.fn_lake_mouth_json(?)";
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -91,6 +101,36 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode fishFallback(String lakeId, Throwable ex) {
         throw new RuntimeException("SQL river-fish query failed for id " + lakeId, ex);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "sourceFallback")
+    public JsonNode source(String lakeId) {
+        List<String> rows = jdbc.query(SOURCE_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #source}. */
+    @SuppressWarnings("unused")
+    public JsonNode sourceFallback(String lakeId, Throwable ex) {
+        throw new RuntimeException("SQL river-source query failed for id " + lakeId, ex);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "mouthFallback")
+    public JsonNode mouth(String lakeId) {
+        List<String> rows = jdbc.query(MOUTH_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #mouth}. */
+    @SuppressWarnings("unused")
+    public JsonNode mouthFallback(String lakeId, Throwable ex) {
+        throw new RuntimeException("SQL river-mouth query failed for id " + lakeId, ex);
     }
 
     private JsonNode parse(String json) {

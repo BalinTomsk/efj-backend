@@ -40,4 +40,25 @@ public interface RiverQueryRepository {
      * @return the document as a JSON tree, or {@code null} if no water body exists for the id
      */
     JsonNode fish(String lakeId);
+
+    /**
+     * The Source-tab document for one water body — the {@code dbo.Tributaries} link row(s) where
+     * {@code side = 16}, with the linked point's name/id and its location fields. Same export the
+     * portal's admin "Save JSON" (Source tab, {@code EditLakeLink.aspx?Type=16}) uses. Backed by
+     * {@code dbo.fn_lake_source_json}.
+     *
+     * @param lakeId the water body's GUID
+     * @return the document as a JSON tree, or {@code null} if no water body exists for the id
+     */
+    JsonNode source(String lakeId);
+
+    /**
+     * The Mouth-tab document for one water body — same shape as {@link #source(String)} but for the
+     * {@code side = 32} link row(s) ({@code EditLakeLink.aspx?Type=32}). Backed by
+     * {@code dbo.fn_lake_mouth_json}.
+     *
+     * @param lakeId the water body's GUID
+     * @return the document as a JSON tree, or {@code null} if no water body exists for the id
+     */
+    JsonNode mouth(String lakeId);
 }

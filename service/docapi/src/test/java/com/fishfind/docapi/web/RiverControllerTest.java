@@ -3,6 +3,7 @@ package com.fishfind.docapi.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
+import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,9 @@ class RiverControllerTest {
 
     @MockBean
     private RiverDescriptionCommandRepository descriptionCommandRepository;
+
+    @MockBean
+    private RiverLinkCommandRepository linkCommandRepository;
 
     @Test
     void unfishedMapsTheRepositoryResultIntoTheEnvelope() throws Exception {
@@ -279,5 +283,160 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
 
         verify(descriptionCommandRepository, never()).patchDescription(anyString(), anyString());
+    }
+
+    // ---- source ----
+
+    @Test
+    void sourceReturnsTheDocumentNestedInTheEnvelope() throws Exception {
+        when(queryRepository.source("0c5343a8-849c-20c3-f4d1-0003eb237498")).thenReturn(
+                objectMapper.readTree("{\"guid\":\"0C5343A8-…\",\"lakeName\":\"Undersill Lake\",\"sources\":[{\"pointName\":\"Origin Creek\"}]}"));
+
+        mockMvc.perform(get("/api/v1/river/source/0c5343a8-849c-20c3-f4d1-0003eb237498"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lakeName").value("Undersill Lake"))
+                .andExpect(jsonPath("$.data.sources[0].pointName").value("Origin Creek"))
+                .andExpect(jsonPath("$.error").doesNotExist())
+                .andExpect(jsonPath("$.meta.timestamp").exists());
+    }
+
+    @Test
+    void sourceUnknownGuidReturns404() throws Exception {
+        when(queryRepository.source("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/source/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    // ---- mouth ----
+
+    @Test
+    void mouthReturnsTheDocumentNestedInTheEnvelope() throws Exception {
+        when(queryRepository.mouth("0c5343a8-849c-20c3-f4d1-0003eb237498")).thenReturn(
+                objectMapper.readTree("{\"guid\":\"0C5343A8-…\",\"lakeName\":\"Undersill Lake\",\"mouths\":[{\"pointName\":\"Outlet Bay\"}]}"));
+
+        mockMvc.perform(get("/api/v1/river/mouth/0c5343a8-849c-20c3-f4d1-0003eb237498"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mouths[0].pointName").value("Outlet Bay"))
+                .andExpect(jsonPath("$.error").doesNotExist())
+                .andExpect(jsonPath("$.meta.timestamp").exists());
+    }
+
+    @Test
+    void mouthUnknownGuidReturns404() throws Exception {
+        when(queryRepository.mouth("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/mouth/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    // ---- PATCH source (merge patch) ----
+
+    @Test
+    void patchSourceReturnsTheResultNestedInTheEnvelope() throws Exception {
+        String body = "{\"lat\":52.1,\"lon\":-95.4}";
+        when(linkCommandRepository.patchSource("0c5343a8-849c-20c3-f4d1-0003eb237498", body))
+                .thenReturn(objectMapper.readTree(
+                        "{\"lakeId\":\"0C5343A8-…\",\"updated\":[{\"field\":\"lat\"},{\"field\":\"lon\"}],\"ignored\":[],\"protectedFields\":[]}"));
+
+        mockMvc.perform(patch("/api/v1/river/source/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.updated[0].field").value("lat"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void patchSourceProtectsIdentityFields() throws Exception {
+        String body = "{\"lakeName\":\"Hijacked\",\"pointId\":\"00000000-0000-0000-0000-000000000000\"}";
+        when(linkCommandRepository.patchSource("0c5343a8-849c-20c3-f4d1-0003eb237498", body))
+                .thenReturn(objectMapper.readTree(
+                        "{\"lakeId\":\"0C5343A8-…\",\"updated\":[],\"ignored\":[],"
+                                + "\"protectedFields\":[{\"field\":\"lakeName\"},{\"field\":\"pointId\"}]}"));
+
+        mockMvc.perform(patch("/api/v1/river/source/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.updated").isEmpty())
+                .andExpect(jsonPath("$.data.protectedFields[0].field").value("lakeName"))
+                .andExpect(jsonPath("$.data.protectedFields[1].field").value("pointId"));
+    }
+
+    @Test
+    void patchSourceUnknownLakeGuidReturns404() throws Exception {
+        when(linkCommandRepository.patchSource(eq("00000000-0000-0000-0000-000000000000"), anyString()))
+                .thenReturn(null);
+
+        mockMvc.perform(patch("/api/v1/river/source/00000000-0000-0000-0000-000000000000")
+                        .contentType("application/json").content("{\"lat\":1}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void patchSourceEmptyObjectReturns400WithoutCallingTheRepository() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/source/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(linkCommandRepository, never()).patchSource(anyString(), anyString());
+    }
+
+    @Test
+    void patchSourceMissingBodyReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/source/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    // ---- PATCH mouth (merge patch) ----
+
+    @Test
+    void patchMouthReturnsTheResultNestedInTheEnvelope() throws Exception {
+        String body = "{\"lat\":51.9,\"lon\":-94.8}";
+        when(linkCommandRepository.patchMouth("0c5343a8-849c-20c3-f4d1-0003eb237498", body))
+                .thenReturn(objectMapper.readTree(
+                        "{\"lakeId\":\"0C5343A8-…\",\"updated\":[{\"field\":\"lat\"},{\"field\":\"lon\"}],\"ignored\":[],\"protectedFields\":[]}"));
+
+        mockMvc.perform(patch("/api/v1/river/mouth/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.updated[0].field").value("lat"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void patchMouthUnknownLakeGuidReturns404() throws Exception {
+        when(linkCommandRepository.patchMouth(eq("00000000-0000-0000-0000-000000000000"), anyString()))
+                .thenReturn(null);
+
+        mockMvc.perform(patch("/api/v1/river/mouth/00000000-0000-0000-0000-000000000000")
+                        .contentType("application/json").content("{\"lat\":1}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void patchMouthEmptyObjectReturns400WithoutCallingTheRepository() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/mouth/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(linkCommandRepository, never()).patchMouth(anyString(), anyString());
+    }
+
+    @Test
+    void patchMouthArrayBodyReturns400() throws Exception {
+        mockMvc.perform(patch("/api/v1/river/mouth/0c5343a8-849c-20c3-f4d1-0003eb237498")
+                        .contentType("application/json").content("[{\"lat\":1}]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
     }
 }

@@ -2,6 +2,37 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-08-26: **1.7.0 — `RiverController` gains `GET`/`PATCH /api/v1/river/source/{guid}` and
+  `GET`/`PATCH /api/v1/river/mouth/{guid}`.** The Source/Mouth-tab counterparts of the existing
+  description/fish endpoints, for `Editor/EditLakeLink.aspx?Type=16|32`. **NOT YET DEPLOYED** — built
+  and tested locally, awaiting explicit deploy approval per the frontend repo's deploy policy.
+  **Reads** reuse the already-live `dbo.fn_lake_source_json` / `dbo.fn_lake_mouth_json` (the same
+  functions the admin "Save JSON" button on that page already calls via
+  `HandlerImage.ashx?lakejson=&tab=source|mouth`) through two new `RiverQueryRepository` methods
+  (`source`/`mouth`) — no new DB object for the read side. **Writes** are a JSON **merge patch** of
+  that tab's editable fields — `lat`, `lon`, `elevation`, `country`, `state`, `county`, `city`,
+  `district`, `municipality`, `region`, `zone`, `coast`, `location`, `description` (the exact set
+  `EditLakeLink.aspx`'s `ButtonSubmit_Click` writes for this tab) — via two new stored procedures,
+  `dbo.sp_lake_source_update` / `dbo.sp_lake_mouth_update` (`envfish-db`, 2026-08-26), fronted by one
+  new **`RiverLinkCommandRepository`** (`patchSource`/`patchMouth`) — a single repository for both
+  tabs rather than two, since they are the identical merge-patch mechanism against a different
+  `Tributaries.side` (16 vs 32; `UK_Tributaries_Source`/`UK_Tributaries_Mouth` guarantee at most one
+  row per side per water body). **Deliberately protects every identity/linkage field
+  `EditLakeLink.aspx` shows read-only in this exact spot** — the main water body's own
+  `lakeName`/`guid`, and the linked point's `pointName`/`pointId` (plus the row's internal `id`/
+  `stamp`, neither a user-editable field on that page) — reported back as `protectedFields` rather
+  than silently dropped or applied, same contract as `sp_lake_description_update`. Empty/non-object/
+  over-100-key body ⇒ 400 `invalid_document`; unknown lake guid ⇒ 404 for every one of the four new
+  routes. **No cproxy change needed**: cproxy is a transparent method/path passthrough (GET/PATCH
+  admitted since 0.6.1) with no per-path allowlist, so these routes reach production automatically the
+  moment docapi itself is redeployed; the PATCH routes pick up the existing day-key gate the same way.
+  **DB (envfish-db):** `unit_test@LakeJson.sql` TEST 15–18 (writes all 14 editable fields and reports
+  them updated; 6 identity/linkage fields reported `protectedFields` and applied to none of them;
+  mouth PATCH touches only the `side=32` row, leaving `side=16` untouched; unknown lake id ⇒ `NULL`
+  for both procs, malformed JSON ⇒ a `protectedFields`-shaped error) — all pass via `autorun.bat`.
+  **docapi:** `RiverControllerTest` gained 9 tests (GET 200/404 ×2, PATCH 200/protected-fields/404/400
+  ×2) — full suite is 135 tests, 0 failures. **Deploy order once approved:** DB procs first (additive,
+  no existing behavior changes), then the `docapi` JAR/container.
 - 2026-08-25: **1.6.0 — new `RegulationController`: `GET`/`PATCH /api/v1/river/regulation/{guid}` +
   `GET`/`PATCH /api/v1/region/regulation/{country}[/{state}]`.** Covers two of the three scopes
   `Editor/LakeRegulation.aspx`'s single "regulation dialog" edits through one `dbo.regulations` table —
