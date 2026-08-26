@@ -109,9 +109,19 @@ com.fishfind.docapi
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
 │   │                              #   fn_fish_latin_json
-│   ├── RiverQueryRepository       # interface: unfished(country, state, river) (next un-processed water body)
-│   ├── InMemoryRiverQueryRepository # default backing — found:false (no DB)
-│   └── JdbcRiverQueryRepository   # JDBC backing — dbo.fn_river_unfished_json
+│   ├── RiverQueryRepository       # interface: unfished/description/fish/source/mouth(lakeId)
+│   ├── InMemoryRiverQueryRepository # default backing — found:false / null docs (no DB)
+│   ├── JdbcRiverQueryRepository   # JDBC backing — dbo.fn_river_unfished_json / fn_lake_view_json /
+│   │                              #   fn_lake_fishing_json / fn_lake_source_json / fn_lake_mouth_json
+│   ├── RiverFishCommandRepository # interface: upsertFish(lakeId, itemsJson) — batch species upsert
+│   ├── InMemoryRiverFishCommandRepository / JdbcRiverFishCommandRepository (sp_lake_fish_upsert_batch)
+│   ├── RiverDescriptionCommandRepository # interface: patchDescription(lakeId, patchJson)
+│   ├── InMemoryRiverDescriptionCommandRepository / JdbcRiverDescriptionCommandRepository
+│   │                              #   (sp_lake_description_update)
+│   ├── RiverLinkCommandRepository # interface: patchSource/patchMouth(lakeId, patchJson) — one
+│   │                              #   repository for both tabs, same mechanism vs. Tributaries.side
+│   └── InMemoryRiverLinkCommandRepository / JdbcRiverLinkCommandRepository
+│                                  #   (sp_lake_source_update / sp_lake_mouth_update)
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
 │   ├── NewsDocumentService … (one @Service per entity)
@@ -122,8 +132,10 @@ com.fishfind.docapi
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default) + interchange /export, /import
     ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
-    ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid} (lakejson&tab=view duplicate)
-    │                              #   + /river/fish/{guid} (lakejson&tab=fishing duplicate)
+    ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid}
+    │                              #   (lakejson&tab=view) + /river/fish/{guid} (tab=fishing) +
+    │                              #   /river/source/{guid} (tab=source) + /river/mouth/{guid} (tab=mouth),
+    │                              #   PATCH on fish/description/source/mouth
     ├── RegulationController        # GET/PATCH /river/regulation/{guid} + /region/regulation/{country}[/{state}]
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
@@ -221,9 +233,9 @@ ordering. Batch cap 100 ⇒ 400.
 
 ### River / water-body query (`RiverController`)
 
-`RiverController` exposes two read endpoints, delegating to `RiverQueryRepository` (interface +
+`RiverController` exposes five read endpoints, delegating to `RiverQueryRepository` (interface +
 `InMemoryRiverQueryRepository` default / `JdbcRiverQueryRepository` jdbc). Same `sqlRetry`/
-`sqlBreaker` guards on both; **not cached** — one proxied bean per profile.
+`sqlBreaker` guards on all five; **not cached** — one proxied bean per profile.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
@@ -232,6 +244,10 @@ ordering. Batch cap 100 ⇒ 400.
 | `GET /api/v1/river/fish/{guid}` | `SELECT dbo.fn_lake_fishing_json(?)` | **Native docapi duplicate of the admin "Save JSON" Fishing-tab export** (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=fishing`). Returns the assigned-species document for one water body — every `lake_fish` row (name, latin, conservation status, last-catch, external link). `dbo.fn_lake_fishing_json` **already exists in prod** (same 2026-08-13 per-tab Save-JSON rollout as `fn_lake_view_json`), so this is again a **docapi-only change with no new DB object**. `NULL` (unknown guid) ⇒ 404. Same public-data reasoning as `/description/{guid}` — the assigned species list is shown publicly on `Resources/wfRiverViewer.aspx`. Literal `/fish/…` matched ahead of any future templated route on this controller. |
 | `PATCH /api/v1/river/fish/{guid}` | `EXEC dbo.sp_lake_fish_upsert_batch ?, ?` | **The write counterpart — a native duplicate of the "Add" form on `Editor/EditLakeFish.aspx`** (`AddFishToLake`). Body is a JSON array of `{fishId, link, trustLevel, year, status}` entries (`fishId` required, the rest optional), upserted in one batch by `RiverFishCommandRepository` / `sp_lake_fish_upsert_batch` (new DB object, 2026-08-25). **Unlike every other river endpoint this is a genuine write** — the shared `sqlBreaker`/`sqlRetry` guards still apply, but there's no cache in front of it and it's a separate `RiverFishCommandRepository` bean (not a method on `RiverQueryRepository`) precisely because it mutates `lake_fish`. Per entry: `inserted` (new), `updated` (existing row whose `link` is empty/NULL — the only case an existing row is touched), `skipped` (existing row **with** a link — deliberately never overwritten), `unknown_fish` (guid not in `dbo.fish`), `invalid_fish_id` (not a guid). Empty/non-array/over-500-entry body ⇒ 400 `invalid_document`; unknown guid ⇒ 404. **Fronted through cproxy as of 0.6.1** (deployed 2026-08-25) — `CPROXY_ALLOWED_METHODS` now admits `PATCH`, gated by a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API key. Verified live end-to-end through the public gateway. See `efc-proxy` `CLAUDE.md` → "Day-key store". |
 | `PATCH /api/v1/river/description/{guid}` | `EXEC dbo.sp_lake_description_update ?, ?` | **A second, independent write — a JSON merge patch of the `Editor/LakeEditor.aspx` "General" tab's editable fields**, via `RiverDescriptionCommandRepository` / `sp_lake_description_update` (new DB object, 2026-08-25). Body is a JSON **object** (not an array like the fish endpoint) of `fieldName: value`; only keys actually present are touched — an explicit JSON `null` clears that field, an omitted key leaves it alone. Covers `altName`, `nativeName`, `french`, `link`, `type`, `length_km`, `width_km`, `shoreline_km`, `maxDepth_m`, `volume_km3`, `surface_km2`, `discharge_m3s`, `basin_km2`, `watershield_km2`, `drainage`, `cgndb`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description`. **Deliberately protects the identity/linkage fields `LakeEditor.aspx` shows read-only in this exact spot** — `lakeName`, `source`/`sourceId`, `mouth`/`mouthId` — reporting them back as `protectedFields` rather than silently dropping or applying them; `noFish` is blocked (reported `ignored`) while the lake has assigned species, mirroring the page's own client-side rule. Empty/non-object/over-100-key body ⇒ 400 `invalid_document`; unknown guid ⇒ 404. Response: `{lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}]}`. **Fronted through cproxy automatically** — the day-key gate applies to every PATCH, not a specific path, so no cproxy change was needed; verified live end-to-end through the public gateway. |
+| `GET /api/v1/river/source/{guid}` | `SELECT dbo.fn_lake_source_json(?)` | **Native docapi duplicate of the admin "Save JSON" Source-tab export** (`Editor/EditLakeLink.aspx?Type=16` → `HandlerImage.ashx?lakejson=<guid>&tab=source`). Returns `{guid, lakeName, sources:[{id, pointId, pointName, lat, lon, elevation, country, state, county, city, district, municipality, region, zone, coast, location, description, stamp}]}` — normally one element (`UK_Tributaries_Source` allows at most one `side=16` row per water body). `dbo.fn_lake_source_json` **already exists in prod** (2026-08-13 rollout), so this is a **docapi-only change with no new DB object** for the read side. `NULL` (unknown guid) ⇒ 404. Same public-data reasoning as `/description/{guid}`. |
+| `GET /api/v1/river/mouth/{guid}` | `SELECT dbo.fn_lake_mouth_json(?)` | Same shape as `/source/{guid}` above (`mouths` key instead of `sources`), for the `side=32` row (`Editor/EditLakeLink.aspx?Type=32`, `UK_Tributaries_Mouth`). `NULL` ⇒ 404. |
+| `PATCH /api/v1/river/source/{guid}` | `EXEC dbo.sp_lake_source_update ?, ?` | **The write counterpart — a JSON merge patch of `Editor/EditLakeLink.aspx?Type=16`'s editable fields**, via the new `RiverLinkCommandRepository` / `sp_lake_source_update` (new DB object, 2026-08-26). Body is a JSON object; only keys present are touched. Covers `lat`, `lon`, `elevation`, `country`, `state`, `county`, `city`, `district`, `municipality`, `region`, `zone`, `coast`, `location`, `description` — the exact set `ButtonSubmit_Click` writes for this tab. **Deliberately protects every identity/linkage field `EditLakeLink.aspx` shows read-only in this exact spot** — the main water body's own `lakeName`/`guid`, and the linked point's `pointName`/`pointId` (plus the row's internal `id`/`stamp`, neither a user-editable field) — reported back as `protectedFields`, same contract as `description`. Empty/non-object/over-100-key body ⇒ 400 `invalid_document`; unknown lake guid ⇒ 404. Response shape matches the description PATCH. **Fronted through cproxy automatically** — the day-key gate is verb-based, not path-based, so no cproxy change is needed. **Not yet deployed to prod** — see the 2026-08-26 changelog entry. |
+| `PATCH /api/v1/river/mouth/{guid}` | `EXEC dbo.sp_lake_mouth_update ?, ?` | Same contract as `PATCH /river/source/{guid}` above, targeting the `side=32` row via the new `sp_lake_mouth_update`. Both PATCH procedures live behind one shared `RiverLinkCommandRepository` bean (`patchSource`/`patchMouth`), not two separate repositories, since they are the identical merge-patch mechanism against a different `Tributaries.side`. |
 
 ### Regulation query/write (`RegulationController`)
 
@@ -363,7 +379,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (111 tests):
+`mvn test` — no DB needed (135 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
@@ -383,15 +399,17 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
   `q` ⇒ 400.
 - `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` +
-  `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` (20): `/river/unfished` result
-  mapping, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected),
-  lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid),
-  `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (6: 200
-  result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400
-  over-`MAX_FISH_BATCH`), **and `PATCH /river/description/{guid}`** (6: 200 result envelope, 404
-  unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS` — the
-  400 cases across both PATCH endpoints also assert the repository is never called, i.e. validation
-  happens before any SQL).
+  `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository`
+  (33): `/river/unfished` result mapping, default fallback (missing params → CA/ON/2), bad-code/river
+  cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc /
+  404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid),
+  `PATCH /river/fish/{guid}` (6: 200 result envelope, 404 unknown lake, 400 empty array, 400 non-array
+  body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (6: 200 result
+  envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400
+  over-`MAX_PATCH_FIELDS`), and **`GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}`**
+  (9: 200 doc / 404 unknown guid for each GET; 200 result envelope incl. a protected-fields case, 404
+  unknown lake, 400 empty object, 400 missing/array body for each PATCH) — the 400 cases across every
+  PATCH endpoint also assert the repository is never called, i.e. validation happens before any SQL.
 - `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`
   `RegulationQueryRepository` + `RegulationCommandRepository` (11): `GET /river/regulation/{guid}` (200
   doc / 404 unknown), `PATCH /river/regulation/{guid}` (200 result envelope — an `ArgumentCaptor`

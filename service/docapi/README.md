@@ -149,7 +149,7 @@ resolves to the right species), best match first. It reuses the **same** lookup 
 `FishList.aspx` search box uses (`dbo.SearchFishList`), so no new DB object is needed. Each hit is
 `{ fishId, name, latin, rank }` (`rank` — lower is better, 0 = exact); blank/missing `q` ⇒ 400.
 
-The River entity adds three lookups and one write. `GET /api/v1/river/unfished?country=&state=&river=` — the next
+The River entity adds five lookups and three writes. `GET /api/v1/river/unfished?country=&state=&river=` — the next
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
@@ -194,6 +194,27 @@ assigned species, mirroring the page's own client-side rule. Empty/non-object/ov
 400; unknown lake guid ⇒ 404. Response: `{lakeId, updated:[{field}], ignored:[{field,reason}],
 protectedFields:[{field,reason}]}`. Fronted through cproxy automatically — the day-key gate applies
 to every PATCH, not a specific path.
+
+`GET /api/v1/river/source/{guid}` / `GET /api/v1/river/mouth/{guid}` — the Source/Mouth-tab documents
+for one water body: `{guid, lakeName, sources|mouths:[{id, pointId, pointName, lat, lon, elevation,
+country, state, county, city, district, municipality, region, zone, coast, location, description,
+stamp}]}` (normally one element per side — `UK_Tributaries_Source`/`UK_Tributaries_Mouth` allow at
+most one `side=16`/`side=32` row per water body). Native duplicates of the admin "Save JSON"
+Source/Mouth-tab export (`Editor/EditLakeLink.aspx?Type=16|32` →
+`HandlerImage.ashx?lakejson=<guid>&tab=source|mouth`), backed by `dbo.fn_lake_source_json` /
+`dbo.fn_lake_mouth_json` — already live in prod (2026-08-13 rollout), no new DB object for the read
+side. Unknown guid ⇒ 404.
+
+`PATCH /api/v1/river/source/{guid}` / `PATCH /api/v1/river/mouth/{guid}` — the write counterparts: a
+JSON **merge patch** of that tab's editable fields on `Editor/EditLakeLink.aspx`
+(`ButtonSubmit_Click`) — `lat`, `lon`, `elevation`, `country`, `state`, `county`, `city`, `district`,
+`municipality`, `region`, `zone`, `coast`, `location`, `description` — via the new
+`dbo.sp_lake_source_update` / `dbo.sp_lake_mouth_update`. **Deliberately excludes** every
+identity/linkage field that same admin page shows read-only in this exact spot — the water body's own
+`lakeName`/`guid`, and the linked point's `pointName`/`pointId` (plus the row's internal `id`/`stamp`,
+neither a user-editable field) — reported back as `protectedFields`, same contract as `description`.
+Empty/non-object/over-100-key body ⇒ 400; unknown lake guid ⇒ 404. Fronted through cproxy
+automatically — same day-key gate, no cproxy change needed. **Not yet deployed to prod** (1.7.0).
 
 The Regulation entity exposes two of the three scopes `Editor/LakeRegulation.aspx`'s single
 "regulation dialog" edits through one `dbo.regulations` table (zone-scoped rules have no dedicated
@@ -274,6 +295,9 @@ Notes:
   **river fish read** (`GET /api/v1/river/fish/{guid}`) → `dbo.fn_lake_fishing_json(@lake)` — both
   pre-existing per-tab admin "Save JSON" export functions from the 2026-08-13 `envfish-db` rollout;
   docapi is the only new code for either endpoint.
+- **River source/mouth read** (`GET /api/v1/river/source/{guid}` / `GET /api/v1/river/mouth/{guid}`) →
+  `dbo.fn_lake_source_json(@lake)` / `dbo.fn_lake_mouth_json(@lake)` — same 2026-08-13 rollout as the
+  functions above, no new DB object for the read side.
 - **River fish write** (`PATCH /api/v1/river/fish/{guid}`) → `EXEC dbo.sp_lake_fish_upsert_batch @lake,
   @fish` (new proc, `envfish-db` 2026-08-25, `unit_test@LakeFishUpsertBatch.sql`), and **river
   description write** (`PATCH /api/v1/river/description/{guid}`) →
@@ -283,6 +307,11 @@ Notes:
   result-set drain (see `JdbcDocumentRepository.executeReturningScalar` /
   `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
   proc's DML can interleave update counts with its final `SELECT`.
+- **River source/mouth write** (`PATCH /api/v1/river/source/{guid}` / `PATCH /api/v1/river/mouth/{guid}`)
+  → `EXEC dbo.sp_lake_source_update @lake, @patch` / `EXEC dbo.sp_lake_mouth_update @lake, @patch` (new
+  procs, `envfish-db` 2026-08-26, `unit_test@LakeJson.sql` TEST 15–18), same `jdbc.execute` drain
+  pattern, one shared `RiverLinkCommandRepository` bean for both. **Not yet applied to the production
+  database** — see the docapi CHANGELOG 2026-08-26 entry.
 - **River regulation read** (`GET /api/v1/river/regulation/{guid}`) → `dbo.fn_lake_regulation_json(@lake)`
   (pre-existing per-tab admin "Save JSON" export function, 2026-08-13 rollout — extended 2026-08-25 to
   also emit the new `country` field, `unit_test@RegulationRead.sql`), and **region regulation read**
