@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <title>DocAPI Reference</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Full REST reference for docapi's six controllers (Health, News, Fish, River, Waterbody, Station), with live-captured request/response examples." />
+<meta name="description" content="Full REST reference for docapi's seven controllers (Health, News, Fish, River, Regulation, Waterbody, Station), with live-captured request/response examples." />
 <style>
   /* ============================= TOKENS ============================= */
   :root {
@@ -367,7 +367,7 @@
   <header class="identity">
     <div class="eyebrow">docapi · full REST reference</div>
     <h1 class="display">DocAPI Reference</h1>
-    <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, river, water-body and station data. Six controllers, one response envelope, documented and example-verified against the live service.</p>
+    <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, river, regulation, water-body and station data. Seven controllers, one response envelope, documented and example-verified against the live service.</p>
     <div class="chip-row">
       <span class="chip"><span class="live-dot"></span>docapi 1.5.4 — verified live 2026‑08‑25</span>
       <span class="chip">Envelope: <code>{ data, error, meta }</code></span>
@@ -392,7 +392,7 @@
       <h2 class="display">How responses are shaped</h2>
       <span class="tag">ApiResponse&lt;T&gt;</span>
     </div>
-    <p class="prose">Every docapi response — success or failure, from any of the six controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
+    <p class="prose">Every docapi response — success or failure, from any of the seven controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
 
     <div class="envelope-card" style="margin-top:20px;">
       <div>
@@ -902,6 +902,142 @@
     </div>
   </section>
 
+  <!-- ============================= REGULATION ============================= -->
+  <section class="block" id="regulation">
+    <div class="block-head">
+      <h2 class="display">Regulation</h2>
+      <span class="tag">RegulationController · /api/v1/river/regulation, /api/v1/region/regulation</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">Two of the three scopes <code>Editor/LakeRegulation.aspx</code>'s single "regulation dialog" edits through one <code>dbo.regulations</code> table — water-body rules and region (country/state) rules; zone-scoped rules have no dedicated endpoint yet. <strong>There is no separate INSERT verb</strong> — every PATCH below upserts by identity: a body matching nothing existing inserts (<code>action:"inserted"</code>), one matching an existing row updates it in place (<code>action:"updated"</code>). This keeps the whole feature on cproxy's existing <code>GET</code>/<code>PATCH</code>-only allow-list, so it ships with <strong>no cproxy change</strong>. The identifying fields (<code>lakeId</code>, or <code>country</code>/<code>state</code>) always come from the URL, never the body — a caller can't accidentally write to a different scope than the route they called. A validation failure (missing <code>year</code>, an unknown <code>lakeId</code>/<code>fishId</code>, or <code>zoneId</code>+<code>lakeId</code> both set) is a <code>200</code> with an inline <code>error</code>, the same graceful contract as <code>sp_lake_description_update</code>'s malformed-JSON path — not a <code>4xx</code>.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/regulation/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">this water body's own regulation rows</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Backed by <code>dbo.fn_lake_regulation_json</code>, the same function behind the admin "Save JSON" Regulation-tab export. Returns only rows with this exact <code>Lake_id</code> — never the region/zone rules that also apply to it (those have their own scope-specific read below). Unknown guid → <code>404</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Water body with one salmon rule</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/regulation/200d4de0-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"guid"</span><span class="p">:</span> <span class="s">"200D4DE0-…"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Bear Cove River"</span><span class="p">,</span> <span class="k">"regulations"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"NL"</span><span class="p">,</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"A35109A0-…"</span><span class="p">,</span> <span class="k">"regYear"</span><span class="p">:</span> <span class="n">2026</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"https://laws-lois.justice.gc.ca/…"</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/regulation/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/regulation/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">upsert one water-body-scoped rule</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Backed by the new <code>dbo.sp_regulation_upsert</code>. <code>lakeId</code> is always taken from the path — a <code>lakeId</code> in the body is overridden, and <code>zoneId</code> is stripped, so this route can only ever write the water-body scope. Identity = <code>country</code>/<code>state</code>/<code>fishId</code>/<code>year</code>/<code>part</code>/<code>residentType</code> (+ this path's <code>lakeId</code>): a body matching an existing rule updates it; otherwise a new row is inserted. <code>dbo.TR_regulations</code> auto-adds the row to <code>lake_fish</code> when the rule carries a <code>fishId</code> not yet assigned to that lake — the same side effect the ASPX page's own INSERT triggers.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>New Atlantic Salmon rule</strong>, sourced from Schedule I.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/regulation/200d4de0-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"year"</span><span class="p">:</span> <span class="n">2026</span><span class="p">,</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"a35109a0-63ba-4bf5-8a25-2e7e39b74f6e"</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"https://laws-lois.justice.gc.ca/eng/regulations/SOR-78-443/FullText.html"</span><span class="p">,</span> <span class="k">"text"</span><span class="p">:</span> <span class="s">"Schedule I item 155."</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"action"</span><span class="p">:</span> <span class="s">"inserted"</span><span class="p">,</span> <span class="k">"scope"</span><span class="p">:</span> <span class="s">"waterBody"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Missing year</strong> — graceful error, still 200.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/regulation/200d4de0-2892-e811-9104-00155d007b12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"sport"</span><span class="p">:</span> <span class="n">4</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"action"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="s">"year is required"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/region/regulation/<span class="param">{country}</span></span></div>
+        <span class="specimen-label">whole-country rules (no specific state)</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Backed by the new <code>dbo.fn_region_regulation_json</code> with <code>state</code> omitted. Returns only rows with no state at all — this is <strong>not</strong> a roll-up of every province's rules. An unrecognized country yields an empty <code>regulations</code> array, not a <code>404</code> (there's no single "country" row to be missing). A non-two-letter <code>country</code> → <code>400</code>.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>US, whole-country</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/region/regulation/us</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"US"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"regulations"</span><span class="p">:</span> <span class="p">[]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/region/regulation/<span class="param">{country}</span>/<span class="param">{state}</span></span></div>
+        <span class="specimen-label">province/state-wide rules</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Same function, <code>state</code> given. A different, non-overlapping row set from the country-only route above — a rule with no state never shows up here, and vice versa.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Ontario</strong> province-wide rules.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/region/regulation/ca/on</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"ON"</span><span class="p">,</span> <span class="k">"regulations"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">,</span> <span class="k">"regYear"</span><span class="p">:</span> <span class="n">2026</span><span class="p">,</span> <span class="k">"sport"</span><span class="p">:</span> <span class="n">6</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Malformed country</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/region/regulation/usa/ny</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"country must be a two-letter code"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/region/regulation/<span class="param">{country}</span>[/<span class="param">{state}</span>]</span></div>
+        <span class="specimen-label">upsert one region-scoped rule</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;"><code>country</code> (and <code>state</code>, on the two-segment route) always come from the path; the single-segment route additionally strips <code>state</code> out of the body, so it can only ever write the whole-country row, never accidentally a province one. <code>zoneId</code>/<code>lakeId</code> are stripped on both routes.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>New whole-country rule</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/region/regulation/us</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"year"</span><span class="p">:</span> <span class="n">2026</span><span class="p">,</span> <span class="k">"sport"</span><span class="p">:</span> <span class="n">5</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span> <span class="k">"action"</span><span class="p">:</span> <span class="s">"inserted"</span><span class="p">,</span> <span class="k">"scope"</span><span class="p">:</span> <span class="s">"region"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Resubmit the same identity</strong> — updates, not a duplicate.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/region/regulation/ca/on</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"year"</span><span class="p">:</span> <span class="n">2026</span><span class="p">,</span> <span class="k">"sport"</span><span class="p">:</span> <span class="n">6</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">3</span><span class="p">,</span> <span class="k">"action"</span><span class="p">:</span> <span class="s">"updated"</span><span class="p">,</span> <span class="k">"scope"</span><span class="p">:</span> <span class="s">"region"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============================= WATERBODY / STATION ============================= -->
   <section class="block" id="waterbody">
     <div class="block-head">
@@ -998,7 +1134,7 @@
   </section>
 
   <footer>
-    <span>docapi — <code>com.fishfind.docapi</code> · 6 controllers: Health, News, Fish, River, Waterbody, Station</span>
+    <span>docapi — <code>com.fishfind.docapi</code> · 7 controllers: Health, News, Fish, River, Regulation, Waterbody, Station</span>
     <span class="fver">deployed <strong>1.4.1</strong> · smoke-tested end to end 2026‑08‑18</span>
   </footer>
 

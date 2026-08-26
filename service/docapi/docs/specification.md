@@ -119,6 +119,48 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   SQL runs. Fronted through cproxy automatically — the day-key gate (0.6.1) applies to every PATCH
   request, not a specific path; verified live end-to-end through the public gateway.
 
+**Regulation lookups/writes** (added on `RegulationController` — calls `dbo.fn_lake_regulation_json` /
+`dbo.fn_region_regulation_json` / `dbo.sp_regulation_upsert`; see [Data access](#data-access)). Covers
+two of the three scopes `Editor/LakeRegulation.aspx`'s single "regulation dialog" edits through one
+`dbo.regulations` table (water-body and region/country-state; zone-scoped rules have no dedicated
+endpoint yet):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `GET` | `/api/v1/river/regulation/{guid}` | 200 | this water body's own regulation rows (`{guid, lakeName, regulations:[...]}`); 404 if the guid is unknown |
+| `PATCH` | `/api/v1/river/regulation/{guid}` | 200 | `{ id, action, scope }` on success, or `{id:null, action:null, error}` on a validation failure; 400 on a malformed/missing body |
+| `GET` | `/api/v1/region/regulation/{country}` | 200 | whole-country rules, no specific state (`{country, state:null, regulations:[...]}`); never 404 — an unrecognized country returns an empty array |
+| `GET` | `/api/v1/region/regulation/{country}/{state}` | 200 | province/state-wide rules (`{country, state, regulations:[...]}`); never 404 |
+| `PATCH` | `/api/v1/region/regulation/{country}` | 200 | `{ id, action, scope }` / validation-error shape, same as the water-body PATCH |
+| `PATCH` | `/api/v1/region/regulation/{country}/{state}` | 200 | `{ id, action, scope }` / validation-error shape, same as the water-body PATCH |
+
+- **There is no separate INSERT verb.** Every PATCH above upserts by identity
+  (`country`/`state`/`zoneId`/`lakeId`/`fishId`/`year`/`part`/`residentType` — the columns behind
+  `dbo.regulations`' two filtered unique indexes): a body matching nothing existing inserts
+  (`action:"inserted"`), one matching an existing row updates it in place (`action:"updated"`). A
+  dedicated `POST` was deliberately skipped — cproxy's write surface only admits `GET`/`PATCH` (the
+  day-key gate is verb-based, not path-based), so this reuses the fish/description endpoints'
+  upsert-on-PATCH pattern and ships with **no cproxy change**.
+- **Scope is inferred, not declared.** `lakeId` set → water-body rule; `zoneId` set (no `lakeId`) →
+  zone rule; neither → region rule (whole-country when `state` is omitted, else province/state-wide).
+  `zoneId` and `lakeId` are mutually exclusive — a body setting both is rejected.
+- **The identifying fields always come from the URL, never the body.** `PATCH /river/regulation/{guid}`
+  sets `lakeId` from the path and strips any `zoneId`/conflicting `lakeId` out of the body before it
+  reaches SQL; `PATCH /region/regulation/{country}[/{state}]` sets `country`/`state` from the path and
+  strips `zoneId`/`lakeId`. A caller can't accidentally write to a different scope than the route they
+  called.
+- **Country/state path segments are validated, not defaulted.** Unlike `/river/unfished`'s
+  best-effort `country`/`state` query params (which fall back silently), a non-two-letter `country` or
+  `state` **path** segment on any regulation route is 400 `invalid_document` — these identify which
+  resource is being read/written, so a typo should fail loudly rather than silently reading/writing
+  the wrong scope.
+- **Validation failures are a 200 with an inline `error`, not a 4xx** — same contract as
+  `sp_lake_description_update`'s malformed-JSON path: `{id:null, action:null, error:"..."}`. Missing
+  `year`, an unknown `lakeId`/`fishId`, or `zoneId`+`lakeId` both set all take this shape.
+- `dbo.TR_regulations` (`FOR INSERT`) auto-adds the row to `lake_fish` when a new water-body rule also
+  carries a `fishId` not yet assigned to that lake — the same side effect the ASPX page's own INSERT
+  triggers. Silent from this endpoint's point of view, same as it is in the UI.
+
 **Fish Latin-name lookups** (fish only, on the `FishController` base path — call
 `dbo.fn_fish_code_latin_json` / `dbo.fn_fish_latin_json`, which already exist in `envfish-db`):
 
@@ -231,6 +273,18 @@ src/main/java/com/fishfind/docapi/repo/JdbcFishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/RiverQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryRiverQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcRiverQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/RiverFishCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryRiverFishCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcRiverFishCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/RiverDescriptionCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryRiverDescriptionCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcRiverDescriptionCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/RegulationQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryRegulationQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcRegulationQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/RegulationCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryRegulationCommandRepository.java
+src/main/java/com/fishfind/docapi/repo/JdbcRegulationCommandRepository.java
 src/main/java/com/fishfind/docapi/service/DocumentService.java
 src/main/java/com/fishfind/docapi/service/NewsDocumentService.java
 src/main/java/com/fishfind/docapi/service/WaterbodyDocumentService.java
@@ -243,6 +297,8 @@ src/main/java/com/fishfind/docapi/web/NewsController.java
 src/main/java/com/fishfind/docapi/web/WaterbodyController.java
 src/main/java/com/fishfind/docapi/web/FishController.java
 src/main/java/com/fishfind/docapi/web/StationController.java
+src/main/java/com/fishfind/docapi/web/RiverController.java
+src/main/java/com/fishfind/docapi/web/RegulationController.java
 src/main/java/com/fishfind/docapi/web/HealthController.java
 src/main/java/com/fishfind/docapi/web/ApiResponse.java
 src/main/java/com/fishfind/docapi/web/ApiExceptionHandler.java
@@ -594,6 +650,28 @@ validate the import body and build the `{ id }` node.
   literal `/search` path wins over the inherited `/{id}`. The repository handles SQL execution (JDBC
   profile) or returns empty results (default profile).
 
+`RegulationController` (`@RequestMapping("/api/v1")`, method-level full paths since its two resource
+families — `/river/regulation/…` and `/region/regulation/…` — don't share a base) injects
+`RegulationQueryRepository` + `RegulationCommandRepository` + `ObjectMapper`:
+
+- `@GetMapping("/river/regulation/{guid}")` — `queryRepository.lakeRegulation(guid)`; `null` ⇒
+  `DocumentNotFoundException` → 404.
+- `@PatchMapping("/river/regulation/{guid}")` — parses the body to a mutable `ObjectNode`
+  (`InvalidDocumentException` if missing/blank/non-object → 400), sets `lakeId` from the path
+  (overriding anything the caller sent) and removes `zoneId`, then `commandRepository.upsert(...)`.
+- `@GetMapping("/region/regulation/{country}")` / `@GetMapping("/region/regulation/{country}/{state}")`
+  — two overloads (Spring has no optional path variable); each validates its code(s) are exactly two
+  letters (`InvalidDocumentException` → 400, no silent fallback — these identify the resource) then
+  `queryRepository.region(country, state-or-null)`.
+- `@PatchMapping("/region/regulation/{country}")` / `.../{country}/{state}` — same `ObjectNode`
+  pattern: sets `country` (and `state`, for the two-segment route) from the path, strips
+  `state`/`zoneId`/`lakeId` (single-segment route) or `zoneId`/`lakeId` (two-segment route) out of the
+  body, then `commandRepository.upsert(...)`.
+
+No dedicated `POST`/insert endpoint: every PATCH above upserts by identity inside
+`sp_regulation_upsert` — matching nothing existing inserts, matching an existing row updates it. This
+keeps the whole feature on cproxy's existing `GET`/`PATCH`-only allow-list.
+
 ### `HealthController`
 
 `GET /health` → `{ status:"UP", version, uptime }`; version from `@Nullable BuildProperties`
@@ -662,6 +740,15 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
 - `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` (20 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), and `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS` — the 400 cases across both PATCH endpoints also assert the repository is never invoked).
+- `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`
+  `RegulationQueryRepository` + `RegulationCommandRepository` (11 tests): `GET /river/regulation/{guid}`
+  (200 doc / 404 unknown), `PATCH /river/regulation/{guid}` (200 result envelope, asserts via an
+  `ArgumentCaptor` that `lakeId` is injected from the path and `zoneId` is stripped even when the body
+  supplies one, 400 missing body, 400 array body), `GET /region/regulation/{country}` and
+  `.../{country}/{state}` (null-vs-set state passed through, upper-casing, 400 on a non-two-letter
+  country), and `PATCH /region/regulation/{country}` / `.../{country}/{state}` (asserts `country`/
+  `state` set from the path and `state`/`zoneId`/`lakeId` stripped from the body, 400 on a
+  non-two-letter state).
 - `DocumentRoundTripTest` — `@SpringBootTest` + `@AutoConfigureMockMvc`, default in-memory backing:
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.

@@ -195,6 +195,35 @@ assigned species, mirroring the page's own client-side rule. Empty/non-object/ov
 protectedFields:[{field,reason}]}`. Fronted through cproxy automatically — the day-key gate applies
 to every PATCH, not a specific path.
 
+The Regulation entity exposes two of the three scopes `Editor/LakeRegulation.aspx`'s single
+"regulation dialog" edits through one `dbo.regulations` table (zone-scoped rules have no dedicated
+endpoint yet): water-body rules and region (country/state) rules.
+
+`GET /api/v1/river/regulation/{guid}` — this water body's OWN regulation rows (never the region/zone
+rules that also apply to it), via `dbo.fn_lake_regulation_json`. Unknown guid ⇒ 404.
+
+`GET /api/v1/region/regulation/{country}` — whole-country rules (no specific state); `GET
+/api/v1/region/regulation/{country}/{state}` — province/state-wide rules. These are two *different*,
+non-overlapping row sets, not a country roll-up of every province's rules. Both via
+`dbo.fn_region_regulation_json`; an unrecognized `country`/`state` returns an empty `regulations`
+array rather than 404 (there's no single "country" row to be missing). A non-two-letter `country`/
+`state` ⇒ 400.
+
+`PATCH` on all three routes upserts one row of `dbo.regulations` via `dbo.sp_regulation_upsert` —
+**there is no separate INSERT verb.** The identity (`country`/`state`/`zoneId`/`lakeId`/`fishId`/
+`year`/`part`/`residentType` — the columns behind the table's two filtered unique indexes) decides
+insert vs. update: a body matching nothing existing inserts (`action:"inserted"`), one matching an
+existing row updates it in place (`action:"updated"`). A dedicated `POST` was deliberately skipped —
+cproxy's write surface only admits `GET`/`PATCH` (the day-key gate is verb-based, not path-based), so
+reusing the fish/description endpoints' upsert-on-PATCH pattern ships this with **no cproxy change**.
+`lakeId` (water-body route) or `country`/`state` (region routes) are always taken from the URL, never
+the body — a caller can't accidentally write to a different scope than the one they PATCHed. Response:
+`{id, action, scope}` on success, or `{id:null, action:null, error}` when the body fails validation
+(missing `year`, an unknown `lakeId`/`fishId`, or `zoneId`+`lakeId` both set) — the same
+graceful-error-in-a-200 contract as `sp_lake_description_update`'s malformed-JSON path, not a 4xx.
+Note: `dbo.TR_regulations` auto-adds the row to `lake_fish` when a new water-body rule also carries a
+`fishId` not yet assigned to that lake — the same side effect the ASPX page's own INSERT triggers.
+
 ### Response shape
 
 Success:
@@ -254,6 +283,18 @@ Notes:
   result-set drain (see `JdbcDocumentRepository.executeReturningScalar` /
   `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
   proc's DML can interleave update counts with its final `SELECT`.
+- **River regulation read** (`GET /api/v1/river/regulation/{guid}`) → `dbo.fn_lake_regulation_json(@lake)`
+  (pre-existing per-tab admin "Save JSON" export function, 2026-08-13 rollout — extended 2026-08-25 to
+  also emit the new `country` field, `unit_test@RegulationRead.sql`), and **region regulation read**
+  (`GET /api/v1/region/regulation/{country}[/{state}]`) → `dbo.fn_region_regulation_json(@country,
+  @state)` (new function, `envfish-db` 2026-08-25, same test file).
+- **Regulation write** (`PATCH` on all three regulation routes) → `EXEC dbo.sp_regulation_upsert @body`
+  (new proc, `envfish-db` 2026-08-25, `unit_test@RegulationUpsert.sql`, same `jdbc.execute` drain
+  pattern). Required a schema change on `dbo.regulations` — added `country char(2) NOT NULL DEFAULT
+  'CA'` and relaxed `state` to nullable (a whole-country rule has no state), with `country` folded
+  into both filtered unique indexes so two countries can each have their own whole-country rule for
+  the same year without colliding — see the "PRODUCTION MIGRATION — regulations: add `country`…" block
+  in `envfish-db/mssql/script01_createTable.sql`.
 
 ## Docker
 

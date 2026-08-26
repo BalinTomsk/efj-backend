@@ -9,6 +9,10 @@ import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
 import com.fishfind.docapi.repo.JdbcRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
+import com.fishfind.docapi.repo.JdbcRegulationCommandRepository;
+import com.fishfind.docapi.repo.JdbcRegulationQueryRepository;
+import com.fishfind.docapi.repo.RegulationCommandRepository;
+import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
@@ -112,6 +116,26 @@ public class JdbcStoreConfig {
     @Bean
     public RiverDescriptionCommandRepository riverDescriptionCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverDescriptionCommandRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed regulation query repository ({@code dbo.fn_lake_regulation_json} /
+     * {@code dbo.fn_region_regulation_json}), a bean in its own right so Resilience4j can proxy it —
+     * see {@link #jdbcNewsStore} for why this matters.
+     */
+    @Bean
+    public RegulationQueryRepository regulationQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcRegulationQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed regulation command repository ({@code dbo.sp_regulation_upsert}), a bean in its
+     * own right so Resilience4j can proxy it — see {@link #jdbcNewsStore} for why this matters.
+     * Separate from {@link #regulationQueryRepository} because it writes, not reads.
+     */
+    @Bean
+    public RegulationCommandRepository regulationCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcRegulationCommandRepository(jdbc, objectMapper);
     }
 
     @Bean

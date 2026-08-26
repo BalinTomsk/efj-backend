@@ -124,6 +124,8 @@ com.fishfind.docapi
     │                              #   (?province=&codes= and ?fishes=)
     ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid} (lakejson&tab=view duplicate)
     │                              #   + /river/fish/{guid} (lakejson&tab=fishing duplicate)
+    ├── RegulationController        # GET/PATCH /river/regulation/{guid} + /region/regulation/{country}[/{state}]
+    │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── ApiResponse                # { data, error, meta } envelope (record)
@@ -230,6 +232,50 @@ ordering. Batch cap 100 ⇒ 400.
 | `GET /api/v1/river/fish/{guid}` | `SELECT dbo.fn_lake_fishing_json(?)` | **Native docapi duplicate of the admin "Save JSON" Fishing-tab export** (`Editor/EditLakeFish.aspx` → `HandlerImage.ashx?lakejson=<guid>&tab=fishing`). Returns the assigned-species document for one water body — every `lake_fish` row (name, latin, conservation status, last-catch, external link). `dbo.fn_lake_fishing_json` **already exists in prod** (same 2026-08-13 per-tab Save-JSON rollout as `fn_lake_view_json`), so this is again a **docapi-only change with no new DB object**. `NULL` (unknown guid) ⇒ 404. Same public-data reasoning as `/description/{guid}` — the assigned species list is shown publicly on `Resources/wfRiverViewer.aspx`. Literal `/fish/…` matched ahead of any future templated route on this controller. |
 | `PATCH /api/v1/river/fish/{guid}` | `EXEC dbo.sp_lake_fish_upsert_batch ?, ?` | **The write counterpart — a native duplicate of the "Add" form on `Editor/EditLakeFish.aspx`** (`AddFishToLake`). Body is a JSON array of `{fishId, link, trustLevel, year, status}` entries (`fishId` required, the rest optional), upserted in one batch by `RiverFishCommandRepository` / `sp_lake_fish_upsert_batch` (new DB object, 2026-08-25). **Unlike every other river endpoint this is a genuine write** — the shared `sqlBreaker`/`sqlRetry` guards still apply, but there's no cache in front of it and it's a separate `RiverFishCommandRepository` bean (not a method on `RiverQueryRepository`) precisely because it mutates `lake_fish`. Per entry: `inserted` (new), `updated` (existing row whose `link` is empty/NULL — the only case an existing row is touched), `skipped` (existing row **with** a link — deliberately never overwritten), `unknown_fish` (guid not in `dbo.fish`), `invalid_fish_id` (not a guid). Empty/non-array/over-500-entry body ⇒ 400 `invalid_document`; unknown guid ⇒ 404. **Fronted through cproxy as of 0.6.1** (deployed 2026-08-25) — `CPROXY_ALLOWED_METHODS` now admits `PATCH`, gated by a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API key. Verified live end-to-end through the public gateway. See `efc-proxy` `CLAUDE.md` → "Day-key store". |
 | `PATCH /api/v1/river/description/{guid}` | `EXEC dbo.sp_lake_description_update ?, ?` | **A second, independent write — a JSON merge patch of the `Editor/LakeEditor.aspx` "General" tab's editable fields**, via `RiverDescriptionCommandRepository` / `sp_lake_description_update` (new DB object, 2026-08-25). Body is a JSON **object** (not an array like the fish endpoint) of `fieldName: value`; only keys actually present are touched — an explicit JSON `null` clears that field, an omitted key leaves it alone. Covers `altName`, `nativeName`, `french`, `link`, `type`, `length_km`, `width_km`, `shoreline_km`, `maxDepth_m`, `volume_km3`, `surface_km2`, `discharge_m3s`, `basin_km2`, `watershield_km2`, `drainage`, `cgndb`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description`. **Deliberately protects the identity/linkage fields `LakeEditor.aspx` shows read-only in this exact spot** — `lakeName`, `source`/`sourceId`, `mouth`/`mouthId` — reporting them back as `protectedFields` rather than silently dropping or applying them; `noFish` is blocked (reported `ignored`) while the lake has assigned species, mirroring the page's own client-side rule. Empty/non-object/over-100-key body ⇒ 400 `invalid_document`; unknown guid ⇒ 404. Response: `{lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}]}`. **Fronted through cproxy automatically** — the day-key gate applies to every PATCH, not a specific path, so no cproxy change was needed; verified live end-to-end through the public gateway. |
+
+### Regulation query/write (`RegulationController`)
+
+`RegulationController` (`@RequestMapping("/api/v1")`, method-level full paths — its two resource
+families don't share a base) covers two of the three scopes `Editor/LakeRegulation.aspx`'s single
+"regulation dialog" edits through one `dbo.regulations` table (water-body and region/country-state;
+zone-scoped rules have no dedicated endpoint yet). Delegates to `RegulationQueryRepository` /
+`RegulationCommandRepository` (interface + `InMemory…`/`Jdbc…` pair each, same `sqlRetry`/`sqlBreaker`
+guards, not cached).
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /api/v1/river/regulation/{guid}` | `SELECT dbo.fn_lake_regulation_json(?)` | This water body's OWN regulation rows only — never the region/zone rules that also apply to it. Pre-existing per-tab admin "Save JSON" export function (2026-08-13 rollout), **extended 2026-08-25** to also emit the new `country` field. `NULL` ⇒ 404. |
+| `PATCH /api/v1/river/regulation/{guid}` | `EXEC dbo.sp_regulation_upsert ?` | `lakeId` always taken from the path (overrides anything the body sends) and `zoneId` stripped, so this route can only write the water-body scope. See the upsert contract below. |
+| `GET /api/v1/region/regulation/{country}` | `SELECT dbo.fn_region_regulation_json(?, NULL)` | Whole-country rules — rows with **no** state at all, not a roll-up of every province. Never 404 (an unrecognized country just yields an empty `regulations` array). Non-two-letter `country` ⇒ 400. |
+| `GET /api/v1/region/regulation/{country}/{state}` | `SELECT dbo.fn_region_regulation_json(?, ?)` | Province/state-wide rules — a *different*, non-overlapping row set from the country-only route. Same 400/never-404 rules. |
+| `PATCH /api/v1/region/regulation/{country}[/{state}]` | `EXEC dbo.sp_regulation_upsert ?` | `country`/`state` taken from the path; `state`/`zoneId`/`lakeId` stripped from the body on the single-segment route, `zoneId`/`lakeId` stripped on the two-segment one. |
+
+**Upsert contract (`dbo.sp_regulation_upsert`, new proc, `envfish-db` 2026-08-25,
+`unit_test@RegulationUpsert.sql`, 11 tests):** **there is no separate INSERT verb.** Identity =
+`country`/`state`/`zoneId`/`lakeId`/`fishId`/`year`/`part`/`residentType` — the columns behind
+`dbo.regulations`' two filtered unique indexes. A body matching nothing existing inserts
+(`action:"inserted"`); one matching an existing row updates it in place (`action:"updated"`). Scope is
+*inferred*, not declared: `lakeId` set → water-body; `zoneId` set (no `lakeId`) → zone; neither →
+region (whole-country when `state` omitted, else province/state-wide). `zoneId`+`lakeId` both set is
+rejected. Response `{id, action, scope}` on success, or `{id:null, action:null, error}` on a
+validation failure (missing `year`, unknown `lakeId`/`fishId`, or the mutual-exclusivity violation) —
+**a 200 with an inline error, not a 4xx**, the same graceful contract as
+`sp_lake_description_update`'s malformed-JSON path. `dbo.TR_regulations` (`FOR INSERT`) auto-adds the
+row to `lake_fish` when a new water-body rule carries a `fishId` not yet assigned to that lake — same
+side effect the ASPX page's own INSERT triggers, silent from this endpoint's point of view.
+
+**No dedicated POST, and no cproxy change.** cproxy's write surface only admits `GET`/`PATCH` (the
+day-key gate is verb-based, not path-based) — reusing the fish/description endpoints' upsert-on-PATCH
+pattern means this whole feature is automatically fronted through cproxy with zero proxy-side change.
+
+**Schema change required:** `dbo.regulations` had no `country` column and `state` was `NOT NULL`, so a
+genuine "whole country, no state" rule wasn't representable. Added `country char(2) NOT NULL DEFAULT
+'CA'`, relaxed `state` to nullable, and folded `country` into both `UIX_reg_with_fish`/`UIX_reg_no_fish`
+filtered unique indexes — SQL Server treats two NULLs as equal for unique-index purposes, so without
+`country` in the key a second country's state-less rule would collide with the first country's. See the
+"PRODUCTION MIGRATION — regulations: add `country`…" block in `envfish-db/mssql/script01_createTable.sql`
+(idempotent, guarded, for databases created before this change) — the base `CREATE TABLE` was also
+updated directly for fresh builds.
 
 ### Interchange export / import (`fn_news_json` format)
 
@@ -346,6 +392,14 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS` — the
   400 cases across both PATCH endpoints also assert the repository is never called, i.e. validation
   happens before any SQL).
+- `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`
+  `RegulationQueryRepository` + `RegulationCommandRepository` (11): `GET /river/regulation/{guid}` (200
+  doc / 404 unknown), `PATCH /river/regulation/{guid}` (200 result envelope — an `ArgumentCaptor`
+  asserts `lakeId` is injected from the path and `zoneId` stripped even when the body supplies both,
+  400 missing/array body), `GET /region/regulation/{country}` and `.../{country}/{state}` (null-vs-set
+  state passed through, upper-casing, 400 on a non-two-letter country), and
+  `PATCH /region/regulation/{country}` / `.../{country}/{state}` (asserts `country`/`state` set from
+  the path and `state`/`zoneId`/`lakeId` stripped from the body, 400 on a non-two-letter state).
 
 ---
 

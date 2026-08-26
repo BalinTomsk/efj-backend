@@ -2,6 +2,45 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-08-25: **1.6.0 — new `RegulationController`: `GET`/`PATCH /api/v1/river/regulation/{guid}` +
+  `GET`/`PATCH /api/v1/region/regulation/{country}[/{state}]`.** Covers two of the three scopes
+  `Editor/LakeRegulation.aspx`'s single "regulation dialog" edits through one `dbo.regulations` table —
+  water-body rules and region (country/state) rules; zone-scoped rules have no dedicated endpoint yet.
+  **No separate INSERT verb**: every PATCH upserts by identity via the new `dbo.sp_regulation_upsert`
+  (envfish-db, 2026-08-25) — identity = `country`/`state`/`zoneId`/`lakeId`/`fishId`/`year`/`part`/
+  `residentType` (the columns behind `dbo.regulations`' two filtered unique indexes); a body matching
+  nothing existing inserts, one matching an existing row updates it in place. Scope is *inferred*, not
+  declared: `lakeId` → water-body; `zoneId` (no `lakeId`) → zone; neither → region (whole-country when
+  `state` omitted, else province/state-wide); `zoneId`+`lakeId` both set is rejected. The identifying
+  fields always come from the URL, never the body, on every write route. Validation failures are a
+  `200` with an inline `error` (missing `year`, unknown `lakeId`/`fishId`, the mutual-exclusivity
+  violation), not a `4xx` — same graceful contract as `sp_lake_description_update`'s malformed-JSON
+  path. **Deliberately no `POST`**: cproxy's write surface only admits `GET`/`PATCH` (the day-key gate
+  is verb-based, not path-based), so reusing the fish/description endpoints' upsert-on-PATCH pattern
+  ships this with **zero cproxy change**. `dbo.TR_regulations` auto-adds the row to `lake_fish` when a
+  new water-body rule also carries a `fishId` not yet assigned to that lake — same side effect the
+  ASPX page's own INSERT triggers.
+  **Schema change required** on `dbo.regulations`: it had no `country` column and `state` was
+  `NOT NULL`, so a genuine "whole country, no state" rule wasn't representable. Added
+  `country char(2) NOT NULL DEFAULT 'CA'`, relaxed `state` to nullable, and folded `country` into both
+  filtered unique indexes — SQL Server treats two NULLs as equal for unique-index purposes, so without
+  `country` in the key a second country's state-less rule would collide with the first country's.
+  Migration is idempotent/guarded (`script01_createTable.sql`, applies to any pre-existing database);
+  the base `CREATE TABLE` was also updated for fresh builds.
+  New `dbo.fn_lake_regulation_json` field: `country` (function already existed from the 2026-08-13
+  per-tab Save-JSON rollout, extended rather than replaced). New `dbo.fn_region_regulation_json(
+  @country, @state=NULL)`.
+  Tests: `RegulationControllerTest` (11, new) → **122 pass** (full docapi suite). DB:
+  `unit_test@RegulationUpsert.sql` (11 tests) + `unit_test@RegulationRead.sql` (3 tests), both pass via
+  `autorun.bat` (2 pre-existing, unrelated `FishCodeLatinJson.sql` failures — not touched by this
+  change).
+  **Not yet deployed to prod** — built and tested locally (DB + Java, both suites green); deploy
+  pending explicit approval per this repo's deploy policy.
+  Docs: this file, `README.md`, `docs/specification.md`, `docs/api-reference.html` (per the
+  API-change rule) — the `docs/api-reference.html` "verified live" version chips were deliberately
+  **left at 1.5.4** (only the controller-count text was bumped to seven) since this endpoint hasn't
+  been exercised against a live deployment yet; bump those chips to 1.6.0 once it has been.
+
 - 2026-08-25: **1.5.4 — river description write `PATCH /api/v1/river/description/{guid}` (admin
   Save-JSON "General"-tab merge patch) — a second, independent write.** Native docapi duplicate of
   `Editor/LakeEditor.aspx`'s "General" tab (`SaveLakeGeneral`): body is a JSON **object**, and only
