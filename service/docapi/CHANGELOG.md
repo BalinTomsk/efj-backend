@@ -4,8 +4,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
 
 - 2026-08-26: **1.7.0 — `RiverController` gains `GET`/`PATCH /api/v1/river/source/{guid}` and
   `GET`/`PATCH /api/v1/river/mouth/{guid}`.** The Source/Mouth-tab counterparts of the existing
-  description/fish endpoints, for `Editor/EditLakeLink.aspx?Type=16|32`. **NOT YET DEPLOYED** — built
-  and tested locally, awaiting explicit deploy approval per the frontend repo's deploy policy.
+  description/fish endpoints, for `Editor/EditLakeLink.aspx?Type=16|32`.
   **Reads** reuse the already-live `dbo.fn_lake_source_json` / `dbo.fn_lake_mouth_json` (the same
   functions the admin "Save JSON" button on that page already calls via
   `HandlerImage.ashx?lakejson=&tab=source|mouth`) through two new `RiverQueryRepository` methods
@@ -31,8 +30,23 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   mouth PATCH touches only the `side=32` row, leaving `side=16` untouched; unknown lake id ⇒ `NULL`
   for both procs, malformed JSON ⇒ a `protectedFields`-shaped error) — all pass via `autorun.bat`.
   **docapi:** `RiverControllerTest` gained 9 tests (GET 200/404 ×2, PATCH 200/protected-fields/404/400
-  ×2) — full suite is 135 tests, 0 failures. **Deploy order once approved:** DB procs first (additive,
-  no existing behavior changes), then the `docapi` JAR/container.
+  ×2) — full suite is 135 tests, 0 failures.
+  **Deployed to prod 2026-08-26** — DB procs applied, then the `docapi` JAR/container; all four new
+  routes reachable live through the cproxy gateway. **The two PATCH routes shipped broken**: both
+  `dbo.sp_lake_source_update` and `dbo.sp_lake_mouth_update` were created on prod by a hand-run script
+  that skipped `SET QUOTED_IDENTIFIER ON` before the `CREATE PROCEDURE` — SQL Server bakes that setting
+  in at create time, not call time, so every call hit error 1934 ("UPDATE failed because the following
+  SET options have incorrect settings: 'QUOTED_IDENTIFIER'") against `dbo.Tributaries` (it carries the
+  filtered unique indexes `UK_Tributaries_Source`/`UK_Tributaries_Mouth`), surfaced to callers as a
+  generic `500 internal_error`. The two GET routes were unaffected (they only read the already-live
+  `fn_lake_source_json`/`fn_lake_mouth_json`). This is the identical incident class as the
+  `sp_lake_description_update` QUOTED_IDENTIFIER bug below (1.5.4, 2026-08-25) recurring on the next
+  two procs deployed the same way. **Fixed same day**: both procs `DROP`+recreated on prod with
+  `SET QUOTED_IDENTIFIER ON` immediately before each `CREATE PROCEDURE` (body unchanged, matches
+  `envfish-db/mssql/script02_Proc.sql:2100`/`:2177`) — `OBJECTPROPERTY(...,'ExecIsQuotedIdentOn')` now
+  reports `1` for both. Verified via a rolled-back direct-DB call (clean result envelope, no error) and
+  a live end-to-end `PATCH`+`GET` round trip through the cproxy gateway with real day-key auth against
+  Fleuve Churchill's source and mouth rows, then reverted the test value back to `null`.
 - 2026-08-25: **1.6.0 — new `RegulationController`: `GET`/`PATCH /api/v1/river/regulation/{guid}` +
   `GET`/`PATCH /api/v1/region/regulation/{country}[/{state}]`.** Covers two of the three scopes
   `Editor/LakeRegulation.aspx`'s single "regulation dialog" edits through one `dbo.regulations` table —
