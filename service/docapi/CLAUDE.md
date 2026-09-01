@@ -198,7 +198,7 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
   for the still-SQL-Server `POST`/`PUT`) — see "MySQL backing for news reads" below. The other three
   entities (`waterbody`, `fish`, `station`) are unaffected — full SQL Server CRUD as documented above.
 
-### MySQL backing for news reads (2026-08-31)
+### MySQL backing for news reads (2026-08-31, deployed 2026-09-01 as docapi 1.7.1)
 
 `GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
 (Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
