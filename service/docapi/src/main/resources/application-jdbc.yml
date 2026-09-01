@@ -30,3 +30,12 @@ management:
   health:
     db:
       enabled: true
+
+# Dedicated news datasource (MySQL, Winhost `news` table) -- read via a plain @Value-bound
+# JdbcTemplate in JdbcStoreConfig.mysqlNewsJdbcTemplate, not Spring Boot's datasource
+# auto-configuration, so it never competes with the primary SQL Server DataSource bean above.
+newsmysql:
+  datasource:
+    url: ${MYSQL_NEWS_URL}
+    username: ${MYSQL_NEWS_USERNAME}
+    password: ${MYSQL_NEWS_PASSWORD}

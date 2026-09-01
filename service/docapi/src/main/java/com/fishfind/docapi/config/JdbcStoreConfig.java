@@ -21,11 +21,15 @@ import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
 import com.fishfind.docapi.repo.NewsDocumentRepository;
+import com.fishfind.docapi.repo.MySqlNewsDocumentRepository;
+import com.fishfind.docapi.repo.MySqlNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsQueryCache;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.repo.StationDocumentRepository;
 import com.fishfind.docapi.repo.WaterbodyDocumentRepository;
+import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -48,21 +52,65 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class JdbcStoreConfig {
 
     /**
-     * The SQL-backed news store, registered as its own bean <strong>on purpose</strong>: Resilience4j
-     * applies {@code @Retry} / {@code @CircuitBreaker} by AOP, which Spring can only do to beans it
-     * manages. Constructing this with {@code new} inside {@link #newsStore} would leave those
-     * annotations silently inert — the SQL calls would lose their retry and breaker with no compile or
-     * startup error. {@code DocApiJdbcWiringTest} asserts this bean really is an advised proxy.
+     * A dedicated MySQL datasource/{@link JdbcTemplate} for the news read endpoints only (the
+     * {@code news} table migrated to Winhost MySQL 2026-08-31 — see {@code envfish-db/mysql/}).
+     * Deliberately <strong>not</strong> exposed as a {@code DataSource} bean: registering a second
+     * {@link javax.sql.DataSource} bean would make Spring Boot's {@code DataSourceAutoConfiguration}
+     * back off from creating the primary SQL Server datasource (its {@code @ConditionalOnMissingBean}
+     * fires on the first {@code DataSource}-typed bean it finds, regardless of qualifier). Keeping the
+     * {@link HikariDataSource} as a local inside this method — only the {@link JdbcTemplate} is
+     * returned — sidesteps that entirely and leaves the existing SQL Server wiring untouched. Trade-off:
+     * this pool isn't picked up by the Actuator {@code db} health indicator and isn't closed on
+     * graceful shutdown, both acceptable for a small secondary read-only pool.
      */
     @Bean
-    public DocumentStore jdbcNewsStore(JdbcTemplate jdbc) {
+    public JdbcTemplate mysqlNewsJdbcTemplate(
+            @Value("${newsmysql.datasource.url}") String url,
+            @Value("${newsmysql.datasource.username}") String username,
+            @Value("${newsmysql.datasource.password}") String password) {
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(url);
+        ds.setUsername(username);
+        ds.setPassword(password);
+        ds.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        ds.setPoolName("docapi-news-mysql-hikari");
+        ds.setMaximumPoolSize(5);
+        ds.setMinimumIdle(1);
+        ds.setConnectionTimeout(30000);
+        ds.setMaxLifetime(1740000); // 29 min
+        return new JdbcTemplate(ds);
+    }
+
+    /**
+     * The SQL-Server-backed news store, registered as its own bean <strong>on purpose</strong>:
+     * Resilience4j applies {@code @Retry} / {@code @CircuitBreaker} by AOP, which Spring can only do to
+     * beans it manages. Constructing this with {@code new} elsewhere would leave those annotations
+     * silently inert — the SQL calls would lose their retry and breaker with no compile or startup
+     * error. {@code DocApiJdbcWiringTest} asserts this bean really is an advised proxy. Still used
+     * directly for {@code POST}/{@code PUT} (news CRUD writes haven't moved to MySQL).
+     */
+    @Bean
+    public DocumentStore sqlServerNewsStore(JdbcTemplate jdbc) {
         return new NewsDocumentRepository(jdbc);
+    }
+
+    /**
+     * {@code GET /api/v1/news/{guid}} reads through MySQL ({@code sp_news_doc_get}); writes delegate to
+     * {@link #sqlServerNewsStore}. Its own bean (not constructed inline in {@link #newsStore}) for the
+     * same AOP-proxying reason as {@link #sqlServerNewsStore}.
+     */
+    @Bean
+    public DocumentStore jdbcNewsStore(
+            @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc,
+            @Qualifier("sqlServerNewsStore") DocumentStore sqlServerNewsStore) {
+        return new MySqlNewsDocumentRepository(mysqlJdbc, sqlServerNewsStore);
     }
 
     /**
      * The news store services actually inject: {@link NewsDocumentCache} in front of
      * {@link #jdbcNewsStore}, so {@code GET /api/v1/news/{guid}} is served from the last-25 LRU and a
-     * miss reads through to SQL (retry/breaker intact, because the delegate is the proxied bean).
+     * miss reads through (MySQL for the get, retry/breaker intact because the delegate is the proxied
+     * bean).
      */
     @Bean
     public DocumentStore newsStore(@Qualifier("jdbcNewsStore") DocumentStore jdbcNewsStore) {
@@ -157,12 +205,27 @@ public class JdbcStoreConfig {
     }
 
     /**
-     * The SQL-backed news query repository, a bean in its own right so Resilience4j can proxy it —
-     * see {@link #jdbcNewsStore} for why this matters.
+     * The SQL-Server-backed news query repository, a bean in its own right so Resilience4j can proxy
+     * it — see {@link #jdbcNewsStore} for why this matters. Still used directly for {@code /news/search},
+     * {@code /news/export/{id}} and {@code /news/import} (not in the MySQL move).
      */
     @Bean
-    public NewsQueryRepository jdbcNewsQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public NewsQueryRepository sqlServerNewsQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcNewsQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * {@code /news/list} and {@code /news/default} read through MySQL ({@code sp_news_list_json} /
+     * {@code sp_news_default}); {@code search}/{@code exportNews}/{@code importNews} delegate to
+     * {@link #sqlServerNewsQueryRepository}. Its own bean (not constructed inline) for the same
+     * AOP-proxying reason as {@link #jdbcNewsStore}.
+     */
+    @Bean
+    public NewsQueryRepository jdbcNewsQueryRepository(
+            @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc,
+            ObjectMapper objectMapper,
+            @Qualifier("sqlServerNewsQueryRepository") NewsQueryRepository sqlServerNewsQueryRepository) {
+        return new MySqlNewsQueryRepository(mysqlJdbc, objectMapper, sqlServerNewsQueryRepository);
     }
 
     /**

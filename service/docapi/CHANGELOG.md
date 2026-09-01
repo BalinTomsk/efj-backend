@@ -2,6 +2,41 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-08-31: **News reads (`GET /api/v1/news/{id}`, `/news/list`, `/news/default`) moved from SQL
+  Server to MySQL.** The `news` table migrated to Winhost MySQL on 2026-08-31 (`envfish-db/mysql/`),
+  initially only for `fishfind-frontend`'s `News.aspx`; these three read endpoints now use it too via
+  two new classes: `MySqlNewsDocumentRepository` (`DocumentStore`, wraps `sp_news_doc_get`;
+  `addDocument`/`updateDocument` delegate unchanged to the SQL-Server-backed `NewsDocumentRepository`)
+  and `MySqlNewsQueryRepository` (`NewsQueryRepository`, wraps `sp_news_list_json`/`sp_news_default`;
+  `search`/`exportNews`/`importNews` delegate unchanged to the SQL-Server-backed
+  `JdbcNewsQueryRepository`) — composition, not inheritance, so each method can pick its own backend
+  while writes/search/export/import keep their existing Resilience4j-proxied delegate. Both classes
+  are registered as `jdbc` profile beans under the **same bean names** (`jdbcNewsStore` /
+  `jdbcNewsQueryRepository`) the SQL-Server-only implementations used to occupy — those SQL-Server
+  instances moved to new `sqlServerNewsStore`/`sqlServerNewsQueryRepository` beans that the MySQL
+  classes wrap, so `NewsDocumentCache`/`NewsQueryCache`/`NewsCacheEvictor` needed no changes.
+  New `JdbcStoreConfig.mysqlNewsJdbcTemplate` bean builds a dedicated `HikariDataSource` from
+  `MYSQL_NEWS_URL`/`MYSQL_NEWS_USERNAME`/`MYSQL_NEWS_PASSWORD` but never registers it as a
+  `DataSource` bean (only the `JdbcTemplate` is returned) — a second `DataSource` bean would make
+  Spring Boot's `DataSourceAutoConfiguration` back off from creating the *primary* SQL Server
+  datasource, since its `@ConditionalOnMissingBean(DataSource.class)` fires on the first
+  `DataSource`-typed bean found regardless of qualifier. New `mysql-connector-j` runtime dependency.
+  New DB objects in `envfish-db/mysql/script02_Proc.sql`: `sp_news_doc_get`, `sp_news_list_json`,
+  `sp_news_default` — applied to the live Winhost database 2026-08-31. New tests:
+  `MySqlNewsDocumentRepositoryTest`, `MySqlNewsQueryRepositoryTest`; `DocApiJdbcWiringTest` extended
+  with MySQL placeholder properties (its H2 stand-in never actually connects to MySQL — the Hikari
+  pool used here initializes lazily on first real query).
+- 2026-08-31: **Post-deploy fix — `sp_news_list_json`/`sp_news_default` hung indefinitely on the
+  live Winhost host** (never reproduced on the local test DB, same schema but far fewer rows).
+  Root cause: both referenced `news_photo0`/`news_photo1` in a query that materializes multiple rows
+  (a temp table, a window function) — even a bare `IS NOT NULL`, no `LENGTH()`/base64 — and this
+  specific host is catastrophically slow whenever that happens, confirmed via `SHOW FULL
+  PROCESSLIST` (`State: executing`, not a lock wait) and three independent rewrites. Fixed in
+  `envfish-db` by adding a cached `news.has_photo0` flag column + maintenance triggers (see that
+  repo's changelog and `CLAUDE.md` → "Cached flags on `news`") and rewriting both procedures to read
+  it instead of the BLOB columns for anything scanning more than one row. No docapi code changes —
+  the fix is entirely in `envfish-db/mysql/`. Verified post-fix: both procedures return in 1-3s on
+  prod (previously 90s+ / never returned).
 - 2026-08-26: **1.7.0 — `RiverController` gains `GET`/`PATCH /api/v1/river/source/{guid}` and
   `GET`/`PATCH /api/v1/river/mouth/{guid}`.** The Source/Mouth-tab counterparts of the existing
   description/fish endpoints, for `Editor/EditLakeLink.aspx?Type=16|32`.
