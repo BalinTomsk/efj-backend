@@ -480,6 +480,7 @@
       <span class="tag">NewsController · /api/v1/news</span>
     </div>
     <p class="prose" style="margin-bottom:22px;">The one entity with a fully-built backend: the generic CRUD above, plus five endpoints for the News-page UI and JSON import/export.</p>
+    <p class="prose" style="margin-bottom:22px;"><strong>Backing (2026-08-31):</strong> <code>GET /{id}</code>, <code>/news/list</code>, and <code>/news/default</code> below now read from the MySQL <code>news</code> table (Winhost — the same table <code>News.aspx</code> reads) instead of SQL Server; the JSON field names are unchanged. <code>POST</code>/<code>PUT /{id}</code>, <code>/news/search</code>, <code>/news/export/{id}</code>, and <code>/news/import</code> are unaffected — still SQL Server.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">

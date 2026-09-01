@@ -286,12 +286,14 @@ src/main/java/com/fishfind/docapi/repo/DocumentStore.java
 src/main/java/com/fishfind/docapi/repo/InMemoryDocumentStore.java
 src/main/java/com/fishfind/docapi/repo/JdbcDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsDocumentRepository.java
+src/main/java/com/fishfind/docapi/repo/MySqlNewsDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/WaterbodyDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/FishDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/StationDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcNewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/MySqlNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/FishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryFishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcFishQueryRepository.java
@@ -338,6 +340,8 @@ src/test/java/com/fishfind/docapi/DocApiApplicationTest.java
 src/test/java/com/fishfind/docapi/DocApiContextTest.java
 src/test/java/com/fishfind/docapi/DocApiJdbcWiringTest.java
 src/test/java/com/fishfind/docapi/repo/NewsDocumentRepositoryTest.java
+src/test/java/com/fishfind/docapi/repo/MySqlNewsDocumentRepositoryTest.java
+src/test/java/com/fishfind/docapi/repo/MySqlNewsQueryRepositoryTest.java
 src/test/java/com/fishfind/docapi/service/DocumentServiceTest.java
 src/test/java/com/fishfind/docapi/web/DocumentRoundTripTest.java
 src/test/java/com/fishfind/docapi/web/HealthControllerTest.java
@@ -358,6 +362,7 @@ Parent `spring-boot-starter-parent` 3.3.13; `java.version` 21; `mssql-jdbc.versi
 - `micrometer-registry-prometheus` (runtime)
 - `resilience4j-spring-boot3` 2.2.0
 - `mssql-jdbc`
+- `mysql-connector-j` (runtime) — dedicated news datasource, see "MySQL backing" above
 - `dotenv-java` 3.2.0
 - `slf4j-api`, `logback-classic`, `logstash-logback-encoder` 7.4
 - test: `spring-boot-starter-test`, `h2`, `mockito-inline` 5.2.0
@@ -462,23 +467,73 @@ component-scanned). Each supplies its three SQL strings as `static final` consta
 | `FishDocumentRepository` | `SELECT dbo.fn_fish_doc(?)` | `EXEC dbo.sp_fish_doc_add ?` | `EXEC dbo.sp_fish_doc_update ?, ?` |
 | `StationDocumentRepository` | `SELECT dbo.fn_station_doc(?)` | `EXEC dbo.sp_station_doc_add ?` | `EXEC dbo.sp_station_doc_update ?, ?` |
 
-**These DB objects are not created yet** (this pass is the Java service only). Contract:
 `fn_<entity>_doc(@id)` returns the document JSON (or NULL); `sp_<entity>_doc_add(@json)` inserts and
-returns the new id; `sp_<entity>_doc_update(@id,@json)` updates and returns the id.
-`waterbody` = `dbo.lake`. The `fish` doc objects are distinct from the existing
-`dbo.fn_fish_document` / `dbo.sp_add_fish_document` (a PDF blob).
+returns the new id; `sp_<entity>_doc_update(@id,@json)` updates and returns the id. `waterbody` =
+`dbo.lake`. The `fish` doc objects are distinct from the existing `dbo.fn_fish_document` /
+`dbo.sp_add_fish_document` (a PDF blob). All four objects now exist in `envfish-db`; `news`'s **read**
+(`GET /{id}`) has since moved to MySQL — see "MySQL backing" below. **These writes (`POST`/`PUT`)
+still go through `NewsDocumentRepository`/SQL Server for all four entities**, `NewsDocumentRepository`
+included.
+
+### MySQL backing for the news read endpoints (2026-08-31)
+
+`GET /api/v1/news/{id}`, `GET /api/v1/news/list`, and `GET /api/v1/news/default` read from the
+**MySQL** `news` table (Winhost, the same table `fishfind-frontend`'s `News.aspx` reads via
+`MySqlNewsHelper`) instead of SQL Server. `POST`/`PUT /api/v1/news/{id}`, `/news/search`,
+`/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
+described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
+`lake_name`/fish names against and no interchange or full-text-search objects.
+
+- **`MySqlNewsDocumentRepository`** (`DocumentStore`) — `getDocument` calls MySQL
+  `CALL sp_news_doc_get(?)`; `addDocument`/`updateDocument` delegate unchanged to the injected
+  SQL-Server-backed `NewsDocumentRepository` instance (composition, not inheritance, so the two
+  backends can differ per method while writes keep their existing Resilience4j-proxied delegate).
+- **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
+  `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `exportNews`/`importNews`/`search`
+  delegate unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
+- Both classes are registered as their own Spring beans (`jdbcNewsStore` / `jdbcNewsQueryRepository`
+  bean names, unchanged from before this change) so Resilience4j's `@Retry`/`@CircuitBreaker` AOP
+  still applies — same rationale as every other `Jdbc*Repository` bean in `JdbcStoreConfig`. The
+  renamed `sqlServerNewsStore` / `sqlServerNewsQueryRepository` beans hold the SQL-Server-backed
+  instances these two delegate to.
+- **Dedicated datasource, not the primary one**: `JdbcStoreConfig.mysqlNewsJdbcTemplate` builds its
+  own `HikariDataSource` from `newsmysql.datasource.url/username/password` (`MYSQL_NEWS_URL` /
+  `MYSQL_NEWS_USERNAME` / `MYSQL_NEWS_PASSWORD` in `.env`), but never registers that `DataSource` as
+  a Spring bean — only the resulting `JdbcTemplate` is returned. Registering a second `DataSource`
+  bean would make Spring Boot's `DataSourceAutoConfiguration` back off from creating the *primary*
+  SQL Server datasource (`@ConditionalOnMissingBean(DataSource.class)` fires on the first
+  `DataSource`-typed bean found, regardless of qualifier) — so this pool is deliberately invisible
+  to bean-type lookups. Trade-off: it isn't covered by the Actuator `db` health indicator and isn't
+  closed on graceful shutdown; acceptable for a small secondary read-only pool.
+- **New DB objects** in `envfish-db/mysql/script02_Proc.sql`: `sp_news_doc_get` (mirrors
+  `dbo.fn_news_doc`, minus lake/fish name resolution), `sp_news_list_json` (mirrors
+  `dbo.fn_news_list` including the non-CA-country padded-with-CA-news-to-100 behaviour),
+  `sp_news_default` (mirrors `dbo.fn_default_news_ids` + `dbo.fn_default_news_json` combined into
+  one call — MySQL procedures return result sets directly rather than composing via a second
+  function call — using one shared JSON shape for every home-page item instead of SQL Server's two
+  distinct lead/compact shapes, since `MySqlNewsQueryRepository.defaultNews()` just parses whatever
+  comes back). All three return `JSON_OBJECT(...)` rows, matching the "one JSON string per row" the
+  Java layer already expects from the SQL Server functions.
+- **`sp_news_list_json`/`sp_news_default` read `news.has_photo0`, never `news_photo0` directly, for
+  anything scanning more than one row** — the live Winhost host hangs indefinitely on any
+  multi-row-materializing query (temp table, window function) that references the actual BLOB
+  column, even a bare `IS NOT NULL`. `has_photo0` is a cached flag maintained by triggers; see
+  `envfish-db/CLAUDE.md` → "Cached flags on `news`" for the full writeup. Found and fixed live,
+  post-deploy, 2026-08-31.
 
 ### News-page query repository (`NewsQueryRepository`)
 
 The two News-page read queries are delegated to `NewsQueryRepository` — a separate abstraction from
-the document-store pattern, following the repository pattern established in the codebase. Two
-implementations exist:
+the document-store pattern, following the repository pattern established in the codebase.
+Implementations:
 
 - **`InMemoryNewsQueryRepository`** (default profile) — returns empty results; no database access.
-- **`JdbcNewsQueryRepository`** (jdbc profile) — calls functions that **exist** in `envfish-db`
-  (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`), reading through
-  functions only — never base tables. Both methods carry `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")`
-  with fallbacks.
+- **`JdbcNewsQueryRepository`** (jdbc profile, SQL Server) — calls functions that **exist** in
+  `envfish-db` (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`),
+  reading through functions only — never base tables. Both methods carry `@Retry("sqlRetry")` +
+  `@CircuitBreaker("sqlBreaker")` with fallbacks. Now used as the SQL-Server delegate inside
+  `MySqlNewsQueryRepository` for `search`/`exportNews`/`importNews` — see "MySQL backing" above for
+  `list`/`defaultNews`, which now read from MySQL instead.
 
 | Query | SQL | Returns |
 |-------|-----|---------|

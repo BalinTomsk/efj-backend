@@ -98,13 +98,19 @@ com.fishfind.docapi
 │   ├── DocumentStore              # interface: get/add/update (String id, String json)
 │   ├── InMemoryDocumentStore      # default backing — ConcurrentHashMap, ids like "news-1", no DB
 │   ├── JdbcDocumentRepository     # abstract SQL base: per-entity SQL + Resilience4j (jdbc profile)
-│   ├── NewsDocumentRepository     # binds dbo.fn_news_doc / sp_news_doc_add / sp_news_doc_update
+│   ├── NewsDocumentRepository     # SQL Server: dbo.fn_news_doc / sp_news_doc_add / sp_news_doc_update
+│   ├── MySqlNewsDocumentRepository # MySQL backing (2026-08-31) for GET only (sp_news_doc_get);
+│   │                              #   addDocument/updateDocument delegate to NewsDocumentRepository
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
 │   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
-│   ├── JdbcNewsQueryRepository    # JDBC backing — calls dbo.fn_news_list / dbo.fn_default_news_json
+│   ├── JdbcNewsQueryRepository    # SQL Server backing — dbo.fn_news_list / dbo.fn_default_news_json
+│   │                              #   / dbo.fn_news_search / dbo.fn_news_json / dbo.sp_news_import
+│   ├── MySqlNewsQueryRepository   # MySQL backing (2026-08-31) — list/defaultNews only, via
+│   │                              #   sp_news_list_json/sp_news_default; search/export/import
+│   │                              #   delegate to a wrapped JdbcNewsQueryRepository (SQL Server)
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -158,13 +164,18 @@ store configs register beans under the same names, so switching profiles swaps t
   `DataSourceTransactionManagerAutoConfiguration` / `JdbcTemplateAutoConfiguration` and turns the
   actuator `db` health indicator off.
 - **`jdbc` profile** — `application-jdbc.yml` clears the exclusion and configures the Hikari datasource
-  from `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`; `JdbcStoreConfig` provides four `JdbcDocumentRepository`
-  beans and one `JdbcNewsQueryRepository`; the `db` health indicator + readiness `db` group are
-  re-enabled. Run with `--spring.profiles.active=jdbc`.
+  (SQL Server) from `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`; `JdbcStoreConfig` provides four
+  `JdbcDocumentRepository` beans and one `JdbcNewsQueryRepository`; the `db` health indicator +
+  readiness `db` group are re-enabled. Run with `--spring.profiles.active=jdbc`. **This same profile
+  also builds a second, dedicated MySQL `JdbcTemplate`** (`JdbcStoreConfig.mysqlNewsJdbcTemplate`,
+  from `MYSQL_NEWS_URL`/`MYSQL_NEWS_USERNAME`/`MYSQL_NEWS_PASSWORD`) used only by the news read path
+  — see "MySQL backing for news reads" below. It's deliberately never registered as a `DataSource`
+  bean (only the `JdbcTemplate` it builds is), so it can't collide with the primary SQL Server
+  datasource via Spring Boot's `@ConditionalOnMissingBean(DataSource.class)`.
 
 ---
 
-## Database contract (jdbc profile only — NOT yet created)
+## Database contract (jdbc profile only — all four now exist in `envfish-db`)
 
 Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbody, fish, station):
 
@@ -183,6 +194,36 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
   `dbo.fn_fish_document` / `dbo.sp_add_fish_document` (a PDF blob).
 - SQL statement strings are `static final` constants in each concrete repository, so the DB pass can
   rename procs in one place.
+- **`news`'s `GET` has moved to MySQL** (`MySqlNewsDocumentRepository`, wraps `NewsDocumentRepository`
+  for the still-SQL-Server `POST`/`PUT`) — see "MySQL backing for news reads" below. The other three
+  entities (`waterbody`, `fish`, `station`) are unaffected — full SQL Server CRUD as documented above.
+
+### MySQL backing for news reads (2026-08-31)
+
+`GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
+(Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
+Everything else on `NewsController` (`POST`/`PUT /{id}`, `/news/search`, `/news/export/{id}`,
+`/news/import`) is unchanged, still SQL Server — the MySQL database has no `lake`/`fish` tables to
+resolve names against and no interchange/full-text-search objects.
+
+| Endpoint | Backing | Notes |
+|----------|---------|-------|
+| `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`; `addDocument`/`updateDocument` delegate to the wrapped `NewsDocumentRepository` (SQL Server) |
+| `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list` |
+| `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape) |
+| `search`/`export`/`import` | SQL Server (unchanged) | `MySqlNewsQueryRepository` delegates these three to a wrapped `JdbcNewsQueryRepository` |
+
+New MySQL objects live in `envfish-db/mysql/script02_Proc.sql` (`sp_news_doc_get`,
+`sp_news_list_json`, `sp_news_default`) — see that repo's `CLAUDE.md` → "MySQL (`mysql/`)" for the
+schema-source/apply workflow. **Applied to the live Winhost database 2026-08-31.**
+
+**⚠️ `sp_news_list_json` and `sp_news_default` depend on `news.has_photo0`** (a cached
+`news_photo0 IS NOT NULL` flag, maintained by triggers) — the live Winhost host hangs indefinitely
+on any query that references the actual `news_photo0`/`news_photo1` BLOB columns while materializing
+more than one row (a temp table, a window function), even a bare `IS NOT NULL` check. This was
+found live, post-deploy, and fixed the same day — see `envfish-db/CLAUDE.md` → "Cached flags on
+`news`" and the `⚠️` warning above it before changing either procedure or adding a new one that
+touches these columns at scale.
 
 ### News-page read queries (functions that already exist in `envfish-db`)
 
@@ -379,10 +420,16 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (135 tests):
+`mvn test` — no DB needed (144 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
-- `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`).
+- `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`), SQL Server.
+- `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the
+  mocked MySQL `JdbcTemplate`; `addDocument`/`updateDocument` delegate to a mocked `DocumentStore`
+  (never touching MySQL).
+- `MySqlNewsQueryRepositoryTest` — `list`/`defaultNews` read via `CALL sp_news_list_json(?, ?, ?)` /
+  `CALL sp_news_default()` against the mocked MySQL `JdbcTemplate`; `search`/`exportNews`/`importNews`
+  delegate to a mocked `NewsQueryRepository` (never touching MySQL).
 - `NewsControllerTest` — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
   queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
   successful queries returning paginated items or home-page JSON, **and the interchange

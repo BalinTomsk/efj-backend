@@ -24,7 +24,13 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.datasource.url=jdbc:h2:mem:docapi-jdbc-test;MODE=MSSQLServer;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
-        "spring.datasource.driver-class-name=org.h2.Driver"
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        // Never actually connected in this test: HikariDataSource built via the no-arg constructor +
+        // setters (see JdbcStoreConfig.mysqlNewsJdbcTemplate) initializes its pool lazily on first
+        // getConnection(), so a placeholder URL is enough to satisfy the @Value bind at startup.
+        "newsmysql.datasource.url=jdbc:mysql://localhost:3306/unused",
+        "newsmysql.datasource.username=unused",
+        "newsmysql.datasource.password=unused"
 })
 class DocApiJdbcWiringTest {
 
