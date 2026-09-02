@@ -2,6 +2,43 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-02: **DB timeout budget — every DB-backed endpoint could hang for ~94s. BUILT AND TESTED,
+  NOT DEPLOYED.**
+  **Symptom:** `/api/v1/fish/search`, `/api/v1/news/list` and `/api/v1/news/default` all hung; cproxy
+  returned `502` after 20s (its 10s read timeout, twice). `/health` answered in 0.01s and
+  `/api/v1/fish` in 0.008s throughout — those never touch a database, which made it look like a
+  query problem.
+  - **Not the query.** `dbo.SearchFishList('trout')` runs in **112ms** returning 22 rows against
+    prod SQL Server. Not thread-pool exhaustion either — `/health` stayed instant the whole time.
+  - **Root cause: an intermittently lossy network path from the droplet to the Winhost DB hosts.**
+    Measured from the droplet, ~**2 of 6** TCP handshakes to the DB ports time out; the same probes
+    from a workstation succeed consistently. A dropped SYN is *silence*, not a refusal, so each
+    attempt sat until its timeout. **Both** stores are affected — MySQL and SQL Server are at the
+    same provider over the same path, so moving news to MySQL never escaped this.
+  - **The amplifier was our own config:** Hikari `connection-timeout: 30000` on both pools, **no**
+    driver-level timeouts at all, and `sqlRetry` at 3 attempts × 2s. Worst case
+    `3 × 30s + 2 × 2s ≈ 94s` for a single request — far past cproxy's 10s, so callers could only ever
+    see an opaque `502`.
+  - **Fix — a stated time budget, not just smaller numbers.** Hikari `connection-timeout` 30000 → 4000
+    (both pools) with `validation-timeout` 5000 → 2000 to stay under it; driver-level
+    `loginTimeout: 3` (mssql-jdbc, **seconds**) and `connectTimeout: 3000` (Connector/J,
+    **milliseconds** — the unit differs, and getting it wrong would be expensive); `sqlRetry`
+    3×/2s → **2×/500ms**. Worst case ≈ **6.5s**, comfortably inside cproxy's 10s, so a bad path now
+    yields a real error instead of a hang. `socketTimeout` is set to 30s on both as a last-resort
+    guard on a stalled read and is deliberately *outside* the budget, so a legitimately slow
+    `/news/default` assembly is never cut off.
+  - **Test:** `DocApiJdbcWiringTest.dbFailurePathFitsInsideTheProxyReadTimeout` asserts the budget
+    (attempts × connect + waits < 10s) rather than the literal knob values, plus
+    `bothPoolsSetADriverLevelConnectTimeout`. It reads the retry numbers **from the production yaml
+    on purpose**: `application-test.yml` overrides `sqlRetry` to 3×/10ms so the suite runs fast, and
+    asserting the running context would have passed while production stayed misconfigured — the
+    exact blind spot the test exists to close. **Verified it catches the bug:** restoring the pre-fix
+    values fails it with `3 attempts x 30000ms connect + 2 x 2000ms wait`, independently reproducing
+    the 94s figure. 146 tests pass with the fix.
+  - **Not fixed here:** the flaky droplet↔Winhost path itself. This change converts a hang into a
+    prompt, diagnosable error; it does not make the network reliable. Worth checking Winhost's
+    remote-access IP allowlist and any connection throttling for the droplet's address.
+
 - 2026-09-01: **1.7.1 — Deployed to production (no code changes from 1.7.0).** MySQL news backing (added 2026-08-31) + cached `news.has_photo0` perf fix deployed live. Image `ghcr.io/balintomsk/docapi:1.7.1` on droplet 68.183.196.166; configured with `MYSQL_NEWS_URL`, `MYSQL_NEWS_USERNAME`, `MYSQL_NEWS_PASSWORD` pointing to the Winhost MySQL host (my06.winhost.com, database `mysql_111487_envfish`). `/health` reports `1.7.0` (build version unchanged; only config/environment changed). All endpoints verified live: `/api/v1/news/list` returns 650+ articles with photos, `/api/v1/news/default` returns assembled home page with photo data, unknown article GUIDs return 404 (proves `sp_news_doc_get` working live), full newscontroller surface healthy.
 
 - 2026-08-31: **1.7.0 (committed but not yet deployed)** — News reads (`GET /api/v1/news/{id}`, `/news/list`, `/news/default`) moved from SQL

@@ -373,8 +373,27 @@ duplicate-key error. Both methods carry the same `sqlRetry`/`sqlBreaker` guards.
 
 Only SQL is guarded (no HTTP feeds, unlike `waterservice`):
 
-- `sqlRetry` — 3×/2s on `DataAccessException` / `SQLException`.
+- `sqlRetry` — **2×/500ms** on `DataAccessException` / `SQLException` (was 3×/2s until 2026-09-02).
 - `sqlBreaker` — window 10, min 5 calls, 50% threshold, open 30s.
+
+**TIME BUDGET — the DB failure path must finish inside cproxy's 10s read timeout.** cproxy fronts
+this service and gives up after 10s (twice for idempotent GETs), so anything slower reaches the
+caller as an opaque `502` with no diagnosis. The knobs that decide this are the Hikari
+`connection-timeout` (both pools), the driver-level `loginTimeout` (mssql-jdbc, **seconds**) /
+`connectTimeout` (Connector/J, **milliseconds**), and `sqlRetry`. Current worst case ≈ 6.5s
+(2 × 3s connect + 500ms wait).
+
+**Why it matters (2026-09-02):** the settings were 30s Hikari connect, no driver timeouts, and
+3×/2s retry — a worst case near **94s for one request**. The droplet's network path to the Winhost
+DB hosts intermittently drops TCP handshakes (measured ~2 of 6 probes timing out), and a dropped SYN
+is silence rather than a refusal, so every attempt sat the full 30s. Every `/api/*` call that touched
+a database appeared to hang; `/health` and validation-only paths stayed instant, which made it look
+like a query problem when it was not — `dbo.SearchFishList('trout')` runs in 112ms. **Both** pools
+are affected, since MySQL and SQL Server sit at the same provider over the same path; moving news to
+MySQL did not escape it. `DocApiJdbcWiringTest.dbFailurePathFitsInsideTheProxyReadTimeout` asserts
+the budget, and reads the retry numbers from the production yaml on purpose — `application-test.yml`
+overrides `sqlRetry` to 3×/10ms for speed, so asserting the running context would have passed while
+production stayed broken.
 - Aspect order: breaker (2) outermost, retry (1) inner — an open breaker fails fast without burning
   retries. Every `DocumentRepository` method carries `@Retry` + `@CircuitBreaker` with a fallback that
   rethrows as an unchecked exception (→ handled as 500).

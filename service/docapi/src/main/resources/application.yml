@@ -19,8 +19,14 @@ resilience4j:
     retry-aspect-order: 1
     instances:
       sqlRetry:
-        max-attempts: 3
-        wait-duration: 2s
+        # 3 attempts x 2s waits multiplied every stalled DB call: with the old 30s connect timeout
+        # one request could occupy ~94s. Retrying is still worth it - the failure this guards against
+        # is an intermittently dropped TCP handshake, which a second attempt genuinely does clear -
+        # but the total has to fit inside cproxy's 10s read timeout, or the caller only ever sees an
+        # opaque 502. Two attempts and a short wait keep the worst case near 6.5s. See the TIME
+        # BUDGET note in application-jdbc.yml before changing either number.
+        max-attempts: 2
+        wait-duration: 500ms
         retry-exceptions:
           - org.springframework.dao.DataAccessException
           - java.sql.SQLException

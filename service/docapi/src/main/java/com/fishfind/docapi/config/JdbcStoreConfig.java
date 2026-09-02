@@ -76,7 +76,17 @@ public class JdbcStoreConfig {
         ds.setPoolName("docapi-news-mysql-hikari");
         ds.setMaximumPoolSize(5);
         ds.setMinimumIdle(1);
-        ds.setConnectionTimeout(30000);
+        // Same time budget as the SQL Server pool in application-jdbc.yml, and for the same reason:
+        // cproxy's 10s read timeout means anything slower than that reaches the caller as an opaque
+        // 502. This pool sits on the SAME network path to the same provider, so it hits the same
+        // intermittently-dropped TCP handshakes — moving news to MySQL did not escape that.
+        ds.setConnectionTimeout(4000);   // > connectTimeout below, so the driver's error surfaces
+        ds.setValidationTimeout(2000);   // must stay under connectionTimeout
+        // Connector/J takes both of these in MILLISECONDS (unlike mssql-jdbc's loginTimeout, which is
+        // seconds). connectTimeout bounds the TCP connect; socketTimeout is a last-resort guard on a
+        // stalled read and is deliberately generous, not part of the budget.
+        ds.addDataSourceProperty("connectTimeout", "3000");
+        ds.addDataSourceProperty("socketTimeout", "30000");
         ds.setMaxLifetime(1740000); // 29 min
         return new JdbcTemplate(ds);
     }
