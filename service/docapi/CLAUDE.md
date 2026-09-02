@@ -373,7 +373,21 @@ duplicate-key error. Both methods carry the same `sqlRetry`/`sqlBreaker` guards.
 
 Only SQL is guarded (no HTTP feeds, unlike `waterservice`):
 
-- `sqlRetry` — **2×/500ms** on `DataAccessException` / `SQLException` (was 3×/2s until 2026-09-02).
+- `sqlRetry` — **2×/500ms**, and only on **transient** failures (was 3×/2s on the root
+  `DataAccessException` until 2026-09-02, i.e. it retried everything).
+  **The three configured types are not redundant** — Spring files connection failures under
+  different branches, so "just use `TransientDataAccessException`" would stop retrying driver-level
+  connect failures, the very case this exists for:
+  | failure | JDBC exception | Spring type |
+  |---|---|---|
+  | Hikari pool timeout | `SQLTransientConnectionException` | `TransientDataAccessResourceException` (Transient) |
+  | driver connect failure | `SQLNonTransientConnectionException` | `DataAccessResourceFailureException` (**NonTransient**) |
+  | connection dropped mid-use | `SQLRecoverableException` | `RecoverableDataAccessException` (Recoverable) |
+  Permanent faults (`BadSqlGrammarException`, `DataIntegrityViolationException`, …) must never be
+  retried — it only multiplies latency, and on a write path it can compound the damage.
+  `DocApiJdbcWiringTest.onlyTransientFailuresAreRetried` asserts the classification behaviourally,
+  and `retryExceptionListMirrorsProduction` pins `application-test.yml` to the same list so the
+  suite cannot exercise different retry semantics from production.
 - `sqlBreaker` — window 10, min 5 calls, 50% threshold, open 30s.
 
 **TWO DATASOURCES — never let Spring pick the JdbcTemplate by accident.** docapi has a SQL Server
