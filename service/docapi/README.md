@@ -91,9 +91,12 @@ With the default in-memory backing **no configuration is required** — just bui
 
 The `jdbc` profile requires:
 
-- `DB_URL`
+- `DB_URL` (SQL Server — waterbody, fish, station entities + news writes)
 - `DB_USERNAME`
 - `DB_PASSWORD`
+- `MYSQL_NEWS_URL` (MySQL — news **reads** only: `GET /{id}`, `/news/list`, `/news/default`; as of 2026-08-31)
+- `MYSQL_NEWS_USERNAME`
+- `MYSQL_NEWS_PASSWORD`
 
 Example `.env` (project root, do **not** commit — `.env.example` holds placeholders only):
 
@@ -101,10 +104,17 @@ Example `.env` (project root, do **not** commit — `.env.example` holds placeho
 DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=your_database;encrypt=true;trustServerCertificate=true
 DB_USERNAME=your_username
 DB_PASSWORD=your_password
+
+MYSQL_NEWS_URL=jdbc:mysql://my06.winhost.com:3306/mysql_111487_envfish
+MYSQL_NEWS_USERNAME=your_mysql_user
+MYSQL_NEWS_PASSWORD=your_mysql_password
 ```
+
+**Why separate MySQL for news?** The `news` table migrated to Winhost MySQL on 2026-08-31 to match the `fishfind-frontend`'s `News.aspx` data source. The three news read endpoints now read from MySQL; everything else on `NewsController` (POST/PUT/{id}, `/search`, `/export`, `/import`) and all other entities (waterbody, fish, station) remain on SQL Server.
 
 - Real process environment variables / JVM system properties always win over `.env`.
 - Override the dotenv file location with `DOTENV_PATH`.
+- **MySQL is optional**: if you run without MySQL config, the `jdbc` profile still starts (SQL Server only), news reads return empty/404, and writes + all other entities work normally. This is useful for local dev when you don't have MySQL access.
 
 ## Build & run
 

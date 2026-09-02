@@ -15,11 +15,30 @@ spring:
       # Sized for concurrent HTTP request handling against the remote DB.
       maximum-pool-size: 8
       minimum-idle: 2
-      connection-timeout: 30000
+      # TIME BUDGET (2026-09-02). cproxy fronts this service with a 10s read timeout and one retry
+      # for idempotent GETs, so any request docapi cannot answer within ~10s reaches the caller as an
+      # opaque 502 with no diagnosis. The whole failure path must therefore finish well inside that.
+      #
+      # This was 30000, with no driver-level timeouts and Resilience4j retrying 3x with 2s waits:
+      # worst case 3 x 30s + 2 x 2s ~= 94s for ONE request. The droplet's network path to the DB host
+      # intermittently drops TCP handshakes (measured: ~2 of 6 probes time out), and a dropped SYN
+      # produces silence rather than a refusal, so every one of those attempts sat the full 30s.
+      #
+      # Budget now: 3s connect + 0.5s retry wait + 3s connect ~= 6.5s worst case, comfortably inside
+      # cproxy's 10s, so a bad path yields a real error instead of a hang.
+      connection-timeout: 4000     # must exceed loginTimeout below, so the DRIVER's error surfaces
       # Retire connections before the server/network idle timeout closes them out from under the pool.
       max-lifetime: 1740000   # 29 min
       keepalive-time: 300000  # 5 min
-      validation-timeout: 5000
+      validation-timeout: 2000     # must stay below connection-timeout or Hikari warns and clamps
+      data-source-properties:
+        # mssql-jdbc: loginTimeout is SECONDS and covers TCP connect + authentication - this is the
+        # one that actually bounds the observed failure.
+        loginTimeout: 3
+        # Milliseconds, and a last-resort guard only: it bounds a read that stalls AFTER connecting.
+        # Deliberately generous rather than part of the budget above, because /news/default assembles
+        # a large document and must not be cut off just because the network is being audited.
+        socketTimeout: 30000
 
 management:
   endpoint:

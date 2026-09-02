@@ -198,7 +198,7 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
   for the still-SQL-Server `POST`/`PUT`) — see "MySQL backing for news reads" below. The other three
   entities (`waterbody`, `fish`, `station`) are unaffected — full SQL Server CRUD as documented above.
 
-### MySQL backing for news reads (2026-08-31)
+### MySQL backing for news reads (2026-08-31, deployed 2026-09-01 as docapi 1.7.1)
 
 `GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
 (Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
@@ -373,8 +373,40 @@ duplicate-key error. Both methods carry the same `sqlRetry`/`sqlBreaker` guards.
 
 Only SQL is guarded (no HTTP feeds, unlike `waterservice`):
 
-- `sqlRetry` — 3×/2s on `DataAccessException` / `SQLException`.
+- `sqlRetry` — **2×/500ms** on `DataAccessException` / `SQLException` (was 3×/2s until 2026-09-02).
 - `sqlBreaker` — window 10, min 5 calls, 50% threshold, open 30s.
+
+**TWO DATASOURCES — never let Spring pick the JdbcTemplate by accident.** docapi has a SQL Server
+datasource *and* a MySQL news datasource. `JdbcTemplateAutoConfiguration` is
+`@ConditionalOnMissingBean(JdbcOperations.class)`, so **defining any `JdbcTemplate` bean makes it
+back off entirely**. `JdbcStoreConfig.mysqlNewsJdbcTemplate` does exactly that, which between
+2026-08-31 and 2026-09-02 left the SQL Server template uncreated and handed the MySQL one to all
+thirteen beans that inject `JdbcTemplate` by type — production sent T-SQL to MySQL and every
+SQL-Server-backed endpoint 500'd, while `docapi-hikari` never even started. The SQL Server
+`JdbcTemplate` is therefore declared explicitly and marked `@Primary`; MySQL consumers must keep
+using `@Qualifier("mysqlNewsJdbcTemplate")`. **If you add a third datasource, qualify everything and
+extend `DocApiJdbcWiringTest.sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne`** — that
+test asserts pool *names*, because H2 stands in for SQL Server in tests and a misdirected template
+otherwise still appears to work.
+
+**TIME BUDGET — the DB failure path must finish inside cproxy's 10s read timeout.** cproxy fronts
+this service and gives up after 10s (twice for idempotent GETs), so anything slower reaches the
+caller as an opaque `502` with no diagnosis. The knobs that decide this are the Hikari
+`connection-timeout` (both pools), the driver-level `loginTimeout` (mssql-jdbc, **seconds**) /
+`connectTimeout` (Connector/J, **milliseconds**), and `sqlRetry`. Current worst case ≈ 6.5s
+(2 × 3s connect + 500ms wait).
+
+**Why it matters (2026-09-02):** the settings were 30s Hikari connect, no driver timeouts, and
+3×/2s retry — a worst case near **94s for one request**. The droplet's network path to the Winhost
+DB hosts intermittently drops TCP handshakes (measured ~2 of 6 probes timing out), and a dropped SYN
+is silence rather than a refusal, so every attempt sat the full 30s. Every `/api/*` call that touched
+a database appeared to hang; `/health` and validation-only paths stayed instant, which made it look
+like a query problem when it was not — `dbo.SearchFishList('trout')` runs in 112ms. **Both** pools
+are affected, since MySQL and SQL Server sit at the same provider over the same path; moving news to
+MySQL did not escape it. `DocApiJdbcWiringTest.dbFailurePathFitsInsideTheProxyReadTimeout` asserts
+the budget, and reads the retry numbers from the production yaml on purpose — `application-test.yml`
+overrides `sqlRetry` to 3×/10ms for speed, so asserting the running context would have passed while
+production stayed broken.
 - Aspect order: breaker (2) outermost, retry (1) inner — an open breaker fails fast without burning
   retries. Every `DocumentRepository` method carries `@Retry` + `@CircuitBreaker` with a fallback that
   rethrows as an unchecked exception (→ handled as 500).

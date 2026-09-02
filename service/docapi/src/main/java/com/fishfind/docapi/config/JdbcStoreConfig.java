@@ -37,6 +37,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import javax.sql.DataSource;
+
 /**
  * SQL Server backing, active only under the {@code jdbc} Spring profile: one JDBC {@link DocumentStore}
  * per entity, each calling that entity's stored procedures / JSON function.
@@ -50,6 +52,34 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Profile("jdbc")
 @EnableScheduling
 public class JdbcStoreConfig {
+
+    /**
+     * The SQL Server {@link JdbcTemplate} — declared explicitly, and {@code @Primary}, because
+     * Spring Boot will not create it for us here.
+     *
+     * <p>{@code JdbcTemplateAutoConfiguration} is {@code @ConditionalOnMissingBean(JdbcOperations.class)}.
+     * {@link #mysqlNewsJdbcTemplate} registers a {@link JdbcTemplate} — which IS a
+     * {@code JdbcOperations} — so the auto-configuration backs off <strong>entirely</strong> and no
+     * SQL Server template is ever built. Every one of the thirteen beans below that injects a bare
+     * {@code JdbcTemplate} then silently receives the MySQL one, and production sends T-SQL to MySQL:
+     * between the news migration (2026-08-31) and 2026-09-02 that 500'd {@code /fish/search},
+     * {@code /river/*} and {@code /region/regulation/*} with "check the manual that corresponds to
+     * your MySQL server version". The SQL Server pool never even started.
+     *
+     * <p>This is the same hazard {@link #mysqlNewsJdbcTemplate} already documents one layer down for
+     * {@code DataSource}, where it is dodged by keeping the {@link HikariDataSource} local. That trick
+     * cannot work here — the news repositories genuinely need a {@code JdbcTemplate} bean to inject —
+     * so instead the SQL Server one is declared and marked {@code @Primary}, making the by-type
+     * injections unambiguous and independent of whether the auto-configuration runs.
+     *
+     * <p>{@code DocApiJdbcWiringTest.sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne}
+     * asserts the binding by pool name; it fails if this bean is removed.
+     */
+    @Bean
+    @Primary
+    public JdbcTemplate jdbcTemplate(DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
 
     /**
      * A dedicated MySQL datasource/{@link JdbcTemplate} for the news read endpoints only (the
@@ -76,7 +106,17 @@ public class JdbcStoreConfig {
         ds.setPoolName("docapi-news-mysql-hikari");
         ds.setMaximumPoolSize(5);
         ds.setMinimumIdle(1);
-        ds.setConnectionTimeout(30000);
+        // Same time budget as the SQL Server pool in application-jdbc.yml, and for the same reason:
+        // cproxy's 10s read timeout means anything slower than that reaches the caller as an opaque
+        // 502. This pool sits on the SAME network path to the same provider, so it hits the same
+        // intermittently-dropped TCP handshakes — moving news to MySQL did not escape that.
+        ds.setConnectionTimeout(4000);   // > connectTimeout below, so the driver's error surfaces
+        ds.setValidationTimeout(2000);   // must stay under connectionTimeout
+        // Connector/J takes both of these in MILLISECONDS (unlike mssql-jdbc's loginTimeout, which is
+        // seconds). connectTimeout bounds the TCP connect; socketTimeout is a last-resort guard on a
+        // stalled read and is deliberately generous, not part of the budget.
+        ds.addDataSourceProperty("connectTimeout", "3000");
+        ds.addDataSourceProperty("socketTimeout", "30000");
         ds.setMaxLifetime(1740000); // 29 min
         return new JdbcTemplate(ds);
     }

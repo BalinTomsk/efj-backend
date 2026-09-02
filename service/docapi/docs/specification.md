@@ -416,11 +416,29 @@ spring:
       pool-name: docapi-hikari
       maximum-pool-size: 8
       minimum-idle: 2
-      connection-timeout: 30000
+      connection-timeout: 4000      # see TIME BUDGET below
       max-lifetime: 1740000   # 29 min
       keepalive-time: 300000  # 5 min
-      validation-timeout: 5000
+      validation-timeout: 2000      # must stay under connection-timeout
+      data-source-properties:
+        loginTimeout: 3             # mssql-jdbc, SECONDS: TCP connect + auth
+        socketTimeout: 30000        # ms; last-resort guard on a stalled read, not part of the budget
 ```
+
+**TIME BUDGET.** cproxy fronts this service with a 10s read timeout (and one retry for idempotent
+GETs), so any request docapi cannot answer in roughly that window reaches the caller as an opaque
+`502`. The whole DB failure path must therefore fit inside it: currently ≈ 6.5s worst case
+(2 attempts × 3s connect + one 500ms retry wait). The MySQL news pool
+(`JdbcStoreConfig.mysqlNewsJdbcTemplate`) carries the same budget with Connector/J's
+`connectTimeout` — note the unit differs from mssql-jdbc's `loginTimeout`: **milliseconds vs
+seconds**.
+
+Until 2026-09-02 this was 30s connect with no driver timeouts and `sqlRetry` at 3×/2s — a worst case
+near **94s per request**. Combined with an intermittently lossy network path to the Winhost DB hosts
+(~2 of 6 TCP handshakes timing out), every DB-backed endpoint appeared to hang while `/health` and
+validation-only paths stayed instant. `DocApiJdbcWiringTest.dbFailurePathFitsInsideTheProxyReadTimeout`
+now asserts the budget, reading the retry values from the production yaml because
+`application-test.yml` overrides them for speed.
 
 ## Data access
 
