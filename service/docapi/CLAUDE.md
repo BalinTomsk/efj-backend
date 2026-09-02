@@ -376,6 +376,19 @@ Only SQL is guarded (no HTTP feeds, unlike `waterservice`):
 - `sqlRetry` — **2×/500ms** on `DataAccessException` / `SQLException` (was 3×/2s until 2026-09-02).
 - `sqlBreaker` — window 10, min 5 calls, 50% threshold, open 30s.
 
+**TWO DATASOURCES — never let Spring pick the JdbcTemplate by accident.** docapi has a SQL Server
+datasource *and* a MySQL news datasource. `JdbcTemplateAutoConfiguration` is
+`@ConditionalOnMissingBean(JdbcOperations.class)`, so **defining any `JdbcTemplate` bean makes it
+back off entirely**. `JdbcStoreConfig.mysqlNewsJdbcTemplate` does exactly that, which between
+2026-08-31 and 2026-09-02 left the SQL Server template uncreated and handed the MySQL one to all
+thirteen beans that inject `JdbcTemplate` by type — production sent T-SQL to MySQL and every
+SQL-Server-backed endpoint 500'd, while `docapi-hikari` never even started. The SQL Server
+`JdbcTemplate` is therefore declared explicitly and marked `@Primary`; MySQL consumers must keep
+using `@Qualifier("mysqlNewsJdbcTemplate")`. **If you add a third datasource, qualify everything and
+extend `DocApiJdbcWiringTest.sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne`** — that
+test asserts pool *names*, because H2 stands in for SQL Server in tests and a misdirected template
+otherwise still appears to work.
+
 **TIME BUDGET — the DB failure path must finish inside cproxy's 10s read timeout.** cproxy fronts
 this service and gives up after 10s (twice for idempotent GETs), so anything slower reaches the
 caller as an opaque `502` with no diagnosis. The knobs that decide this are the Hikari

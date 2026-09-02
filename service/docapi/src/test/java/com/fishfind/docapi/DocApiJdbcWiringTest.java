@@ -5,6 +5,7 @@ import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.yaml.snakeyaml.Yaml;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -167,6 +168,43 @@ class DocApiJdbcWiringTest {
         assertThat(mysqlNewsPool().getConnectionTimeout())
                 .as("MySQL news pool shares the same budget as the SQL Server pool")
                 .isLessThan(Duration.ofSeconds(10).toMillis());
+    }
+
+    /**
+     * The bare {@code JdbcTemplate} that every SQL-Server-backed repository injects must be bound to
+     * the SQL SERVER datasource — not the MySQL news pool.
+     *
+     * <p>This is the bug that took most of the API down between the MySQL news migration
+     * (2026-08-31) and 2026-09-02. {@code mysqlNewsJdbcTemplate} registers a {@link JdbcTemplate}
+     * bean, and Spring Boot's {@code JdbcTemplateAutoConfiguration} is
+     * {@code @ConditionalOnMissingBean(JdbcOperations.class)} — so it backed off entirely, the SQL
+     * Server template was never created, and all thirteen beans that inject {@code JdbcTemplate} by
+     * type silently received the MySQL one. Production then sent T-SQL to MySQL and every
+     * SQL-Server-backed endpoint 500'd with
+     * {@code "check the manual that corresponds to your MySQL server version"}.
+     *
+     * <p>The class comment on {@code mysqlNewsJdbcTemplate} documents this exact hazard one layer
+     * down, for {@code DataSource}, and dodges it by keeping the {@link HikariDataSource} local. The
+     * same trap exists for {@code JdbcTemplate}, and nothing caught it: the pre-existing wiring tests
+     * only asserted that beans were AOP proxies, never which database they pointed at.
+     */
+    @Test
+    void sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne() {
+        JdbcTemplate primary = context.getBean(JdbcTemplate.class);
+        assertThat(primary.getDataSource()).isInstanceOf(HikariDataSource.class);
+        HikariDataSource primaryPool = (HikariDataSource) primary.getDataSource();
+
+        assertThat(primaryPool.getPoolName())
+                .as("the by-type JdbcTemplate (injected by fishQueryRepository, riverQueryRepository, "
+                        + "regulation*, station/fish/waterbody stores, ...) must be the SQL Server "
+                        + "pool; getting the MySQL pool here means T-SQL is being sent to MySQL")
+                .isEqualTo("docapi-hikari");
+
+        // ...and it must be a genuinely different pool from the news one, not the same object.
+        assertThat(primaryPool)
+                .as("SQL Server and MySQL news pools must be distinct")
+                .isNotSameAs(mysqlNewsPool());
+        assertThat(mysqlNewsPool().getPoolName()).isEqualTo("docapi-news-mysql-hikari");
     }
 
     /** The MySQL pool is deliberately not a DataSource bean, so reach it through its JdbcTemplate. */

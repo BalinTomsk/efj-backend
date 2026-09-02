@@ -2,6 +2,38 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-02: **1.7.3 — CRITICAL: every SQL-Server-backed endpoint was sending T-SQL to MySQL.
+  BUILT AND TESTED, NOT DEPLOYED.**
+  **Live impact, present since the MySQL news migration (2026-08-31):** `/api/v1/fish/search`,
+  `/api/v1/river/*` and `/api/v1/region/regulation/*` all returned `500`. The root exception was
+  `SQLSyntaxErrorException: ... check the manual that corresponds to your **MySQL** server version
+  ... near '('trout') ORDER BY irank ASC'` — the T-SQL `dbo.SearchFishList(?)` executed against
+  MySQL. On the droplet, only `docapi-news-mysql-hikari` ever started; `docapi-hikari` never
+  initialised and the logs contained **zero** SQL Server driver mentions. Only the MySQL-backed news
+  endpoints worked.
+  - **Cause.** `JdbcTemplateAutoConfiguration` is `@ConditionalOnMissingBean(JdbcOperations.class)`.
+    `JdbcStoreConfig.mysqlNewsJdbcTemplate` registers a `JdbcTemplate` (which *is* a
+    `JdbcOperations`), so the auto-configuration **backed off entirely** and the SQL Server template
+    was never created. All thirteen beans injecting a bare `JdbcTemplate` — `fishQueryRepository`,
+    `riverQueryRepository`, `river*CommandRepository`, `regulation*`, `sqlServerNewsStore`,
+    `sqlServerNewsQueryRepository`, the fish/waterbody/station stores — silently got the MySQL one.
+    The MySQL consumers were fine; they use `@Qualifier("mysqlNewsJdbcTemplate")`.
+  - **The irony:** `mysqlNewsJdbcTemplate`'s own javadoc documents this exact hazard one layer down,
+    for `DataSource`, and dodges it by keeping the `HikariDataSource` local. The identical trap for
+    `JdbcTemplate` was walked straight into. That trick could not be reused here — the news
+    repositories genuinely need a `JdbcTemplate` bean to inject.
+  - **Fix.** Declare the SQL Server `JdbcTemplate` explicitly and mark it `@Primary`, so by-type
+    injection is unambiguous and no longer depends on whether the auto-configuration runs.
+  - **Why nothing caught it.** `DocApiJdbcWiringTest` asserted only that beans were AOP proxies —
+    never *which database* they pointed at — and H2 stands in for SQL Server there, so a
+    misdirected template still "worked". New test
+    `sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne` asserts the by-type `JdbcTemplate`
+    is bound to the `docapi-hikari` pool and is a different object from the news pool. **Verified it
+    reproduces the outage:** written before the fix, it failed with `expected: "docapi-hikari"`.
+    147 tests pass with the fix.
+  - Found only because the 1.7.2 timeout work turned a 30s hang into a 2.7s failure, which let the
+    real exception surface instead of being swallowed by a proxy timeout.
+
 - 2026-09-02: **DB timeout budget — every DB-backed endpoint could hang for ~94s. BUILT AND TESTED,
   NOT DEPLOYED.**
   **Symptom:** `/api/v1/fish/search`, `/api/v1/news/list` and `/api/v1/news/default` all hung; cproxy
