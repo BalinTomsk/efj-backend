@@ -17,6 +17,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import javax.sql.DataSource;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,6 +124,92 @@ class DocApiJdbcWiringTest {
                                 + "surface as an opaque 502",
                         attempts, connectTimeoutMs, attempts - 1, waitMs, proxyReadTimeout)
                 .isLessThan(proxyReadTimeout);
+    }
+
+    /**
+     * Only failures a second attempt could plausibly clear may be retried.
+     *
+     * <p>The list was originally `DataAccessException` + `SQLException` — the root of Spring's DAO
+     * hierarchy, which retries *everything*. During the 2026-09-02 incident that retried a
+     * `BadSqlGrammarException` (T-SQL sent to MySQL) twice for nothing, and it would retry a
+     * `DataIntegrityViolationException` on a write the same way.
+     *
+     * <p>Asserted behaviourally, by assignability against the configured types, rather than by
+     * comparing strings — the point is which failures retry, not how the list is spelled. Note the
+     * three configured entries are not redundant: Spring files connection failures under different
+     * branches (see the comment in application.yml), so a "just use TransientDataAccessException"
+     * simplification would silently stop retrying driver-level connect failures — the exact case
+     * this retry exists for.
+     */
+    @Test
+    void onlyTransientFailuresAreRetried() throws Exception {
+        List<Class<?>> configured = prodRetryExceptionClasses();
+
+        // Must retry: the three shapes an intermittently lossy network path actually produces.
+        assertRetried(configured, org.springframework.dao.TransientDataAccessResourceException.class,
+                true, "Hikari pool timeout (SQLTransientConnectionException)");
+        assertRetried(configured, org.springframework.dao.DataAccessResourceFailureException.class,
+                true, "driver connect failure (SQLNonTransientConnectionException)");
+        assertRetried(configured, org.springframework.dao.RecoverableDataAccessException.class,
+                true, "connection dropped mid-use (SQLRecoverableException)");
+        assertRetried(configured, org.springframework.dao.QueryTimeoutException.class,
+                true, "query timeout");
+        assertRetried(configured, org.springframework.dao.ConcurrencyFailureException.class,
+                true, "deadlock / optimistic locking");
+
+        // Must NOT retry: permanent faults. Retrying these only multiplies latency, and on a write
+        // path it can compound the damage.
+        assertRetried(configured, org.springframework.jdbc.BadSqlGrammarException.class,
+                false, "bad SQL grammar - the 2026-09-02 case");
+        assertRetried(configured, org.springframework.dao.DataIntegrityViolationException.class,
+                false, "constraint violation");
+        assertRetried(configured, org.springframework.dao.DuplicateKeyException.class,
+                false, "duplicate key");
+        assertRetried(configured, org.springframework.dao.PermissionDeniedDataAccessException.class,
+                false, "permission denied");
+        assertRetried(configured, org.springframework.dao.InvalidDataAccessApiUsageException.class,
+                false, "programming error");
+    }
+
+    private static void assertRetried(List<Class<?>> configured, Class<?> thrown,
+                                      boolean expected, String why) {
+        boolean retried = configured.stream().anyMatch(c -> c.isAssignableFrom(thrown));
+        assertThat(retried)
+                .as("%s (%s) should %sbe retried", why, thrown.getSimpleName(),
+                        expected ? "" : "NOT ")
+                .isEqualTo(expected);
+    }
+
+    /**
+     * The test profile may run faster than production, but it must not retry a DIFFERENT set of
+     * failures — that would mean the suite exercises behaviour production does not have.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void retryExceptionListMirrorsProduction() throws Exception {
+        List<String> prod = (List<String>) prodSqlRetryConfig().get("retry-exceptions");
+        List<String> test;
+        try (var in = new ClassPathResource("application-test.yml").getInputStream()) {
+            Map<String, Object> root = new Yaml().load(in);
+            Map<String, Object> r4j = (Map<String, Object>) root.get("resilience4j");
+            Map<String, Object> instances =
+                    (Map<String, Object>) ((Map<String, Object>) r4j.get("retry")).get("instances");
+            test = (List<String>) ((Map<String, Object>) instances.get("sqlRetry")).get("retry-exceptions");
+        }
+        assertThat(test)
+                .as("application-test.yml's sqlRetry retry-exceptions must mirror application.yml's; "
+                        + "only the timings may differ")
+                .containsExactlyElementsOf(prod);
+    }
+
+    /** The configured retry-exception types, loaded from the PRODUCTION application.yml. */
+    @SuppressWarnings("unchecked")
+    private List<Class<?>> prodRetryExceptionClasses() throws Exception {
+        List<String> names = (List<String>) prodSqlRetryConfig().get("retry-exceptions");
+        assertThat(names).as("sqlRetry must declare an explicit retry-exceptions list").isNotEmpty();
+        List<Class<?>> out = new java.util.ArrayList<>();
+        for (String n : names) out.add(Class.forName(n));
+        return out;
     }
 
     /** resilience4j.retry.instances.sqlRetry from the PRODUCTION application.yml. */

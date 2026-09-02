@@ -9,11 +9,17 @@ resilience4j:
     retry-aspect-order: 1
     instances:
       sqlRetry:
+        # Timings are deliberately faster than production so the suite runs quickly. The
+        # retry-exceptions list, however, MUST mirror application.yml exactly — it decides which
+        # failures retry at all, and a divergence would mean tests exercise different behaviour from
+        # production. `retryExceptionListMirrorsProduction` in DocApiJdbcWiringTest asserts the two
+        # lists stay identical.
         max-attempts: 3
         wait-duration: 10ms
         retry-exceptions:
-          - org.springframework.dao.DataAccessException
-          - java.sql.SQLException
+          - org.springframework.dao.TransientDataAccessException
+          - org.springframework.dao.RecoverableDataAccessException
+          - org.springframework.dao.DataAccessResourceFailureException
   circuitbreaker:
     circuit-breaker-aspect-order: 2
     instances:

@@ -27,9 +27,23 @@ resilience4j:
         # BUDGET note in application-jdbc.yml before changing either number.
         max-attempts: 2
         wait-duration: 500ms
+        # Retry ONLY failures a second attempt could plausibly clear. This was
+        # `DataAccessException` + `SQLException`, i.e. the root of Spring's DAO hierarchy — which
+        # retries everything, including permanent faults. During the 2026-09-02 incident a
+        # BadSqlGrammarException (T-SQL sent to MySQL) was retried twice for nothing; a
+        # DataIntegrityViolationException on a write would be retried the same way.
+        #
+        # The three entries below are NOT redundant — Spring files connection failures under
+        # different branches, so listing only the "Transient" one would miss the very case this
+        # retry exists for:
+        #   Hikari pool timeout      SQLTransientConnectionException    -> TransientDataAccessResourceException  (Transient)
+        #   driver connect failure   SQLNonTransientConnectionException -> DataAccessResourceFailureException    (NonTransient!)
+        #   connection dropped       SQLRecoverableException            -> RecoverableDataAccessException        (Recoverable)
+        # Matching is by assignability, so each entry covers its subclasses.
         retry-exceptions:
-          - org.springframework.dao.DataAccessException
-          - java.sql.SQLException
+          - org.springframework.dao.TransientDataAccessException
+          - org.springframework.dao.RecoverableDataAccessException
+          - org.springframework.dao.DataAccessResourceFailureException
   circuitbreaker:
     circuit-breaker-aspect-order: 2   # higher order => outermost (wraps Retry)
     instances:

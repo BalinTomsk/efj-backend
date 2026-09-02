@@ -2,6 +2,36 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-02: **1.7.4 — `sqlRetry` only retries transient failures now. BUILT AND TESTED, NOT
+  DEPLOYED.**
+  The list was `DataAccessException` + `SQLException` — the root of Spring's DAO hierarchy, so it
+  retried *everything*, permanent faults included. During the 1.7.3 incident a
+  `BadSqlGrammarException` (T-SQL sent to MySQL) was retried twice for nothing; a
+  `DataIntegrityViolationException` on a write would be retried the same way, which on a write path
+  can compound the damage rather than just wasting time.
+  - **The fix is three types, and they are NOT redundant.** Spring files connection failures under
+    different branches, so the tempting "just use `TransientDataAccessException`" simplification
+    would silently stop retrying driver-level connect failures — the exact case this retry exists
+    for:
+
+    | failure | JDBC exception | Spring type | branch |
+    |---|---|---|---|
+    | Hikari pool timeout | `SQLTransientConnectionException` | `TransientDataAccessResourceException` | Transient |
+    | driver connect failure | `SQLNonTransientConnectionException` | `DataAccessResourceFailureException` | **NonTransient** |
+    | connection dropped mid-use | `SQLRecoverableException` | `RecoverableDataAccessException` | Recoverable |
+  - **Tests.** `onlyTransientFailuresAreRetried` asserts the classification *behaviourally* (by
+    assignability against the configured types, not by string-comparing the list): pool timeout,
+    connect failure, dropped connection, query timeout and deadlock must retry; bad grammar,
+    constraint violation, duplicate key, permission denied and API misuse must not.
+    `retryExceptionListMirrorsProduction` pins `application-test.yml` to the same list — its faster
+    timings are legitimate, a different exception list would mean the suite exercises retry
+    semantics production does not have. **Verified both catch the old config:** restoring it fails
+    with `bad SQL grammar - the 2026-09-02 case (BadSqlGrammarException) should NOT be retried` and
+    the mirror assertion. 149 tests pass with the fix.
+  - Confirmed the retry genuinely applied before this change: `JdbcFishQueryRepository.search()`
+    lets the `DataAccessException` propagate (the `RuntimeException` wrapper seen in the incident
+    logs is added *above* the Resilience4j proxy), so `@Retry` did see and retry the grammar error.
+
 - 2026-09-02: **1.7.3 — CRITICAL: every SQL-Server-backed endpoint was sending T-SQL to MySQL.
   BUILT AND TESTED, NOT DEPLOYED.**
   **Live impact, present since the MySQL news migration (2026-08-31):** `/api/v1/fish/search`,
