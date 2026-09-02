@@ -71,7 +71,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
     prompt, diagnosable error; it does not make the network reliable. Worth checking Winhost's
     remote-access IP allowlist and any connection throttling for the droplet's address.
 
-- 2026-09-01: **1.7.1 — Deployed to production (no code changes from 1.7.0).** MySQL news backing (added 2026-08-31) + cached `news.has_photo0` perf fix deployed live. Image `ghcr.io/balintomsk/docapi:1.7.1` on droplet 68.183.196.166; configured with `MYSQL_NEWS_URL`, `MYSQL_NEWS_USERNAME`, `MYSQL_NEWS_PASSWORD` pointing to the Winhost MySQL host (my06.winhost.com, database `mysql_111487_envfish`). `/health` reports `1.7.0` (build version unchanged; only config/environment changed). All endpoints verified live: `/api/v1/news/list` returns 650+ articles with photos, `/api/v1/news/default` returns assembled home page with photo data, unknown article GUIDs return 404 (proves `sp_news_doc_get` working live), full newscontroller surface healthy.
+- 2026-09-01: **1.7.1 — Deployed to production (no code changes from 1.7.0).** MySQL news backing (added 2026-08-31) + cached `news.has_photo0` perf fix deployed live. Image `ghcr.io/balintomsk/docapi:1.7.1` on droplet <docapi-droplet>; configured with `MYSQL_NEWS_URL`, `MYSQL_NEWS_USERNAME`, `MYSQL_NEWS_PASSWORD` pointing to the Winhost MySQL host (<mysql-host>, database `mysql_111487_envfish`). `/health` reports `1.7.0` (build version unchanged; only config/environment changed). All endpoints verified live: `/api/v1/news/list` returns 650+ articles with photos, `/api/v1/news/default` returns assembled home page with photo data, unknown article GUIDs return 404 (proves `sp_news_doc_get` working live), full newscontroller surface healthy.
 
 - 2026-08-31: **1.7.0 (committed but not yet deployed)** — News reads (`GET /api/v1/news/{id}`, `/news/list`, `/news/default`) moved from SQL
   Server to MySQL.** The `news` table migrated to Winhost MySQL on 2026-08-31 (`envfish-db/mysql/`),
@@ -285,7 +285,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   `ghcr.io/balintomsk/docapi:1.5.2`, digest `sha256:8a760b0c…53887a`; no DB step —
   `fn_lake_fishing_json` already live). `/health` reports 1.5.2, clean startup (no exceptions in the
   startup window, `restarts=0`). `/river/fish/{guid}` verified both directly on docapi and through
-  **cproxy** (`http://159.89.113.225/api/v1/river/fish/a55caadf-2892-e811-9104-00155d007b12` → 200,
+  **cproxy** (`http://<cproxy-droplet>/api/v1/river/fish/a55caadf-2892-e811-9104-00155d007b12` → 200,
   real data "Little Somme River" — the exact link that had 404'd against the still-1.5.1 prod before
   this deploy); unknown guid → 404 in both paths. Full smoke matrix re-run clean: healthy endpoints
   200 pre-breaker, doc-CRUD 500s at the documented expected state, breaker closed within 1 poll after.
