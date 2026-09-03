@@ -182,17 +182,6 @@ public class NewsQueryCache implements NewsQueryRepository {
     }
 
     /**
-     * Not cached — this is an internal lookup called <em>beneath</em> this cache by
-     * {@link MySqlNewsQueryRepository#defaultNews()} while it assembles the home page, so its result
-     * is already covered by the cached {@code default} entry. Caching it again here would only add a
-     * second copy keyed on an id list.
-     */
-    @Override
-    public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
-        return delegate.resolveRefNames(lakeIds, fishIds);
-    }
-
-    /**
      * Not cached — a per-id interchange document (with embedded base64 photos) is large and rarely
      * re-requested, so it reads straight through to the delegate.
      */

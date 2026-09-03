@@ -104,17 +104,13 @@ com.fishfind.docapi
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
-│   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews()
-│   │                              #   + resolveRefNames(lakeIds, fishIds) (news-page queries)
+│   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcNewsQueryRepository    # SQL Server backing — dbo.fn_news_list / dbo.fn_default_news_json
 │   │                              #   / dbo.fn_news_search / dbo.fn_news_json / dbo.sp_news_import
-│   │                              #   / dbo.fn_news_ref_names_json (lake+fish id -> display name)
 │   ├── MySqlNewsQueryRepository   # MySQL backing (2026-08-31) — list/defaultNews only, via
-│   │                              #   sp_news_list_json/sp_news_default; defaultNews then fills
-│   │                              #   lake_name/fishes from SQL Server (2026-09-02);
-│   │                              #   search/export/import/resolveRefNames delegate to a wrapped
-│   │                              #   JdbcNewsQueryRepository (SQL Server)
+│   │                              #   sp_news_list_json/sp_news_default; search/export/import
+│   │                              #   delegate to a wrapped JdbcNewsQueryRepository (SQL Server)
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -214,7 +210,7 @@ resolve names against and no interchange/full-text-search objects.
 |----------|---------|-------|
 | `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`; `addDocument`/`updateDocument` delegate to the wrapped `NewsDocumentRepository` (SQL Server) |
 | `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list` |
-| `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` **+ SQL Server `dbo.fn_news_ref_names_json`** | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape), carrying `snippet`. The **only hybrid read in the service**: MySQL has no `lake`/`fish` tables, so the mentioned `lake_id`/`fish1..3_id` are resolved to `lake_name` + `fishes:[{id,name,latin}]` in one SQL Server round trip for the whole page. **Degrades, never fails** — an unreachable SQL Server logs a WARN and the page returns 200 with `lake_name: null` / `fishes: []`, since surviving a SQL Server outage is why news reads moved to MySQL at all |
+| `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape), carrying `snippet`. **Pure MySQL read** — the mentioned `lake_id`/`fish1..3_id` come back as bare guids and the caller resolves names if it wants them. A SQL Server lookup for that existed in docapi 1.8.0–1.8.1 (`dbo.fn_news_ref_names_json`) and was **removed 2026-09-03**: it made this read span both databases, which the move to MySQL existed to avoid |
 | `search`/`export`/`import` | SQL Server (unchanged) | `MySqlNewsQueryRepository` delegates these three to a wrapped `JdbcNewsQueryRepository` |
 
 New MySQL objects live in `envfish-db/mysql/script02_Proc.sql` (`sp_news_doc_get`,
@@ -244,7 +240,6 @@ Resilience4j guards as the document reads.
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document. **One call renders every news section of `fishfind-frontend`'s `Default.aspx`**: both lead articles (headline, byline + `author_link`, `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, and the tag row as `lake_id`/`lake_name` + `fishes`) and all three "More News" items (title, `source` — falling back to `author` when blank — `date`, `snippet`, `source_link`). The only thing on that page that is *not* news-table data is the "Latest Catch" sidebar card (`dbo.fn_default_latest_catch_json`, `catch_memo`), which has no endpoint here |
 | `GET /api/v1/news/featured` | *(projection of `/default`)* | **just the 2 lead articles**, full documents incl. their base64 `photo`. Same cached assembly as `/default` — no extra query |
 | `GET /api/v1/news/more` | *(projection of `/default`)* | **just the "More News" column**, compact: `news_id`, `date`, `title`, `source`, `link`, `snippet`. **~1.6 KB versus `/default`'s ~1.09 MB** (measured on prod) — that size gap is the entire reason the split exists. `source` falls back to `author`, and `snippet` is derived in Java from `paragraph0`/`paragraph1` when the DB does not supply one, so this works **without** the MySQL `snippet` view |
-| *(internal)* `resolveRefNames(lakeIds, fishIds)` | `SELECT dbo.fn_news_ref_names_json(?, ?)` | batch guid → display name for the lake and fishes an article mentions. Both arguments are JSON **arrays** of guid strings (Jackson-rendered, so a value carrying a quote cannot reshape the argument) and the answer is 1:1 with the request in the order asked, an unresolved id keeping its slot with a null `name`. Not an HTTP endpoint — called by `MySqlNewsQueryRepository.defaultNews` beneath `NewsQueryCache`, so it needs no cache of its own |
 | `GET /api/v1/news/search?q=` | `SELECT … FROM dbo.fn_news_search(?)` | up to 100 published matches, newest first, over headline/source/paragraphs/photo-alts + the up-to-3 mentioned fishes' names; caller escapes `% _ [`; blank `q` ⇒ 400; not cached (free-form key) |
 
 ### Fish-catalogue search query (function that already exists in `envfish-db`)
@@ -395,17 +390,16 @@ Three rules keep the "only on a cold entry" promise honest — **do not regress 
 
 **Deliberately not cached:** `/news/search` (open-ended term, unbounded key space) and
 `/news/export/{id}` (large per-id document with base64 photos, rarely re-requested). Also
-`resolveRefNames` — it is called *beneath* `NewsQueryCache` while `/news/default` is being assembled,
-so the cached home page already covers it; a cache of its own would just hold a second copy.
+(there is no third thing to cache: `/news/default`, `/news/featured` and `/news/more` are all
+projections of the one cached assembly).
 
 **Invalidation** is `NewsCacheEvictor`: one clear a day at 00:00 UTC, **skipped while SQL Server is
 unreachable** (clearing mid-outage would turn a database outage into a total content outage) and
 retried every 5 minutes until a `SELECT 1` probe succeeds. `POST /news/import` clears the query cache
 so a new article appears at once.
 
-⚠️ **Consequence worth knowing:** the caches are per-process and hold whatever was loaded, including
-a `/news/default` assembled while SQL Server was down (ids only, no `lake_name`/`fishes` — see the
-degrade behaviour above). That degraded page is served until the next eviction.
+⚠️ **Consequence worth knowing:** the caches are per-process and hold whatever was loaded, so a page
+assembled during a MySQL blip is served until the next eviction.
 
 ---
 
@@ -531,11 +525,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `MySqlNewsQueryRepositoryTest` — `list`/`defaultNews` read via `CALL sp_news_list_json(?, ?, ?)` /
   `CALL sp_news_default()` against the mocked MySQL `JdbcTemplate`; `search`/`exportNews`/`importNews`
   delegate to a mocked `NewsQueryRepository` (never touching MySQL). Also covers the home-page name
-  enrichment: names merged onto each item from ONE `resolveRefNames` call, empty slots skipped, no
-  lookup at all when nothing is mentioned, and **ids-only degradation when that lookup throws**.
-- `JdbcNewsQueryRepositoryTest` — the SQL Server side of `resolveRefNames`: SQL string, both
-  arguments bound as JSON arrays (`[]` for a null/empty list), and an empty object when the function
-  yields nothing.
+  enrichment (removed 2026-09-03 along with the SQL Server lookup it tested).
 - `NewsControllerTest` — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
   queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
   successful queries returning paginated items or home-page JSON, **and the interchange

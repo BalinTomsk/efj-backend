@@ -42,15 +42,6 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
     /** Interchange import: create a published article from an fn_news_json body, returns the new id. */
     static final String IMPORT_SQL = "EXEC dbo.sp_news_import ?";
 
-    /**
-     * Batch id -> display name for the lake and fishes a news article mentions. Both arguments are
-     * JSON <em>arrays</em> of guid strings rather than delimited lists: OPENJSON exposes the element
-     * index, which is what lets the function answer 1:1 in the order asked, and it sidesteps the
-     * comma problem that made {@code dbo.fn_fish_latin_json} take a JSON array too (762 of the 1041
-     * species names contain a comma).
-     */
-    static final String REF_NAMES_SQL = "SELECT dbo.fn_news_ref_names_json(?, ?)";
-
     /** Search: up to 100 published matches across headline/source/paragraphs/photo-alts/fish names. */
     static final String SEARCH_SQL =
             "SELECT news_id, news_title, news_source, stamp, country, fish1, fish2, fish3 "
@@ -173,36 +164,6 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
         return new NewsSearchPage(items, items.size(), query);
     }
 
-    @Override
-    @Retry(name = "sqlRetry")
-    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "refNamesFallback")
-    public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
-        List<String> json = jdbc.query(
-                REF_NAMES_SQL,
-                ps -> {
-                    ps.setString(1, toJsonArray(lakeIds));
-                    ps.setString(2, toJsonArray(fishIds));
-                },
-                (rs, i) -> rs.getString(1));
-        String scalar = json.isEmpty() ? null : json.get(0);
-        // The function is written never to return NULL, but an empty object still beats a parse failure.
-        return (scalar == null || scalar.isBlank()) ? objectMapper.createObjectNode() : parseItem(scalar);
-    }
-
-    /**
-     * Renders an id list as the JSON array argument the lookup function takes. Jackson does the
-     * escaping, so a value carrying a quote or a backslash cannot terminate its own string and change
-     * the shape of the argument — the same reason {@code JdbcFishQueryRepository} builds its arrays
-     * this way.
-     */
-    private String toJsonArray(List<String> values) {
-        try {
-            return objectMapper.writeValueAsString(values == null ? List.of() : values);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("Could not render the news reference id list as JSON", ex);
-        }
-    }
-
     /**
      * Escapes SQL {@code LIKE} wildcards ({@code \ % _ [}) so a user/agent term matches literally.
      * Pairs with the {@code ESCAPE '\'} inside {@code dbo.fn_news_search}.
@@ -260,14 +221,6 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode defaultFallback(Throwable ex) {
         throw new RuntimeException("SQL default-news query failed", ex);
-    }
-
-    /**
-     * Circuit-breaker fallback for {@link #resolveRefNames}.
-     */
-    @SuppressWarnings("unused")
-    public JsonNode refNamesFallback(List<String> lakeIds, List<String> fishIds, Throwable ex) {
-        throw new RuntimeException("SQL news reference-name lookup failed", ex);
     }
 
     private JsonNode parseItem(String json) {

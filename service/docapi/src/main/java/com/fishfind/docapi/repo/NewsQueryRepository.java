@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 
-import java.util.List;
-
 /**
  * Query repository for news-page read operations, backed by SQL functions in the DB.
  * Separates HTTP/controller concerns from DB access logic.
@@ -28,26 +26,6 @@ public interface NewsQueryRepository {
      * @return root JSON object with "items" array, each element is the JSON document for one news item
      */
     JsonNode defaultNews();
-
-    /**
-     * Resolves the water body and fish species ids a news article <em>mentions</em>
-     * ({@code news.lake_id}, {@code news.fish1_id}…{@code fish3_id}) to their display names — the tag
-     * row Default.aspx renders under each lead article.
-     *
-     * <p>This exists only because the news rows moved to MySQL (2026-08-31) and that database holds
-     * <strong>only</strong> the {@code news} table: no {@code lake}, no {@code fish}. So
-     * {@link MySqlNewsQueryRepository#defaultNews()} gets bare guids back and calls this on its
-     * SQL-Server-backed delegate to fill the names in — one round trip for the whole home page
-     * (up to 2 lake ids + 6 fish ids), not one call per tag. The SQL-Server-only path
-     * ({@code dbo.fn_default_news_json}) resolves them inline and never calls this.
-     *
-     * @param lakeIds water-body ids to resolve, in the order the caller wants them back (may be empty)
-     * @param fishIds species ids to resolve, in the order the caller wants them back (may be empty)
-     * @return {@code {"lakes":[{"id","name"}],"fishes":[{"id","name","latin"}]}} — never null, and 1:1
-     *         with the request in the order asked; an id that resolves to nothing keeps its element
-     *         with a null {@code name}
-     */
-    JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds);
 
     /**
      * Exports one article as the {@code fn_news_json} interchange document — every field needed to
