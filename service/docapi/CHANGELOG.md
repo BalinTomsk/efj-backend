@@ -2,6 +2,39 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-03: **1.8.2 — the SQL Server name lookup is gone; `/news/default` is a pure MySQL read
+  again. BUILT AND TESTED, NOT DEPLOYED.**
+  Follows the production `DROP FUNCTION dbo.fn_news_ref_names_json`. With the function gone, 1.8.1
+  was calling a dropped object once per cache fill and degrading to ids-only every time — working as
+  designed, but dead weight logging a 4121 trace daily. Removed:
+  `MySqlNewsQueryRepository.enrichRefNames` and its helpers, `NewsQueryRepository.resolveRefNames`
+  and all three implementations (`Jdbc`, `InMemory`, the `NewsQueryCache` passthrough), and
+  `JdbcNewsQueryRepositoryTest`.
+  - **What callers see:** `/news/default` and `/news/featured` no longer carry `lake_name` or
+    `fishes`. The article's mentioned `lake_id` and `fish1_id`…`fish3_id` are still there, so a
+    caller that wants display names resolves them itself. `/news/more` is completely unaffected —
+    its `snippet` is derived in Java and never depended on SQL Server.
+  - **Why, not just what:** the lookup made the news read span *both* databases, which is exactly
+    what moving these reads to MySQL existed to avoid. A SQL Server outage could no longer touch the
+    news path even in the degraded sense.
+  - **Everything else from 1.8.0/1.8.1 stays:** the `/featured` + `/more` split and all three
+    cache-first guarantees are untouched.
+  - **Tests.** 160 pass (was 168 — the 8 enrichment tests went with the code). `NewsCacheTest` 25,
+    `NewsControllerTest` 26, both intact. The five enrichment-only source files were reverted to
+    their exact pre-1.8.0 state via git rather than hand-edited, so no residue could survive; the two
+    files carrying *both* enrichment and caching work were edited by hand.
+
+- 2026-09-03: **`dbo.fn_news_ref_names_json` was dropped from production, so `/news/default` and
+  `/news/featured` now return `lake_name: null` and `fishes: []`.** No code change - this is
+  `enrichRefNames`'s degrade path doing exactly what it was written for, confirmed in production.
+  The endpoints stay `200`; only the article tag row is gone. Everything else is untouched: titles,
+  `lake_id` / `fish1..3_id`, both base64 photos, and `/news/more`'s derived snippets.
+  - Verified by **restarting the container to force a cold cache** - the warm cache kept serving
+    names after the drop, which would have hidden the effect entirely. One WARN per cache fill (not
+    per request), root cause SQL Server 4121 in the trace. The shared `sqlBreaker` did not trip;
+    `/fish/search` and `/news/list` stayed `200`.
+  - **Cleaned up in 1.8.2 (below).**
+
 - 2026-09-02: **`/news/default` split into its two halves — `GET /api/v1/news/featured` and
   `GET /api/v1/news/more`. DEPLOYED as 1.8.1.**
   The home page's two halves differ in weight by three orders of magnitude, and `/default` forced every

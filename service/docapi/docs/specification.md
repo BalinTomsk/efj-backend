@@ -50,7 +50,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/news/list?country=&offset=&limit=` | 200 | `{ items:[{ rn, newsId, title, source, stamp, flag, hasPhoto, blockOrd }], total, offset, limit }` |
-| `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the whole assembled home page; each item carries `lake_name` and `fishes:[{id,name,latin}]`) |
+| `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the whole assembled home page; each item carries `snippet` and the `lake_id`/`fish1..3_id` it mentions) |
 | `GET` | `/api/v1/news/featured` | 200 | `{ items:[ <news JSON>, … ] }` — just the 2 lead articles, full documents incl. their base64 `photo` |
 | `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
 | `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
@@ -247,20 +247,18 @@ catalogue in half. Blank entries are dropped; a batch over 100 entries ⇒ 400 `
   screen for its two lead articles and three "More News" items comes back here: headline, `date`,
   `flag`, byline (`author` + `author_link`), `source`/`source_link`, photo `credit`/`photo_alt`, the
   base64 `photo` on the leads, both paragraphs, the right column's one-line `snippet`, and the
-  article's tag row — `lake_id`/`lake_name` plus `fishes:[{id, name, latin}]` in slot order
-  (`fish1_id`…`fish3_id`, empty slots skipped; `[]` when the article tags no species). The *only*
-  thing on that page which is **not** news-table data is the "Latest Catch" sidebar card
+  article's mentioned `lake_id` and `fish1_id`…`fish3_id`. The *only* thing on that page which is
+  **not** news-table data is the "Latest Catch" sidebar card
   (`dbo.fn_default_latest_catch_json`, `catch_memo`) — it has no endpoint here.
 
-  On the MySQL backing the names need a second source: that database holds only the `news` table, so
-  `sp_news_default` returns `lake_id`/`fish1_id`…`fish3_id` bare and
-  `MySqlNewsQueryRepository.enrichRefNames` resolves them all in **one** SQL Server round trip via
-  `dbo.fn_news_ref_names_json(@lake_ids, @fish_ids)` (both arguments JSON arrays of guid strings;
-  the answer is 1:1 with the request and in the order asked, an unresolved id keeping its slot with
-  a null `name`). That lookup **degrades rather than fails**: if SQL Server is unreachable the
-  endpoint still returns 200 with `lake_name: null` and `fishes: []`, so a SQL Server outage cannot
-  take down the home page — which is the whole point of the news reads having moved to MySQL. The
-  degraded page is cached by `NewsQueryCache` until the next eviction; that is the accepted trade.
+  **Names are not resolved here.** The MySQL database backing this read holds only the `news` table,
+  so the water body and species an article mentions come back as **bare guids**; a caller that wants
+  display names resolves them itself. docapi 1.8.0–1.8.1 did resolve them, via a SQL Server function
+  (`dbo.fn_news_ref_names_json`) called once per home page and degrading to ids-only when SQL Server
+  was unreachable. Both the call and the function were **removed on 2026-09-03**: they made a
+  MySQL-backed read depend on SQL Server, which is precisely what moving the news reads to MySQL
+  existed to avoid. `/news/default` is a pure MySQL read again. Do not reintroduce that dependency
+  without a deliberate decision.
 
 **Interchange export / import** (news only, `fn_news_json` format — the self-contained JSON the portal
 News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use):
@@ -521,9 +519,10 @@ included.
 `MySqlNewsHelper`) instead of SQL Server. `POST`/`PUT /api/v1/news/{id}`, `/news/search`,
 `/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
 described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
-`lake_name`/fish names against and no interchange or full-text-search objects. `/news/default` is
-the one hybrid: article rows from MySQL, names from SQL Server (2026-09-02, see
-`resolveRefNames` below).
+`lake_name`/fish names against and no interchange or full-text-search objects. `/news/default` is a
+**pure MySQL read**: it emits the mentioned `lake_id`/`fish1..3_id` as bare guids and the caller
+resolves names itself. (It briefly spanned both databases — docapi 1.8.0–1.8.1 resolved the names
+through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
 
 - **`MySqlNewsDocumentRepository`** (`DocumentStore`) — `getDocument` calls MySQL
   `CALL sp_news_doc_get(?)`; `addDocument`/`updateDocument` delegate unchanged to the injected
@@ -532,17 +531,9 @@ the one hybrid: article rows from MySQL, names from SQL Server (2026-09-02, see
 - **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
   `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `exportNews`/`importNews`/`search`
   delegate unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
-  `defaultNews` additionally calls `resolveRefNames` on that same delegate (SQL Server
-  `dbo.fn_news_ref_names_json`) to put `lake_name` and the `fishes` names back on each item — the
-  one place a read spans both databases. See `GET /api/v1/news/default` above for the contract and
-  the degrade-don't-fail behaviour.
-- **`NewsQueryRepository.resolveRefNames(lakeIds, fishIds)`** (added 2026-09-02) — batch
-  guid → display-name lookup for the lake and fishes a news article mentions. Implemented against
-  SQL Server in `JdbcNewsQueryRepository` (`SELECT dbo.fn_news_ref_names_json(?, ?)`, both arguments
-  rendered as JSON arrays by Jackson so a value carrying a quote cannot reshape the argument),
-  passed straight through by `NewsQueryCache` (not cached — it is called *beneath* the cache while
-  the home page is assembled, so the cached `default` entry already covers it), and answered with
-  two empty arrays by `InMemoryNewsQueryRepository`.
+  `defaultNews` touches SQL Server not at all — a `resolveRefNames` call that put `lake_name` and
+  the `fishes` names on each item existed in 1.8.0–1.8.1 and was removed on 2026-09-03 with the
+  database function behind it, so no read here spans both databases any more.
 - Both classes are registered as their own Spring beans (`jdbcNewsStore` / `jdbcNewsQueryRepository`
   bean names, unchanged from before this change) so Resilience4j's `@Retry`/`@CircuitBreaker` AOP
   still applies — same rationale as every other `Jdbc*Repository` bean in `JdbcStoreConfig`. The
@@ -620,7 +611,7 @@ should not download a megabyte of photos to get it, so the two halves are also e
 
 | Endpoint | Items | Shape |
 |----------|-------|-------|
-| `GET /api/v1/news/featured` | the 2 leads (`with_photo` true) | the full article document, unchanged from `/default` — headline, byline (`author` + `author_link`), `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, `lake_id`/`lake_name` and `fishes` |
+| `GET /api/v1/news/featured` | the 2 leads (`with_photo` true) | the full article document, unchanged from `/default` — headline, byline (`author` + `author_link`), `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, and the `lake_id`/`fish1..3_id` it mentions |
 | `GET /api/v1/news/more` | the 3 right-column items | compact: `news_id`, `date`, `title`, `source`, `link`, `snippet` — nothing else |
 
 Both are **projections of the same cached `defaultNews()` assembly**, so offering three endpoints costs
@@ -667,13 +658,11 @@ just a slow one. `NewsDocumentCache` fronts `GET /news/{id}`; `NewsQueryCache` f
    — within a minute rather than at the next daily clear. A publish/update through docapi drops the
    remembered miss at once. This is the only self-expiring entry in either cache.
 
-Deliberately uncached: `/news/search` (unbounded key space), `/news/export/{id}` (large per-id
-document), and `resolveRefNames` (called beneath `NewsQueryCache` while `/news/default` is assembled,
-so the cached home page already covers it). Invalidation is `NewsCacheEvictor` — see below.
+Deliberately uncached: `/news/search` (unbounded key space) and `/news/export/{id}` (large per-id
+document). Invalidation is `NewsCacheEvictor` — see below.
 
-Consequence to be aware of: the caches are per-process and hold whatever was loaded, **including a
-`/news/default` assembled while SQL Server was unreachable** (ids only, no `lake_name`/`fishes`).
-That degraded page is served until the next eviction.
+Consequence to be aware of: the caches are per-process and hold whatever was loaded, so a page
+assembled during a MySQL blip is served until the next eviction.
 
 **SQL details:**
 

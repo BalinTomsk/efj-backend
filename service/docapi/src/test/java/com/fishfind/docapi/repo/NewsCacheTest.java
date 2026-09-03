@@ -56,7 +56,6 @@ class NewsCacheTest {
         final AtomicInteger exportCalls = new AtomicInteger();
         final AtomicInteger importCalls = new AtomicInteger();
         final AtomicInteger searchCalls = new AtomicInteger();
-        final AtomicInteger refNameCalls = new AtomicInteger();
         private final long total;
 
         CountingRepo(long total) {
@@ -92,12 +91,6 @@ class NewsCacheTest {
         public NewsSearchPage search(String query) {
             searchCalls.incrementAndGet();
             return new NewsSearchPage(List.of(), 0, query);
-        }
-
-        @Override
-        public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
-            refNameCalls.incrementAndGet();
-            return new ObjectMapper().createObjectNode().put("call", refNameCalls.get());
         }
     }
 
@@ -322,22 +315,6 @@ class NewsCacheTest {
         cache.exportNews("id-1");
 
         assertThat(repo.exportCalls.get()).isEqualTo(2);
-    }
-
-    /**
-     * The reference-name lookup is called beneath this cache while the home page is assembled, so its
-     * result is already covered by the cached {@code default} entry — caching it again here would only
-     * hold a second copy keyed on an id list.
-     */
-    @Test
-    void refNameLookupReadsThroughAndIsNotCached() {
-        CountingRepo repo = new CountingRepo(0);
-        NewsQueryCache cache = new NewsQueryCache(repo);
-
-        cache.resolveRefNames(List.of("lake-1"), List.of("fish-1"));
-        cache.resolveRefNames(List.of("lake-1"), List.of("fish-1"));
-
-        assertThat(repo.refNameCalls.get()).isEqualTo(2);
     }
 
     @Test
