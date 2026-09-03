@@ -145,7 +145,12 @@ curl -X POST http://localhost:8080/api/v1/news/import \
 ```
 
 The News page adds extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` and
-`GET /api/v1/news/default` (latest-news list + assembled home page), `GET /api/v1/news/search?q=`
+`GET /api/v1/news/default` (latest-news list + assembled home page — one call carries every field the
+portal's `Default.aspx` renders for its 2 lead articles and 3 "More News" items, including each
+article's `snippet` and its `lake_name` / `fishes:[{id,name,latin}]` tag row), its two halves
+`GET /api/v1/news/featured` (the 2 leads with their photos, ~1.09 MB) and `GET /api/v1/news/more`
+(the sidebar column, ~1.6 KB — fetch this instead of the whole page when you only need the list),
+`GET /api/v1/news/search?q=`
 (up to 100 published matches across headline/source/paragraphs/photo-alts **and the mentioned fishes'
 names**, newest first — `dbo.fn_news_search`; blank `q` ⇒ 400), and the interchange
 `GET /api/v1/news/export/{id}` + `POST /api/v1/news/import`. **Only export/import carry the full

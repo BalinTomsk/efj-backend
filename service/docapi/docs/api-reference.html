@@ -480,7 +480,7 @@
       <span class="tag">NewsController · /api/v1/news</span>
     </div>
     <p class="prose" style="margin-bottom:22px;">The one entity with a fully-built backend: the generic CRUD above, plus five endpoints for the News-page UI and JSON import/export.</p>
-    <p class="prose" style="margin-bottom:22px;"><strong>Backing (2026-08-31):</strong> <code>GET /{id}</code>, <code>/news/list</code>, and <code>/news/default</code> below now read from the MySQL <code>news</code> table (Winhost — the same table <code>News.aspx</code> reads) instead of SQL Server; the JSON field names are unchanged. <code>POST</code>/<code>PUT /{id}</code>, <code>/news/search</code>, <code>/news/export/{id}</code>, and <code>/news/import</code> are unaffected — still SQL Server.</p>
+    <p class="prose" style="margin-bottom:22px;"><strong>Backing (2026-08-31):</strong> <code>GET /{id}</code>, <code>/news/list</code>, and <code>/news/default</code> below now read from the MySQL <code>news</code> table (Winhost — the same table <code>News.aspx</code> reads) instead of SQL Server; the JSON field names are unchanged. <code>POST</code>/<code>PUT /{id}</code>, <code>/news/search</code>, <code>/news/export/{id}</code>, and <code>/news/import</code> are unaffected — still SQL Server. <strong>(2026-09-02)</strong> <code>/news/default</code> is the one hybrid: article rows from MySQL, plus a single SQL Server lookup that turns the mentioned <code>lake_id</code>/<code>fish*_id</code> into the names the home page's tag row shows — see that endpoint below.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -526,7 +526,8 @@
         <span class="specimen-label">assembled home page</span>
       </div>
       <div class="endpoint-body">
-        <p class="prose" style="margin-bottom:18px;">The News.aspx home page's item set, in display order — lead articles first, then the right-column picks. Each item is the full per-article document.</p>
+        <p class="prose" style="margin-bottom:18px;">The <code>Default.aspx</code> home page's item set, in display order — the 2 lead articles first (<code>with_photo: true</code>, each carrying its base64 <code>photo</code>), then the 3 right-column picks. Each item is the full per-article document, so one call renders the whole page: headline, byline (<code>author</code> + <code>author_link</code>), <code>flag</code>, <code>source</code>/<code>source_link</code>, photo <code>credit</code> and <code>photo_alt</code>, both paragraphs, the right column's one-line <code>snippet</code>, and the article's tag row as <code>lake_id</code>/<code>lake_name</code> plus <code>fishes</code>.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Name resolution (2026-09-02).</strong> The article rows come from MySQL, which holds only the <code>news</code> table — so <code>lake_name</code> and the <code>fishes</code> names are resolved from SQL Server in a single extra round trip for the whole page (<code>dbo.fn_news_ref_names_json</code>). If that lookup fails the page still returns <strong>200</strong> with ids only: <code>lake_name: null</code> and <code>fishes: []</code>. The <code>fishes</code> array holds <code>{id, name, latin}</code> in slot order (<code>fish1_id</code>…<code>fish3_id</code>), skipping empty slots — <code>[]</code> when the article tags no species.</p>
         <div class="example-grid">
           <div class="example">
             <div class="example-head"><span class="caption">no parameters, truncated below</span><span class="status-code status-200">200</span></div>
@@ -535,7 +536,63 @@
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
     <span class="p">{</span><span class="k">"news_id"</span><span class="p">:</span> <span class="s">"EF3FAE6E-…"</span><span class="p">,</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-08-10"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span>
      <span class="k">"title"</span><span class="p">:</span> <span class="s">"Nipissing Township pushes for stronger ice fishing rules…"</span><span class="p">,</span>
-     <span class="k">"author"</span><span class="p">:</span> <span class="s">"Jennifer Hamilton-McCharles"</span><span class="p">,</span> <span class="p">…}</span><span class="p">,</span> <span class="p">…</span>
+     <span class="k">"author"</span><span class="p">:</span> <span class="s">"Jennifer Hamilton-McCharles"</span><span class="p">,</span>
+     <span class="k">"snippet"</span><span class="p">:</span> <span class="s">"Growing concerns from area municipalities…"</span><span class="p">,</span>
+     <span class="k">"lake_id"</span><span class="p">:</span> <span class="s">"9d856f31-…"</span><span class="p">,</span> <span class="k">"lake_name"</span><span class="p">:</span> <span class="s">"Lake Nipissing"</span><span class="p">,</span>
+     <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[{</span><span class="k">"id"</span><span class="p">:</span> <span class="s">"896837E4-…"</span><span class="p">,</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Muskellunge"</span><span class="p">,</span>
+                 <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Esox masquinongy"</span><span class="p">}]</span><span class="p">,</span>
+     <span class="k">"with_photo"</span><span class="p">:</span> <span class="z">true</span><span class="p">,</span> <span class="p">…}</span><span class="p">,</span> <span class="p">…</span>
+  <span class="p">]},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/featured</span></div>
+        <span class="specimen-label">the 2 lead articles</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px;">The top half of the home page on its own — the two big lead articles, each the <em>full</em> document (byline, <code>flag</code>, source, photo <code>credit</code>/<code>photo_alt</code>, both paragraphs, <code>lake_name</code> and <code>fishes</code>) with its base64 <code>photo</code> embedded. Identical items to the ones <code>/default</code> returns.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Why it exists.</strong> Measured against production, these two items are <strong>~1.09 MB</strong> — almost all of it base64 photo — while the sidebar half is <strong>~1.6 KB</strong>. Splitting lets a caller take whichever half it renders. Both halves are projections of the <em>same cached assembly</em>, so three endpoints still cost one database read.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">no parameters, photo truncated below</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/featured</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"title"</span><span class="p">:</span> <span class="s">"Brothers Catch and Release a Thick-Body, 51.5-Inch Muskie…"</span><span class="p">,</span>
+     <span class="k">"author"</span><span class="p">:</span> <span class="s">"Bob McNally"</span><span class="p">,</span> <span class="k">"source"</span><span class="p">:</span> <span class="s">"wired2fish"</span><span class="p">,</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-08-18"</span><span class="p">,</span>
+     <span class="k">"lake_name"</span><span class="p">:</span> <span class="s">"Lake Manitou"</span><span class="p">,</span>
+     <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[{</span><span class="k">"name"</span><span class="p">:</span> <span class="s">"Muskellunge"</span><span class="p">,</span> <span class="k">"latin"</span><span class="p">:</span> <span class="s">"Esox masquinongy"</span><span class="p">}],</span>
+     <span class="k">"photo"</span><span class="p">:</span> <span class="s">"iVBORw0KGgo…"</span><span class="p">,</span> <span class="k">"with_photo"</span><span class="p">:</span> <span class="z">true</span><span class="p">},</span> <span class="p">…</span>
+  <span class="p">]},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/more</span></div>
+        <span class="specimen-label">the "More News" column</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px;">The home page's right-hand column, in the compact shape that section renders: headline, source, date, a one-line teaser and the outbound link. <strong>No photos, no paragraphs</strong> — the whole response is about <strong>1.6 KB</strong> against production, versus ~1.09 MB for <code>/default</code>.</p>
+        <p class="prose" style="margin-bottom:18px;">Two things are resolved server-side so the response stands alone, both mirroring the page: <code>source</code> falls back to the article's <code>author</code> when the source label is blank, and <code>snippet</code> is the body's first line — the database's own when it supplies one, otherwise derived from <code>paragraph0</code> (falling back to <code>paragraph1</code>). That fallback is what lets this endpoint work against a database without the <code>snippet</code>-producing view.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">no parameters &mdash; the complete response</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/more</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"news_id"</span><span class="p">:</span> <span class="s">"9C1F…"</span><span class="p">,</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-08-27"</span><span class="p">,</span>
+     <span class="k">"title"</span><span class="p">:</span> <span class="s">"Fishing for Striped Bass, He Caught a Prehistoric Dinosaur"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"wired2fish"</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"https://www.wired2fish.com/news/…"</span><span class="p">,</span>
+     <span class="k">"snippet"</span><span class="p">:</span> <span class="s">"When Micah Degier tied on a 3-ounce flare hawk jig…"</span><span class="p">},</span> <span class="p">…</span>
   <span class="p">]},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
             </div>
           </div>
@@ -1218,6 +1275,8 @@
           <tr><td class="qctrl">Health</td><td class="qpath">GET /health</td><td>200</td><td>liveness + version</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/list?country=CA&amp;limit=2</td><td>200</td><td>2 items of 107</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/default</td><td>200</td><td>assembled home page</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/featured</td><td>200</td><td>2 lead articles (~1.09 MB)</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/more</td><td>200</td><td>3 sidebar items (~1.6 KB)</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/search?q=walleye</td><td>200</td><td>14 matches</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;guid&gt;</td><td>200</td><td>full article</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;unknown-guid&gt;</td><td>404</td><td>not_found</td></tr>
