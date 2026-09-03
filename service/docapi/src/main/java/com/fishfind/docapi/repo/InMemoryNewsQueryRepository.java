@@ -2,6 +2,7 @@ package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 
@@ -28,6 +29,19 @@ public class InMemoryNewsQueryRepository implements NewsQueryRepository {
     @Override
     public JsonNode defaultNews() {
         return objectMapper.createObjectNode().set("items", objectMapper.createArrayNode());
+    }
+
+    /**
+     * No database: no lake or fish rows to resolve against, so both halves come back empty. The shape
+     * is still the real one, so a caller (and the enrichment in {@link MySqlNewsQueryRepository}) can
+     * read {@code .lakes} / {@code .fishes} unconditionally in either profile.
+     */
+    @Override
+    public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.set("lakes", objectMapper.createArrayNode());
+        root.set("fishes", objectMapper.createArrayNode());
+        return root;
     }
 
     /** No database: nothing to export, so every id is "not found" (controller maps to 404). */

@@ -2,6 +2,7 @@ package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
@@ -156,6 +157,125 @@ class NewsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items.length()").value(2))
                 .andExpect(jsonPath("$.data.items[0].title").value("Lead"));
+    }
+
+    // ---- /news/featured and /news/more : the two halves of the home page ----------------------
+
+    /** A realistic home page: 2 leads with photos, 3 compact right-column items. */
+    private JsonNode homePage() throws Exception {
+        return objectMapper.createObjectNode().set("items", objectMapper.createArrayNode()
+                .add(objectMapper.readTree("""
+                        {"news_id":"n1","title":"Muskie","with_photo":true,"photo":"AAAA",
+                         "author":"Bob","source":"wired2fish","source_link":"http://w/1","date":"2026-08-18",
+                         "paragraph0":"Lead body.","lake_name":"Lake Manitou",
+                         "fishes":[{"id":"f1","name":"Muskellunge","latin":"Esox masquinongy"}]}"""))
+                .add(objectMapper.readTree("""
+                        {"news_id":"n2","title":"Nipissing","with_photo":true,"photo":"BBBB",
+                         "author":"Jennifer","source":"nugget","source_link":"http://n/2","date":"2026-08-10",
+                         "paragraph0":"Second lead.","lake_name":"Lake Nipissing","fishes":[]}"""))
+                // paragraph0 is attached after parsing (see below): a Java text block turns \r into a
+                // real carriage return, which is an illegal raw control character inside a JSON string.
+                .add(((ObjectNode) objectMapper.readTree("""
+                        {"news_id":"n3","title":"Striped Bass","with_photo":false,"photo":null,
+                         "author":"Ann","source":"wired2fish","source_link":"http://w/3","date":"2026-08-27",
+                         "paragraph1":"P1"}"""))
+                        .put("paragraph0", "When Micah tied on a jig.\r\nSecond line hidden."))
+                .add(objectMapper.readTree("""
+                        {"news_id":"n4","title":"Rivers","with_photo":false,"photo":null,
+                         "author":"Fallback Author","source":"","source_link":"http://q/4","date":"2026-08-10",
+                         "paragraph0":"","paragraph1":"Body came from paragraph one."}"""))
+                .add(objectMapper.readTree("""
+                        {"news_id":"n5","title":"Fly fishing","with_photo":false,"photo":null,
+                         "author":"Ed","source":"einnews","source_link":"http://e/5","date":"2026-08-11",
+                         "snippet":"Teaser straight from the database.","paragraph0":"ignored"}""")));
+    }
+
+    @Test
+    void featuredReturnsOnlyTheTwoLeadArticlesWithTheirFullDocument() throws Exception {
+        when(queryRepository.defaultNews()).thenReturn(homePage());
+
+        mockMvc.perform(get("/api/v1/news/featured"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].title").value("Muskie"))
+                .andExpect(jsonPath("$.data.items[0].photo").value("AAAA"))
+                .andExpect(jsonPath("$.data.items[0].lake_name").value("Lake Manitou"))
+                .andExpect(jsonPath("$.data.items[0].fishes[0].name").value("Muskellunge"))
+                .andExpect(jsonPath("$.data.items[1].title").value("Nipissing"));
+    }
+
+    /** The sidebar must not drag the ~1 MB of base64 lead photos along with it. */
+    @Test
+    void moreReturnsTheCompactRightColumnWithoutPhotosOrParagraphs() throws Exception {
+        when(queryRepository.defaultNews()).thenReturn(homePage());
+
+        mockMvc.perform(get("/api/v1/news/more"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(3))
+                .andExpect(jsonPath("$.data.items[0].title").value("Striped Bass"))
+                .andExpect(jsonPath("$.data.items[0].link").value("http://w/3"))
+                .andExpect(jsonPath("$.data.items[0].photo").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].paragraph0").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].paragraph1").doesNotExist());
+    }
+
+    /**
+     * The snippet is derived from the body when the database does not supply one — which is what lets
+     * /more work against a database without the snippet-producing view. CRLF must not leak through.
+     */
+    @Test
+    void moreDerivesTheSnippetFromTheBodyAndPrefersTheDatabaseWhenItSuppliesOne() throws Exception {
+        when(queryRepository.defaultNews()).thenReturn(homePage());
+
+        mockMvc.perform(get("/api/v1/news/more"))
+                .andExpect(status().isOk())
+                // derived: first line of paragraph0, CR stripped, second line dropped
+                .andExpect(jsonPath("$.data.items[0].snippet").value("When Micah tied on a jig."))
+                // derived: paragraph0 blank, so it falls back to paragraph1
+                .andExpect(jsonPath("$.data.items[1].snippet").value("Body came from paragraph one."))
+                // supplied by the database: used as-is, body ignored
+                .andExpect(jsonPath("$.data.items[2].snippet").value("Teaser straight from the database."));
+    }
+
+    /** The page shows the author when an article carries no source label; the API resolves that. */
+    @Test
+    void moreFallsBackToTheAuthorWhenTheSourceLabelIsBlank() throws Exception {
+        when(queryRepository.defaultNews()).thenReturn(homePage());
+
+        mockMvc.perform(get("/api/v1/news/more"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].source").value("wired2fish"))
+                .andExpect(jsonPath("$.data.items[1].source").value("Fallback Author"));
+    }
+
+    /** MySQL's JSON_OBJECT emits with_photo as 1/0, not true/false; both backings must split alike. */
+    @Test
+    void leadDetectionAcceptsTheIntegerWithPhotoMySqlEmits() throws Exception {
+        JsonNode root = objectMapper.createObjectNode().set("items", objectMapper.createArrayNode()
+                .add(objectMapper.readTree("{\"title\":\"Lead\",\"with_photo\":1}"))
+                .add(objectMapper.readTree("{\"title\":\"Small\",\"with_photo\":0}")));
+        when(queryRepository.defaultNews()).thenReturn(root);
+
+        mockMvc.perform(get("/api/v1/news/featured"))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].title").value("Lead"));
+        mockMvc.perform(get("/api/v1/news/more"))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].title").value("Small"));
+    }
+
+    /** No database (in-memory profile) must still yield a well-formed empty envelope, not a 500. */
+    @Test
+    void featuredAndMoreReturnEmptyItemsWhenThereIsNoHomePage() throws Exception {
+        when(queryRepository.defaultNews())
+                .thenReturn(objectMapper.createObjectNode().set("items", objectMapper.createArrayNode()));
+
+        mockMvc.perform(get("/api/v1/news/featured"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(0));
+        mockMvc.perform(get("/api/v1/news/more"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(0));
     }
 
     @Test

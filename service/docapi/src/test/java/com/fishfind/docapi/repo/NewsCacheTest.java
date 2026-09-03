@@ -11,12 +11,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -43,12 +50,13 @@ class NewsCacheTest {
     }
 
     /** Counts how many times the delegate is actually consulted. */
-    private static final class CountingRepo implements NewsQueryRepository {
+    private static class CountingRepo implements NewsQueryRepository {
         final AtomicInteger listCalls = new AtomicInteger();
         final AtomicInteger defaultCalls = new AtomicInteger();
         final AtomicInteger exportCalls = new AtomicInteger();
         final AtomicInteger importCalls = new AtomicInteger();
         final AtomicInteger searchCalls = new AtomicInteger();
+        final AtomicInteger refNameCalls = new AtomicInteger();
         private final long total;
 
         CountingRepo(long total) {
@@ -84,6 +92,12 @@ class NewsCacheTest {
         public NewsSearchPage search(String query) {
             searchCalls.incrementAndGet();
             return new NewsSearchPage(List.of(), 0, query);
+        }
+
+        @Override
+        public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
+            refNameCalls.incrementAndGet();
+            return new ObjectMapper().createObjectNode().put("call", refNameCalls.get());
         }
     }
 
@@ -134,9 +148,15 @@ class NewsCacheTest {
         assertThat(repo.listCalls.get()).isEqualTo(1);
 
         NewsListPage deep = cache.list("US", 150, 10); // past the cached 100 rows
-        assertThat(repo.listCalls.get()).isEqualTo(2); // read through
+        assertThat(repo.listCalls.get()).isEqualTo(2); // cold -> one read through
         assertThat(deep.items()).hasSize(10);
         assertThat(deep.offset()).isEqualTo(150);
+
+        // ...and then it is cached like any other request, rather than re-querying every time.
+        NewsListPage again = cache.list("US", 150, 10);
+        assertThat(repo.listCalls.get()).isEqualTo(2);
+        assertThat(again.items()).isEqualTo(deep.items());
+        assertThat(cache.sizes()[2]).isEqualTo(1);
     }
 
     @Test
@@ -175,6 +195,74 @@ class NewsCacheTest {
         }
 
         assertThat(cache.sizes()[2]).isEqualTo(NewsQueryCache.OTHER_ENTRIES);
+    }
+
+    /**
+     * The contract is "serve from cache, touch the database only when the cache is empty" — which has
+     * to hold under concurrency too, or a burst on a cold cache becomes a burst on the database.
+     */
+    @Test
+    void aColdEntryIsLoadedOnceEvenWhenManyRequestsArriveTogether() throws Exception {
+        SlowRepo repo = new SlowRepo();
+        NewsQueryCache cache = new NewsQueryCache(repo);
+
+        runConcurrently(16, () -> cache.list("GB", 0, 25));
+        assertThat(repo.listCalls.get()).isEqualTo(1);
+
+        runConcurrently(16, cache::defaultNews);
+        assertThat(repo.defaultCalls.get()).isEqualTo(1);
+    }
+
+    /** Delegate that dawdles on every load, so a stampede has time to form if nothing prevents it. */
+    private static final class SlowRepo extends CountingRepo {
+        SlowRepo() {
+            super(500);
+        }
+
+        @Override
+        public NewsListPage list(String country, int offset, int limit) {
+            sleep();
+            return super.list(country, offset, limit);
+        }
+
+        @Override
+        public JsonNode defaultNews() {
+            sleep();
+            return super.defaultNews();
+        }
+
+        private static void sleep() {
+            try {
+                Thread.sleep(60);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /** Fires {@code threads} copies of {@code action} at the same instant and waits for all of them. */
+    private static void runConcurrently(int threads, Runnable action) throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            for (int i = 0; i < threads; i++) {
+                pool.execute(() -> {
+                    try {
+                        start.await();
+                        action.run();
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -236,6 +324,22 @@ class NewsCacheTest {
         assertThat(repo.exportCalls.get()).isEqualTo(2);
     }
 
+    /**
+     * The reference-name lookup is called beneath this cache while the home page is assembled, so its
+     * result is already covered by the cached {@code default} entry — caching it again here would only
+     * hold a second copy keyed on an id list.
+     */
+    @Test
+    void refNameLookupReadsThroughAndIsNotCached() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo);
+
+        cache.resolveRefNames(List.of("lake-1"), List.of("fish-1"));
+        cache.resolveRefNames(List.of("lake-1"), List.of("fish-1"));
+
+        assertThat(repo.refNameCalls.get()).isEqualTo(2);
+    }
+
     @Test
     void importCreatesViaDelegateAndEvictsTheCache() {
         CountingRepo repo = new CountingRepo(500);
@@ -281,15 +385,92 @@ class NewsCacheTest {
         assertThat(cache.size()).isEqualTo(NewsDocumentCache.MAX_DOCUMENTS);
     }
 
+    /**
+     * An unknown id used to reach the database on every single request, so a scanner walking guids
+     * could hammer the remote MySQL forever. It is now remembered — but only for MISS_TTL_MS.
+     */
     @Test
-    void aMissingDocumentIsNotCachedSoPublishingLaterBecomesVisible() {
+    void anUnknownIdIsRememberedSoRepeatedLookupsDoNotReachTheDatabase() {
         DocumentStore delegate = mock(DocumentStore.class);
-        when(delegate.getDocument("later")).thenReturn(null, "{\"title\":\"published\"}");
+        when(delegate.getDocument("nope")).thenReturn(null);
         NewsDocumentCache cache = new NewsDocumentCache(delegate);
 
+        for (int i = 0; i < 20; i++) {
+            assertThat(cache.getDocument("nope")).isNull();
+        }
+
+        verify(delegate, times(1)).getDocument("nope");
+        assertThat(cache.missCount()).isEqualTo(1);
+        assertThat(cache.size()).isZero();
+    }
+
+    /**
+     * The TTL is the price of remembering misses: an article published straight into the database by
+     * the portal (AddNews.aspx, which never notifies docapi) must not 404 until the next daily clear.
+     */
+    @Test
+    void aRememberedMissExpiresSoPublishingLaterBecomesVisible() {
+        DocumentStore delegate = mock(DocumentStore.class);
+        when(delegate.getDocument("later")).thenReturn(null, "{\"title\":\"published\"}");
+        AtomicLong now = new AtomicLong(0L);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, now::get);
+
         assertThat(cache.getDocument("later")).isNull();
+
+        // Inside the TTL the remembered miss still answers, without touching the delegate.
+        now.set(NewsDocumentCache.MISS_TTL_MS - 1);
+        assertThat(cache.getDocument("later")).isNull();
+        verify(delegate, times(1)).getDocument("later");
+
+        // Past it, the database is asked again and now has the article.
+        now.set(NewsDocumentCache.MISS_TTL_MS);
         assertThat(cache.getDocument("later")).contains("published");
         assertThat(cache.size()).isEqualTo(1);
+        assertThat(cache.missCount()).isZero();
+    }
+
+    /** Remembered misses are bounded, so a scan of endless guids cannot grow the heap. */
+    @Test
+    void rememberedMissesAreCappedAtTheirBound() {
+        DocumentStore delegate = mock(DocumentStore.class);
+        when(delegate.getDocument(anyString())).thenReturn(null);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+
+        for (int i = 0; i < NewsDocumentCache.MAX_MISSES + 50; i++) {
+            cache.getDocument("guid-" + i);
+        }
+
+        assertThat(cache.missCount()).isEqualTo(NewsDocumentCache.MAX_MISSES);
+    }
+
+    /** A publish through docapi drops the remembered miss immediately, without waiting out the TTL. */
+    @Test
+    void updatingClearsARememberedMissSoTheArticleIsVisibleAtOnce() {
+        DocumentStore delegate = mock(DocumentStore.class);
+        when(delegate.getDocument("g9")).thenReturn(null, "{\"v\":1}");
+        when(delegate.updateDocument(anyString(), anyString())).thenReturn("g9");
+        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+
+        assertThat(cache.getDocument("g9")).isNull();
+        cache.updateDocument("g9", "{\"v\":1}");
+
+        assertThat(cache.getDocument("g9")).contains("\"v\":1");
+        assertThat(cache.missCount()).isZero();
+    }
+
+    /** Concurrent requests for the same uncached id must produce one database read, not one each. */
+    @Test
+    void aColdDocumentIsLoadedOnceEvenWhenManyRequestsArriveTogether() throws Exception {
+        DocumentStore delegate = mock(DocumentStore.class);
+        when(delegate.getDocument("hot")).thenAnswer(invocation -> {
+            Thread.sleep(60);
+            return "{\"title\":\"hot\"}";
+        });
+        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+
+        runConcurrently(16, () -> cache.getDocument("hot"));
+
+        verify(delegate, times(1)).getDocument("hot");
     }
 
     @Test

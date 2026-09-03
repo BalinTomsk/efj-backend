@@ -50,7 +50,9 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/news/list?country=&offset=&limit=` | 200 | `{ items:[{ rn, newsId, title, source, stamp, flag, hasPhoto, blockOrd }], total, offset, limit }` |
-| `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the assembled home page) |
+| `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the whole assembled home page; each item carries `lake_name` and `fishes:[{id,name,latin}]`) |
+| `GET` | `/api/v1/news/featured` | 200 | `{ items:[ <news JSON>, … ] }` — just the 2 lead articles, full documents incl. their base64 `photo` |
+| `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
 | `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
 
 **Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
@@ -240,6 +242,25 @@ catalogue in half. Blank entries are dropped; a batch over 100 entries ⇒ 400 `
   then three right-column items). The literal `/list` and `/default` paths are matched ahead of the
   templated `/{id}` document fetch. Both run with the default in-memory backing too, returning empty
   results (no DB), and are guarded by the same Resilience4j retry/breaker as the document reads.
+
+  **One call renders the whole page.** Every field `fishfind-frontend`'s `Default.aspx` puts on
+  screen for its two lead articles and three "More News" items comes back here: headline, `date`,
+  `flag`, byline (`author` + `author_link`), `source`/`source_link`, photo `credit`/`photo_alt`, the
+  base64 `photo` on the leads, both paragraphs, the right column's one-line `snippet`, and the
+  article's tag row — `lake_id`/`lake_name` plus `fishes:[{id, name, latin}]` in slot order
+  (`fish1_id`…`fish3_id`, empty slots skipped; `[]` when the article tags no species). The *only*
+  thing on that page which is **not** news-table data is the "Latest Catch" sidebar card
+  (`dbo.fn_default_latest_catch_json`, `catch_memo`) — it has no endpoint here.
+
+  On the MySQL backing the names need a second source: that database holds only the `news` table, so
+  `sp_news_default` returns `lake_id`/`fish1_id`…`fish3_id` bare and
+  `MySqlNewsQueryRepository.enrichRefNames` resolves them all in **one** SQL Server round trip via
+  `dbo.fn_news_ref_names_json(@lake_ids, @fish_ids)` (both arguments JSON arrays of guid strings;
+  the answer is 1:1 with the request and in the order asked, an unresolved id keeping its slot with
+  a null `name`). That lookup **degrades rather than fails**: if SQL Server is unreachable the
+  endpoint still returns 200 with `lake_name: null` and `fishes: []`, so a SQL Server outage cannot
+  take down the home page — which is the whole point of the news reads having moved to MySQL. The
+  degraded page is cached by `NewsQueryCache` until the next eviction; that is the accepted trade.
 
 **Interchange export / import** (news only, `fn_news_json` format — the self-contained JSON the portal
 News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use):
@@ -500,7 +521,9 @@ included.
 `MySqlNewsHelper`) instead of SQL Server. `POST`/`PUT /api/v1/news/{id}`, `/news/search`,
 `/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
 described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
-`lake_name`/fish names against and no interchange or full-text-search objects.
+`lake_name`/fish names against and no interchange or full-text-search objects. `/news/default` is
+the one hybrid: article rows from MySQL, names from SQL Server (2026-09-02, see
+`resolveRefNames` below).
 
 - **`MySqlNewsDocumentRepository`** (`DocumentStore`) — `getDocument` calls MySQL
   `CALL sp_news_doc_get(?)`; `addDocument`/`updateDocument` delegate unchanged to the injected
@@ -509,6 +532,17 @@ described elsewhere in this doc — because the MySQL database has no `lake`/`fi
 - **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
   `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `exportNews`/`importNews`/`search`
   delegate unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
+  `defaultNews` additionally calls `resolveRefNames` on that same delegate (SQL Server
+  `dbo.fn_news_ref_names_json`) to put `lake_name` and the `fishes` names back on each item — the
+  one place a read spans both databases. See `GET /api/v1/news/default` above for the contract and
+  the degrade-don't-fail behaviour.
+- **`NewsQueryRepository.resolveRefNames(lakeIds, fishIds)`** (added 2026-09-02) — batch
+  guid → display-name lookup for the lake and fishes a news article mentions. Implemented against
+  SQL Server in `JdbcNewsQueryRepository` (`SELECT dbo.fn_news_ref_names_json(?, ?)`, both arguments
+  rendered as JSON arrays by Jackson so a value carrying a quote cannot reshape the argument),
+  passed straight through by `NewsQueryCache` (not cached — it is called *beneath* the cache while
+  the home page is assembled, so the cached `default` entry already covers it), and answered with
+  two empty arrays by `InMemoryNewsQueryRepository`.
 - Both classes are registered as their own Spring beans (`jdbcNewsStore` / `jdbcNewsQueryRepository`
   bean names, unchanged from before this change) so Resilience4j's `@Retry`/`@CircuitBreaker` AOP
   still applies — same rationale as every other `Jdbc*Repository` bean in `JdbcStoreConfig`. The
@@ -576,6 +610,70 @@ Implementations:
   (`dbo.sp_news_import`, base64 photos decoded to binary) and returns the new id. In-memory profile
   returns a synthetic id. The caching decorator (`NewsQueryCache`) reads `exportNews` straight
   through (not cached) and **evicts the cached lists + home page on `importNews`**.
+
+#### The home page comes in two halves — `/featured` and `/more`
+
+`/news/default` returns the whole home page in one document, but its two halves differ in weight by
+three orders of magnitude: the 2 lead articles carry base64 lead photos (**~1.09 MB** measured against
+production) while the 3-item "More News" column is **~1.6 KB**. A caller rendering only the sidebar
+should not download a megabyte of photos to get it, so the two halves are also exposed separately:
+
+| Endpoint | Items | Shape |
+|----------|-------|-------|
+| `GET /api/v1/news/featured` | the 2 leads (`with_photo` true) | the full article document, unchanged from `/default` — headline, byline (`author` + `author_link`), `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, `lake_id`/`lake_name` and `fishes` |
+| `GET /api/v1/news/more` | the 3 right-column items | compact: `news_id`, `date`, `title`, `source`, `link`, `snippet` — nothing else |
+
+Both are **projections of the same cached `defaultNews()` assembly**, so offering three endpoints costs
+one database read, not three. `/default` is unchanged and kept for existing callers.
+
+`/more` resolves two things server-side so its response is sufficient alone, both mirroring what
+`Default.aspx` does in C#:
+
+- **`source` falls back to `author`** when the source label is blank (as `_Default.LoadSmallNews` does).
+- **`snippet`** is the first line of the body — the database's `snippet` when it supplies one, otherwise
+  derived in Java from `paragraph0` (falling back to `paragraph1`), CR-stripped and trimmed. **Deriving
+  it as a fallback is what lets `/more` work against a database that has not had the
+  `snippet`-producing `v_news_default_doc` view applied** — which is the case in production today.
+  Note the derived snippet is *better* than the page's: `LoadSmallNews` computes
+  `paragraph0.Substring(0, ln - 1)` only when `ln > 1`, so an article whose body has no early newline
+  renders a blank teaser on the live site while `/more` returns the real first line.
+
+`with_photo` decides which half an item belongs to. It arrives as a JSON **boolean** from the SQL
+Server backing but as a JSON **integer 1/0** from MySQL's `JSON_OBJECT`; `JsonNode.asBoolean()` reads
+both (non-zero is true), so neither backing is special-cased.
+
+#### News caching contract — read from memory, query the database only on a cold entry
+
+Every news read endpoint is served by an in-process cache and reaches the database **only when the
+entry answering it is empty**. The `news` table is on a remote Winhost MySQL with a 5-connection pool
+behind cproxy's 10 s read timeout, so a per-request database read is an availability problem, not
+just a slow one. `NewsDocumentCache` fronts `GET /news/{id}`; `NewsQueryCache` fronts `/news/list`
+(US and CA as 100-row buckets, everything else as whole responses in an LRU of 100 keyed
+`country|offset|limit`) and `/news/default` (one entry). Three rules make the guarantee real:
+
+1. **No path reads through repeatedly.** Everything that reaches the database stores what it loaded.
+   The deep-paging branch of `/news/list` was the exception until 2026-09-02 — a window past the
+   cached 100 rows re-queried on *every* request — and now falls through to the same keyed LRU.
+2. **A cold entry is loaded once, not once per concurrent request.** Both caches load under a striped
+   lock (16 stripes, bounded — a lock-per-key map keyed on arbitrary offsets would not be) with a
+   double-check, so N simultaneous requests for one empty entry produce **one** query. The lock is
+   held across the database call deliberately: with a 5-connection pool a stampede queues on the pool
+   regardless, after having done the same work N times.
+3. **A miss is an answer too.** An unknown or unpublished id reached the database on every request,
+   so a crawler walking guids could hammer MySQL no matter how well real articles were cached.
+   Unknown ids are remembered for `NewsDocumentCache.MISS_TTL_MS` (60 s) in a separate map bounded at
+   `MAX_MISSES` (500). The TTL is essential, not incidental: `AddNews.aspx` writes straight to the
+   database and never notifies docapi, so a newly published article has to become visible on its own
+   — within a minute rather than at the next daily clear. A publish/update through docapi drops the
+   remembered miss at once. This is the only self-expiring entry in either cache.
+
+Deliberately uncached: `/news/search` (unbounded key space), `/news/export/{id}` (large per-id
+document), and `resolveRefNames` (called beneath `NewsQueryCache` while `/news/default` is assembled,
+so the cached home page already covers it). Invalidation is `NewsCacheEvictor` — see below.
+
+Consequence to be aware of: the caches are per-process and hold whatever was loaded, **including a
+`/news/default` assembled while SQL Server was unreachable** (ids only, no `lake_name`/`fishes`).
+That degraded page is served until the next eviction.
 
 **SQL details:**
 
@@ -842,7 +940,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `DocumentServiceTest` — mocks `DocumentStore`, real `ObjectMapper`: get/parse, not-found, blank-id,
   add normalization, blank/malformed body rejection, update id fallback.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
-- `NewsCacheTest` — `NewsQueryCache` unit tests: US/CA bucketing, LRU of other requests, deep-paging read-through, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**.
+- `NewsCacheTest` — both news caches: US/CA bucketing, LRU of other requests, deep pages cached after their first load, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**, plus the "only on a cold entry" guarantees — 16 concurrent requests produce one query for `/list`, `/default` and a document, and unknown ids are remembered, bounded, TTL-expiring and dropped on update. All six of those were verified failing first against the pre-2026-09-02 behaviour.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
 - `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (33 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
 - `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`

@@ -38,17 +38,25 @@ import java.util.concurrent.atomic.AtomicReference;
  * A window {@code [offset, offset+limit)} is served from a bucket when it lies entirely inside the
  * rows held, or when the bucket already holds the whole result set ({@code rows >= total}) — in which
  * case a window past the end correctly yields an empty page. A window reaching past the cached rows
- * while more exist in the database falls through to the delegate <em>uncached</em>, so deep paging
- * stays correct rather than silently truncated.
+ * while more exist in the database falls through to the keyed LRU above, so a deep page is loaded
+ * once and then served from memory like any other request (until 2026-09-02 it read through
+ * <em>uncached</em> on every request, which meant a bot walking the pager hit the database on every
+ * hit — the one hole in "read from cache, touch the database only when the cache is empty").
  *
  * <h2>Eviction</h2>
  * Nothing expires on its own. {@link #clear()} drops everything and is driven once a day by
  * {@link NewsCacheEvictor}, which <strong>skips the clear while SQL is unreachable</strong> so stale
  * data keeps being served instead of leaving the cache empty and unfillable.
  *
- * <p>Thread-safe: buckets are {@link AtomicReference}s and the LRU is a synchronized map. A miss may
- * be loaded concurrently by two requests; the loads are idempotent reads, so the last writer wins and
- * no locking is held across a database call.
+ * <h2>Thread safety and single-flight</h2>
+ * Buckets are {@link AtomicReference}s and the LRU is a synchronized map. A cold entry is loaded
+ * <strong>once</strong>: the loader runs under a striped lock with a double-check, so N concurrent
+ * requests for the same empty entry produce one database read and N answers, not N reads. This
+ * deliberately holds a lock across the database call — for a remote MySQL whose connection pool is 5
+ * and whose socket timeout is generous, letting a stampede through would exhaust the pool and make
+ * every caller wait anyway, only after doing the same work many times over. Locks are striped
+ * ({@value #LOAD_STRIPES} of them) rather than one per key so the map cannot grow without bound as
+ * offsets vary; two unrelated keys occasionally sharing a stripe just serialises two cold loads.
  */
 public class NewsQueryCache implements NewsQueryRepository {
 
@@ -58,11 +66,19 @@ public class NewsQueryCache implements NewsQueryRepository {
     static final int BUCKET_ROWS = 100;
     /** Upper bound on cached responses for every other request. */
     static final int OTHER_ENTRIES = 100;
+    /** Number of striped load locks — bounded, unlike a lock-per-key map keyed on arbitrary offsets. */
+    static final int LOAD_STRIPES = 16;
 
     private static final String US = "US";
     private static final String CA = "CA";
 
+    /** Cache key for the single assembled home page. */
+    private static final String DEFAULT_KEY = "default";
+
     private final NewsQueryRepository delegate;
+
+    /** Guards cold loads so each empty entry is filled by exactly one request. */
+    private final Object[] loadLocks = new Object[LOAD_STRIPES];
 
     private final AtomicReference<CachedRows> usBucket = new AtomicReference<>();
     private final AtomicReference<CachedRows> caBucket = new AtomicReference<>();
@@ -78,6 +94,9 @@ public class NewsQueryCache implements NewsQueryRepository {
 
     public NewsQueryCache(NewsQueryRepository delegate) {
         this.delegate = delegate;
+        for (int i = 0; i < LOAD_STRIPES; i++) {
+            loadLocks[i] = new Object();
+        }
     }
 
     @Override
@@ -85,29 +104,14 @@ public class NewsQueryCache implements NewsQueryRepository {
         String key = country == null ? null : country.toUpperCase(Locale.ROOT);
 
         if (US.equals(key) || CA.equals(key)) {
-            AtomicReference<CachedRows> bucket = US.equals(key) ? usBucket : caBucket;
-            CachedRows rows = bucket.get();
-            if (rows == null) {
-                NewsListPage loaded = delegate.list(key, 0, BUCKET_ROWS);
-                rows = new CachedRows(List.copyOf(loaded.items()), loaded.total());
-                bucket.set(rows);
-            }
-            NewsListPage sliced = rows.slice(offset, limit);
+            NewsListPage sliced = sliceFromBucket(key, offset, limit);
             if (sliced != null) {
                 return sliced;
             }
-            // Window reaches past the cached rows while more exist in the DB — deep paging, read through.
-            return delegate.list(key, offset, limit);
+            // Window reaches past the cached rows while more exist in the database — deep paging.
+            // Fall through to the keyed cache so the second request for that page is a cache hit.
         }
-
-        String otherKey = (key == null ? "*" : key) + "|" + offset + "|" + limit;
-        NewsListPage cached = otherPages.get(otherKey);
-        if (cached != null) {
-            return cached;
-        }
-        NewsListPage loaded = delegate.list(key, offset, limit);
-        otherPages.put(otherKey, loaded);
-        return loaded;
+        return cachedPage(key, offset, limit);
     }
 
     @Override
@@ -116,9 +120,76 @@ public class NewsQueryCache implements NewsQueryRepository {
         if (cached != null) {
             return cached;
         }
-        JsonNode loaded = delegate.defaultNews();
-        defaultPage.set(loaded);
-        return loaded;
+        synchronized (lockFor(DEFAULT_KEY)) {
+            // Re-check: another request may have filled it while this one waited for the lock.
+            JsonNode filled = defaultPage.get();
+            if (filled != null) {
+                return filled;
+            }
+            JsonNode loaded = delegate.defaultNews();
+            defaultPage.set(loaded);
+            return loaded;
+        }
+    }
+
+    /**
+     * Serves a window from the US or CA row bucket, loading that bucket once if it is cold.
+     *
+     * @return the page, or {@code null} when the window reaches past the cached rows while more exist
+     *         in the database — the caller then falls back to the keyed cache
+     */
+    private NewsListPage sliceFromBucket(String key, int offset, int limit) {
+        AtomicReference<CachedRows> bucket = US.equals(key) ? usBucket : caBucket;
+        CachedRows rows = bucket.get();
+        if (rows == null) {
+            synchronized (lockFor(key)) {
+                rows = bucket.get();
+                if (rows == null) {
+                    NewsListPage loaded = delegate.list(key, 0, BUCKET_ROWS);
+                    rows = new CachedRows(List.copyOf(loaded.items()), loaded.total());
+                    bucket.set(rows);
+                }
+            }
+        }
+        return rows.slice(offset, limit);
+    }
+
+    /**
+     * Serves one whole response from the bounded keyed cache, loading it once if it is cold. Covers
+     * the unfiltered all-countries request, any country without its own bucket, and US/CA pages that
+     * reach past their bucket.
+     */
+    private NewsListPage cachedPage(String key, int offset, int limit) {
+        String cacheKey = (key == null ? "*" : key) + "|" + offset + "|" + limit;
+        NewsListPage cached = otherPages.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (lockFor(cacheKey)) {
+            NewsListPage filled = otherPages.get(cacheKey);
+            if (filled != null) {
+                return filled;
+            }
+            NewsListPage loaded = delegate.list(key, offset, limit);
+            otherPages.put(cacheKey, loaded);
+            return loaded;
+        }
+    }
+
+    /** The striped lock guarding cold loads for {@code key}. */
+    private Object lockFor(String key) {
+        return loadLocks[Math.floorMod(key.hashCode(), LOAD_STRIPES)];
+    }
+
+    /**
+     * Not cached — this is an internal lookup called <em>beneath</em> this cache by
+     * {@link MySqlNewsQueryRepository#defaultNews()} while it assembles the home page, so its result
+     * is already covered by the cached {@code default} entry. Caching it again here would only add a
+     * second copy keyed on an id list.
+     */
+    @Override
+    public JsonNode resolveRefNames(List<String> lakeIds, List<String> fishIds) {
+        return delegate.resolveRefNames(lakeIds, fishIds);
     }
 
     /**

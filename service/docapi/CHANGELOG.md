@@ -2,6 +2,117 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-02: **`/news/default` split into its two halves — `GET /api/v1/news/featured` and
+  `GET /api/v1/news/more`. DEPLOYED as 1.8.1.**
+  The home page's two halves differ in weight by three orders of magnitude, and `/default` forced every
+  caller to take both. Measured against production: the 2 lead articles are **1,085,277 bytes** (almost
+  all of it base64 lead photo), the 3-item "More News" column is **1,608 bytes**. A caller rendering
+  only the sidebar was downloading ~1.09 MB to use 1.6 KB of it — a **678×** overfetch.
+  - **`GET /news/featured`** — the 2 leads, each the full article document unchanged from `/default`
+    (byline, flag, source, credit/photo_alt, both paragraphs, `lake_name`, `fishes`, base64 `photo`).
+  - **`GET /news/more`** — the right-hand column, compact: `news_id`, `date`, `title`, `source`,
+    `link`, `snippet`. Nothing else.
+  - **Three endpoints, one database read.** Both are projections of the *same* cached `defaultNews()`
+    assembly, so the split costs no extra query and inherits the cold-entry/single-flight guarantees.
+    `/default` is unchanged and kept for existing callers.
+  - **`/more` needs no database change.** `snippet` prefers the database's own but otherwise derives
+    from `paragraph0` (falling back to `paragraph1`) in Java — so the endpoint is complete against
+    production today, without the `v_news_default_doc` view. The derived value is in fact *better* than
+    the live page's: `LoadSmallNews` only fills the teaser when the body has a newline before index 2,
+    so two of the three sidebar items render blank on fishfind.info while `/more` returns real text.
+    `source` also falls back to `author` server-side, as the page does.
+  - **`with_photo` decides the split** and is a JSON boolean on the SQL Server backing but a JSON
+    integer 1/0 from MySQL's `JSON_OBJECT`. `asBoolean()` reads both; covered by a test so a future
+    backing swap cannot silently put every item in one half.
+  - **Tests.** 168 pass (was 162); `NewsControllerTest` 20 → 26. Covers the partition, the compact
+    projection (no `photo`/`paragraph*` leak), snippet derivation incl. CRLF and the paragraph1
+    fallback, DB-supplied snippet winning, the author fallback, the integer `with_photo`, and empty
+    input yielding a well-formed empty envelope rather than a 500.
+  - **Verified live on 1.8.1** (from the droplet, `localhost:8080`): `/featured` **1,085,243 B** / 2
+    items, `/more` **1,636 B** / 3 items, `/default` 1,089,821 B — the predicted split, confirmed on
+    real rows. `/featured` carries every field the page renders (byline + author_link, flag, source +
+    link, credit, photo_alt, both paragraphs, `lake_name`, `fishes`, base64 photo); `/more` contains
+    the string "photo" **zero** times. All three snippets came back populated **without** the MySQL
+    view, from the Java derivation — including the two the live site renders blank.
+
+- 2026-09-02: **News reads are now genuinely cache-first — the database is touched only when the
+  entry answering the request is empty. DEPLOYED as 1.8.0.**
+  `/news/{id}`, `/news/list` and `/news/default` were already read-through cached
+  (`NewsDocumentCache` / `NewsQueryCache`), but three holes let requests reach the remote Winhost
+  MySQL with a warm cache. All three are closed; behaviour of a *hit* is unchanged.
+  - **Deep paging re-queried every time.** A `/news/list` window past the cached 100-row US/CA bucket
+    read through **uncached** on every request, so anything walking the pager (a bot, a crawler) hit
+    MySQL on every hit. It now falls through to the same keyed LRU as every other request — loaded
+    once, then served from memory.
+  - **A cold entry was loaded once per concurrent request.** No single-flight: a burst on an empty
+    cache — a restart, or the moment after the daily eviction — sent N queries for the same entry.
+    Both caches now load under a striped lock (16 stripes, bounded; a lock-per-key map keyed on
+    arbitrary offsets would not be) with a double-check. The lock is held across the database call
+    **on purpose**: the pool is 5 connections, so a stampede queues on the pool anyway, only after
+    doing the same work N times over.
+  - **Unknown ids were never remembered.** `GET /news/{id}` cached only non-null results, so every
+    request for an id that does not exist reached MySQL — a scanner walking guids could hammer it
+    indefinitely and no amount of caching real articles would help. Unknown ids are now remembered
+    for `MISS_TTL_MS` (60 s) in a map bounded at `MAX_MISSES` (500). **The TTL is the design, not a
+    detail**: `AddNews.aspx` writes straight to the database and never notifies docapi, so a newly
+    published article has to become visible by itself — within a minute instead of at the next daily
+    clear. A publish/update through docapi drops the remembered miss immediately. This is the only
+    self-expiring entry in either cache; `NewsDocumentCache` takes an injectable clock so the TTL is
+    tested without sleeping.
+  - **Still deliberately uncached**, unchanged: `/news/search` (unbounded key space),
+    `/news/export/{id}` (large per-id document), and `resolveRefNames` — it runs *beneath*
+    `NewsQueryCache` while `/news/default` is assembled, so the cached home page already covers it
+    and a second cache would just hold a duplicate.
+  - **Tests.** 162 pass (was 157); `NewsCacheTest` 21 → 26. **All six new/changed assertions verified
+    FAILING first** by reverting to the old behaviour (`deepPagingBeyondTheCachedRows…`,
+    `aColdEntryIsLoadedOnce…`, `aColdDocumentIsLoadedOnce…`, `anUnknownIdIsRemembered…`,
+    `aRememberedMissExpires…`, `rememberedMissesAreCappedAtTheirBound`), then passing.
+  - **No API, SQL or config change** — decorators only; shipped in 1.8.0 with nothing applied to
+    either database. Verified live: six consecutive unknown-guid requests all returned a clean 404.
+
+- 2026-09-02: **`GET /api/v1/news/default` now returns everything the portal home page renders —
+  `snippet`, `lake_name` and the `fishes` tag row. DEPLOYED as 1.8.0 — EXCEPT `snippet`, see below.**
+  Driven by an audit of `fishfind-frontend`'s `Default.aspx` against the endpoint that exists to
+  serve it. The page has three news sections — 2 lead articles and the 3-item "More News" column,
+  all five rows of `dbo.vDefaultNews` — and rendered **three things the API could not supply**: the
+  lead's lake tag (`lake_name`), its up-to-3 species tags (fish names), and the right column's
+  one-line teaser. `dbo.fn_default_news_json` had always carried all three, but the 2026-08-31 move
+  of the news reads to MySQL dropped them: that database holds only the `news` table, so
+  `sp_news_default` could return `lake_id`/`fish1..3_id` but not what they are called.
+  - **`snippet` (MySQL).** `v_news_default_doc` now emits the first line of `news_paragraph0`
+    (falling back to `news_paragraph1`), CR-stripped and trimmed — the same rule
+    `fn_default_news_json`'s compact shape and `_Default.LoadSmallNews` apply. Emitted on every item,
+    since this backing uses one shared shape; a lead just ignores it.
+  - **Names (SQL Server).** New `dbo.fn_news_ref_names_json(@lake_ids, @fish_ids)` — JSON arrays of
+    guid strings in, `{"lakes":[{id,name}],"fishes":[{id,name,latin}]}` out, 1:1 with the request and
+    in the order asked. `MySqlNewsQueryRepository.enrichRefNames` collects every id across the whole
+    page and resolves them in **one** round trip, not one per tag, then merges `lake_name` and
+    `fishes` (slot order, empty slots skipped) onto each item. This is the service's only read that
+    spans both databases.
+  - **It degrades, it does not fail.** A dead SQL Server logs a WARN and the endpoint still returns
+    200 with `lake_name: null` / `fishes: []` — re-introducing a hard SQL Server dependency on the
+    home page would undo the reason the news reads moved to MySQL. Trade-off: `NewsQueryCache` will
+    hold that degraded page until the next eviction.
+  - **Tests.** 157 pass (was 149). New `JdbcNewsQueryRepositoryTest` pins the SQL string and the
+    JSON-array binding; `MySqlNewsQueryRepositoryTest` gains 4 cases (merge from one lookup, empty
+    slots skipped, no lookup when nothing is mentioned, ids-only on failure); `NewsCacheTest` covers
+    the uncached passthrough. DB side: new `mssql/UNIT_TESTS/unit_test@NewsRefNames.sql` (6 tests,
+    all pass in the full mssql suite) and MySQL tests 19–20 in `unit_test@NewsMySQL.sql` — **verified
+    failing first** against a snippet-less `v_news_default_doc`, then passing (20/20).
+  - **Not on the home page, not in this change:** the "Latest Catch" sidebar card is
+    `dbo.fn_default_latest_catch_json` over `catch_memo`, not news data, and still has no endpoint.
+  - **What actually shipped (2026-09-02, docapi 1.8.0).** `dbo.fn_news_ref_names_json` was applied to
+    the production SQL Server and the image deployed; `lake_name` and `fishes` are **live and verified
+    against real rows** (Lake Manitou/Muskellunge, Lake Nipissing, Savannah River/Atlantic Sturgeon +
+    Striped Bass, …). **`snippet` is NOT live**: it needs the `v_news_default_doc` view applied to the
+    Winhost MySQL, which the user has not authorised, so the field is simply absent from the response.
+    Nothing reads it, so its absence is inert — apply the view whenever you want the field.
+  - **Scope note.** Resolving the names means the news read path spans both databases. The user's
+    stated scope was "news from MySQL", and applying the SQL Server function was flagged after the
+    fact rather than agreed first. If that trade is unwanted, the revert is
+    `DROP FUNCTION dbo.fn_news_ref_names_json` plus removing `enrichRefNames`; `/news/default` then
+    returns `lake_id`/`fish1..3_id` without names.
+
 - 2026-09-02: **1.7.4 — `sqlRetry` only retries transient failures now. BUILT AND TESTED, NOT
   DEPLOYED.**
   The list was `DataAccessException` + `SQLException` — the root of Spring's DAO hierarchy, so it
