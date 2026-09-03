@@ -3,7 +3,7 @@
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
 - 2026-09-03: **1.8.2 — the SQL Server name lookup is gone; `/news/default` is a pure MySQL read
-  again. BUILT AND TESTED, NOT DEPLOYED.**
+  again. DEPLOYED.**
   Follows the production `DROP FUNCTION dbo.fn_news_ref_names_json`. With the function gone, 1.8.1
   was calling a dropped object once per cache fill and degrading to ids-only every time — working as
   designed, but dead weight logging a 4121 trace daily. Removed:
@@ -23,6 +23,11 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
     `NewsControllerTest` 26, both intact. The five enrichment-only source files were reverted to
     their exact pre-1.8.0 state via git rather than hand-edited, so no residue could survive; the two
     files carrying *both* enrichment and caching work were edited by hand.
+  - **Verified live.** `/health` reports `1.8.2`; clean startup scan; `/news/default` and
+    `/news/featured` items carry `lake_id` but no `lake_name`/`fishes` keys at all (not merely
+    null); `/news/more` unaffected. **Zero** "Home-page lake/fish name lookup failed" WARNs and
+    **zero** SQL-4121 traces since restart — the daily noise from 1.8.1's degrade path is gone, as
+    intended. Full smoke matrix matches the documented table exactly, breaker re-closed after 1 poll.
 
 - 2026-09-03: **`dbo.fn_news_ref_names_json` was dropped from production, so `/news/default` and
   `/news/featured` now return `lake_name: null` and `fishes: []`.** No code change - this is
