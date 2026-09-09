@@ -27,7 +27,61 @@ import java.util.List;
 public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
     static final String LIST_SQL = "CALL sp_news_list_json(?, ?, ?)";
-    static final String DEFAULT_SQL = "CALL sp_news_default()";
+
+    /**
+     * The home-page document set. This is the body of the {@code v_news_default_doc} view inlined
+     * as a query, rather than {@code CALL sp_news_default()} (which is just
+     * {@code SELECT doc FROM v_news_default_doc ORDER BY rn LIMIT 5}).
+     *
+     * <p><strong>Why inlined (2026-09-09).</strong> {@code v_news_default_doc} is defined in
+     * {@code envfish-db/mysql/script01_createView.sql} but <em>does not exist</em> in the live
+     * Winhost database — only its dependencies ({@code v_news_default_grp1..5},
+     * {@code v_news_default_ranked}, {@code v_news_default_top}) were ever applied. So
+     * {@code sp_news_default()} failed with
+     * {@code Table 'mysql_111487_envfish.v_news_default_doc' doesn't exist}, and
+     * {@code /news/default}, {@code /news/featured} and {@code /news/more} — which all share this
+     * one assembly — returned 500 in production.
+     *
+     * <p>It is inlined rather than fixed in the database because the application's MySQL account
+     * ({@code portos}) holds no {@code CREATE VIEW} or {@code CREATE ROUTINE} privilege
+     * (only SELECT/DELETE/DROP/REFERENCES/INDEX/ALTER/LOCK TABLES/EXECUTE/SHOW VIEW/ALTER
+     * ROUTINE/TRIGGER), so neither the view nor the procedure can be created or repaired from
+     * here — that needs the Winhost control panel. This query depends only on objects that DO
+     * exist and that {@code portos} can read.
+     *
+     * <p>Keep this in sync with {@code v_news_default_doc} in {@code script01_createView.sql}. If
+     * that view is ever actually created in the live database, this can go back to
+     * {@code CALL sp_news_default()}.
+     */
+    static final String DEFAULT_SQL = """
+            SELECT JSON_OBJECT(
+                       'news_id', n.news_id,
+                       'date', DATE_FORMAT(n.news_stamp, '%Y-%m-%d'),
+                       'country', n.country,
+                       'flag', IF(n.country IS NULL OR n.country = '', 'empty.gif', CONCAT(n.country, '.png')),
+                       'title', n.news_title,
+                       'author', n.news_author,
+                       'author_link', n.news_author_link,
+                       'source', n.news_source,
+                       'source_link', n.news_source_link,
+                       'credit', n.news_photo_author0,
+                       'photo_alt', n.news_photo_alt0,
+                       'paragraph0', n.news_paragraph0,
+                       'paragraph1', n.news_paragraph1,
+                       'lake_id', n.lake_id,
+                       'fish1_id', n.fish1_id,
+                       'fish2_id', n.fish2_id,
+                       'fish3_id', n.fish3_id,
+                       'snippet', TRIM(SUBSTRING_INDEX(
+                           REPLACE(COALESCE(NULLIF(n.news_paragraph0, ''), n.news_paragraph1, ''), '\\r', ''),
+                           '\\n', 1)),
+                       'photo', IF(r.rn <= 2 AND LENGTH(n.news_photo0) > 100, TO_BASE64(n.news_photo0), NULL),
+                       'with_photo', IF(r.rn <= 2, TRUE, FALSE)
+                   ) AS doc
+              FROM v_news_default_ranked r
+              JOIN news n ON n.news_id = r.news_id
+             ORDER BY r.rn
+             LIMIT 5""";
 
     private final JdbcTemplate mysqlJdbc;
     private final ObjectMapper objectMapper;
