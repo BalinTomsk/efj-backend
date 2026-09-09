@@ -2,6 +2,56 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-09: **1.8.3 — `/news/default`, `/news/featured` and `/news/more` were returning 500 in
+  production. FIXED and DEPLOYED.**
+
+  All three share one cached assembly, so a single broken query took out the whole home-page read
+  surface. The exception was:
+
+  ```
+  java.sql.SQLSyntaxErrorException:
+      Table 'mysql_111487_envfish.v_news_default_doc' doesn't exist
+    ← BadSqlGrammarException: bad SQL grammar [CALL sp_news_default()]
+  ```
+
+  **Cause: a missing database object, not a code bug.** `sp_news_default()` is a one-liner —
+  `SELECT doc FROM v_news_default_doc ORDER BY rn LIMIT 5` — and `v_news_default_doc`, though
+  defined in `envfish-db/mysql/script01_createView.sql`, was **never created in the live Winhost
+  database**. Only its dependencies were applied there (`v_news_default_grp1..5`,
+  `v_news_default_ranked`, `v_news_default_top`, `v_news_list_rows`). `/news/list` kept working
+  throughout because it reads `v_news_list_rows`, which does exist — that asymmetry is what proved
+  this was a missing object rather than the MySQL connectivity fault the Hikari
+  `Failed to validate connection … consider a shorter maxLifetime` WARN in the same log made it
+  look like. That warning was a red herring.
+
+  **Why it is fixed in code rather than in the database.** The application's MySQL account
+  (`portos`) holds `SELECT, DELETE, DROP, REFERENCES, INDEX, ALTER, LOCK TABLES, EXECUTE, SHOW
+  VIEW, ALTER ROUTINE, TRIGGER` — **no `CREATE`, `CREATE VIEW` or `CREATE ROUTINE`**. `CREATE VIEW`
+  was attempted and refused outright, and it is the only MySQL credential stored anywhere in this
+  codebase (frontend `secrets.config`, `efj-backend/secret/mysql.cred` and docapi's own env all
+  resolve to the same user), so neither the view nor the procedure can be repaired from here. That
+  needs the Winhost control panel.
+
+  - **Fix:** `MySqlNewsQueryRepository.DEFAULT_SQL` now inlines the view's body as a query instead
+    of `CALL sp_news_default()`. It reads only `v_news_default_ranked` and `news` — both present,
+    both readable by `portos`. The SQL was run against the live database first and returned the
+    expected 5 rows with correct JSON before anything was built.
+  - **Verified after deploy:** direct on the droplet and through the public gateway with a real
+    Bearer token — `/news/default` `200` (1,090,140 B), `/news/featured` `200` (1,085,481 B),
+    `/news/more` `200` (1,636 B), `/news/list` `200`. The two large sizes match this document's
+    long-documented `~1.09 MB`, and `/news/more` its `~1.6 KB`.
+  - **To restore the intended design:** run `envfish-db/mysql/FIX_missing_v_news_default_doc.sql`
+    (added, ready to paste) in the Winhost panel, then revert `DEFAULT_SQL` to
+    `CALL sp_news_default()` and redeploy. The constant's javadoc says the same.
+
+  **Also fixed while in there:** `/mnt/volume_jnode/docapi/docapi.env` on the droplet had **CRLF
+  line endings**, so `MYSQL_NEWS_PASSWORD` sourced with a trailing `\r` — 14 characters instead of
+  13. Deploys use `--env-file` with that file, so this redeploy would have injected the corrupted
+  password and broken **every** MySQL news read, not just these three. Stripped the CRs
+  (backup: `docapi.env.bak-crlf`); the sourced password now matches the running container's
+  exactly. Note `do-update.md` Step 5's documented pipeline already has `tr -d '\r'` — whatever
+  added the `MYSQL_NEWS_*` keys later skipped it.
+
 - 2026-09-03: **1.8.2 — the SQL Server name lookup is gone; `/news/default` is a pure MySQL read
   again. DEPLOYED.**
   Follows the production `DROP FUNCTION dbo.fn_news_ref_names_json`. With the function gone, 1.8.1

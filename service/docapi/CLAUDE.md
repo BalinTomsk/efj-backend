@@ -58,6 +58,22 @@ Prefer editing examples in place over appending new ones — the point is that t
 current behaviour, not a change history. Re-verify an example against the running service (or at least
 re-derive it from the code) rather than hand-editing JSON by guess.
 
+**This rule fires even when nothing was touched to change the API.** A live-testing pass — even one
+aimed at a different file, or at the sibling `cproxy` docs — can surface that this file was already
+wrong: a version number copied from another doc instead of from `pom.xml`, a controller still marked
+"pending deploy" that shipped, an endpoint documented `200` that is currently `500` in production.
+Found wrong is exactly as much a trigger as changed: fix it in that same pass rather than noting it
+for later. (User instruction, 2026-09-09. That day this file was carrying **four** such staleness
+bugs at once — `docapi 1.6.0` in two banners and `1.4.1` in the health examples and footer when
+`pom.xml` said **1.8.2**; River's source/mouth marked "implemented 1.7.0, pending deploy" when all
+four routes were live and answering; the cproxy credential described as a bare `X-Day-Guid` header
+months after it became a Bearer JWT; and `/news/default|featured|more` documented `200` while all
+three were returning `500` in production. None of those were caused by a code change — every one was
+drift that a live check caught.)
+
+**Version numbers come from `pom.xml`, never from another doc.** Two of the four bugs above were a
+stale version copied between documents, which is how a wrong number survives being "checked" twice.
+
 ---
 
 ## Git & DB rules
