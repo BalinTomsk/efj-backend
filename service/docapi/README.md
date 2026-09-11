@@ -194,8 +194,9 @@ link is left alone (`skipped`) — this endpoint can never silently overwrite al
 over-500-entry body ⇒ 400; unknown lake guid ⇒ 404. This service's first write outside the generic
 document CRUD endpoints — see the Database contract section below for the SQL. **Fronted through
 cproxy as of 0.6.1** (`deploy/compose.yml`, `CPROXY_ALLOWED_METHODS` now includes `PATCH`), gated by
-a per-day rotating credential (`X-Day-Guid` checked against a SQLite `DayKeyStore`), not a static API
-key — see `efc-proxy` `CLAUDE.md` → "Day-key store".
+a per-day rotating credential checked against a SQLite `DayKeyStore`, not a static API key — since
+cproxy 0.13.0 presented **only** as the `server` claim of an `Authorization: Bearer` JWT (the original
+bare `X-Day-Guid` header is no longer accepted) — see `efc-proxy` `CLAUDE.md` → "JWT credential".
 
 `PATCH /api/v1/river/description/{guid}` — a second, independent write: a JSON **merge patch** (only
 keys present in the body are touched) of the `Editor/LakeEditor.aspx` "General" tab's editable

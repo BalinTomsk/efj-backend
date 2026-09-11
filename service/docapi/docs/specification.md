@@ -113,8 +113,9 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   service's first write path outside the generic document CRUD endpoints, and — unlike every other
   river endpoint until now — is **fronted through cproxy as of 0.6.1**
   (`CPROXY_ALLOWED_METHODS` now includes `PATCH` in `deploy/compose.yml`), gated by a per-day
-  rotating credential (`X-Day-Guid` checked against a SQLite-backed `DayKeyStore`), not a static API
-  key. Verified live end-to-end through the public gateway.
+  rotating credential checked against a SQLite-backed `DayKeyStore`, not a static API key — sent as
+  a bare `X-Day-Guid` header at the time, and since cproxy 0.13.0 accepted **only** as the `server`
+  claim of an `Authorization: Bearer` HS512 JWT. Verified live end-to-end through the public gateway.
 - `PATCH /api/v1/river/description/{guid}` — a second, independent write: a JSON **merge patch** of
   the `Editor/LakeEditor.aspx` "General" tab's editable fields, via the new
   `dbo.sp_lake_description_update` (`envfish-db`, 2026-08-25). Only keys present in the body are
