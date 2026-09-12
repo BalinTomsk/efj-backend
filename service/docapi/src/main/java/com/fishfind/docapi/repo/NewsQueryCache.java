@@ -185,6 +185,17 @@ public class NewsQueryCache implements NewsQueryRepository {
      * Not cached — a per-id interchange document (with embedded base64 photos) is large and rarely
      * re-requested, so it reads straight through to the delegate.
      */
+    /**
+     * Passed straight through, <strong>deliberately uncached</strong>. Everything else here is a
+     * small JSON document read on nearly every page view; a lead photo is a megabyte-scale blob read
+     * only when the frontend's own cache has already missed, so holding one here would cost real heap
+     * for a hit rate near zero. See {@link MySqlNewsQueryRepository#newsPhoto}.
+     */
+    @Override
+    public byte[] newsPhoto(String id) {
+        return delegate.newsPhoto(id);
+    }
+
     @Override
     public JsonNode exportNews(String id) {
         return delegate.exportNews(id);

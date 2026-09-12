@@ -600,6 +600,44 @@
 
     <div class="endpoint">
       <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/photo/<span class="param">{id}</span></span></div>
+        <span class="specimen-label">one lead photo, raw bytes</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #2E7D32; background:rgba(46,125,50,.07);"><strong>DEPLOYED AND VERIFIED LIVE 2026‑09‑12 (docapi 1.9.0).</strong> Fetched a real published article’s photo directly against the droplet (525,222-byte PNG, correct <code>ETag</code>/<code>Cache-Control</code>; matching <code>If-None-Match</code> → 304, stale → 200 with fresh bytes; unknown id and a photo-less real id both → 404), then re-fetched the same photo through cproxy 0.14.0 (which gates <code>/news/photo</code> exactly like its three siblings) and confirmed the bytes are identical. The portal’s <code>NewsPhoto.ashx</code> was confirmed to genuinely use this path — a never-before-cached article’s photo, requested through the live site, produced a matching line in cproxy’s own access log.</p>
+        <p class="prose" style="margin-bottom:18px;">One article's lead photo (<code>news_photo0</code>) as the <strong>raw image bytes that were uploaded</strong> &mdash; not JSON, not base64, no envelope. This is the by-URL form of the photo <code>/news/featured</code> already embeds, and it exists so a caller can render the home page without re-downloading a megabyte of photos it has already cached. The portal's <code>NewsPhoto.ashx</code> seeds its own cache from the embedded copy while rendering and falls back to this endpoint on a miss, which is why the same bytes are reachable two ways on purpose.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Content type is sniffed from the file's own magic bytes</strong> &mdash; <code>image/jpeg</code>, <code>image/png</code>, <code>image/gif</code>, <code>image/webp</code>, else <code>application/octet-stream</code>. The column holds whatever was uploaded and is mostly JPEG, so a fixed <code>image/png</code> (which the portal's old inline markup used) would have been wrong for most of the library.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Caching.</strong> The bytes for an id are immutable in practice &mdash; replacing an article's photo replaces the bytes but keeps the id &mdash; so the response carries <code>Cache-Control: public, max-age=604800</code> (7 days) and an <code>ETag</code> of <code>"&lt;id&gt;-&lt;length&gt;"</code>. The length is what makes a replaced photo self-correct: the tag changes, revalidation misses, and the new bytes are sent. <code>If-None-Match</code> is answered with <code>304</code> and no body.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Read by primary key, and that is not negotiable.</strong> <code>news_photo0</code> is a <code>LONGBLOB</code> and the live Winhost host hangs indefinitely on any query that references it while materializing more than one row. <code>MySqlNewsQueryRepository.PHOTO_SQL</code> is a single-row lookup by primary key with <code>news_publish = 1</code> in the key predicate &mdash; never widen it to a scan, a join or an <code>IN</code> list. The publish filter also means a draft's photo is a <code>404</code> here exactly as its text is invisible everywhere else.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">a published article with a photo</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/photo/AEB5B2D8-9355-401A-BE32-2936453963EE</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button>Content-Type: image/png
+Content-Length: 525222
+Cache-Control: public, max-age=604800
+ETag: "aeb5b2d89355401abe322936453963ee-525222"
+
+&lt;525222 bytes of PNG&gt;</pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption">revalidation, and the miss cases</span><span class="status-code status-200">304 / 404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/photo/{id} &nbsp;(If-None-Match matches)</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button>304 Not Modified &mdash; no body
+
+# missing id, unpublished draft, or an article with no photo:
+404 Not Found</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/search<span class="param">?q=</span></span></div>
         <span class="specimen-label">full-text-ish search</span>
       </div>
@@ -1264,7 +1302,7 @@
   <section class="block" id="quickref" style="margin-bottom: 0;">
     <div class="block-head">
       <h2 class="display">Quick reference</h2>
-      <span class="tag">verified live · docapi 1.8.3</span>
+      <span class="tag">verified live · docapi 1.9.0</span>
     </div>
     <div class="ref-wrap">
       <table class="ref-tbl">
@@ -1275,6 +1313,7 @@
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/default</td><td>200</td><td>assembled home page (~1.09 MB) — fixed in 1.8.3, re-verified 2026‑09‑09</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/featured</td><td>200</td><td>2 lead articles (~1.09 MB) — fixed in 1.8.3, re-verified 2026‑09‑09</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/more</td><td>200</td><td>3 sidebar items (~1.6 KB) — fixed in 1.8.3, re-verified 2026‑09‑09</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/photo/{id}</td><td>200</td><td>525,222-byte PNG, byte-identical through cproxy — verified live 2026‑09‑12 (docapi 1.9.0)</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/search?q=walleye</td><td>200</td><td>14 matches</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;guid&gt;</td><td>200</td><td>full article</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;unknown-guid&gt;</td><td>404</td><td>not_found</td></tr>
@@ -1301,7 +1340,7 @@
 
   <footer>
     <span>docapi — <code>com.fishfind.docapi</code> · 7 controllers: Health, News, Fish, River, Regulation, Waterbody, Station</span>
-    <span class="fver">deployed <strong>1.8.3</strong> · smoke-tested end to end 2026‑09‑09</span>
+    <span class="fver">deployed <strong>1.9.0</strong> (2026‑09‑12, news/photo verified live) · full 7-controller sweep 2026‑09‑09</span>
   </footer>
 
 </div>

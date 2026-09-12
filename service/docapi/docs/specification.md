@@ -53,6 +53,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the whole assembled home page; each item carries `snippet` and the `lake_id`/`fish1..3_id` it mentions) |
 | `GET` | `/api/v1/news/featured` | 200 | `{ items:[ <news JSON>, … ] }` — just the 2 lead articles, full documents incl. their base64 `photo` |
 | `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
+| `GET` | `/api/v1/news/photo/{id}` | 200 / 304 / 404 | **raw image bytes**, not JSON — one article's lead photo. Content type sniffed from the file's magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"`; `If-None-Match` → 304; missing/unpublished/photo-less → 404 (1.9.0) |
 | `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
 
 **Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
@@ -617,6 +618,14 @@ should not download a megabyte of photos to get it, so the two halves are also e
 
 Both are **projections of the same cached `defaultNews()` assembly**, so offering three endpoints costs
 one database read, not three. `/default` is unchanged and kept for existing callers.
+
+`GET /api/v1/news/photo/{id}` (1.9.0) is the fourth member of that set but **not** a projection of the
+assembly: it is a separate single-row read of `news_photo0` by primary key, returning the raw bytes
+rather than JSON. It serves the same photos `/featured` embeds as base64, addressable by id, which is
+what lets a caller cache them per-image instead of re-fetching a megabyte with every page render.
+Deliberately **not** held in `NewsQueryCache` — megabyte blobs, read only after the caller's own cache
+has missed. Because it serves the same content as `/featured`, cproxy gates it with the rest of the
+home page (`CPROXY_DAYKEY_PATHS`, cproxy 0.14.0).
 
 `/more` resolves two things server-side so its response is sufficient alone, both mirroring what
 `Default.aspx` does in C#:

@@ -30,6 +30,12 @@ public class InMemoryNewsQueryRepository implements NewsQueryRepository {
         return objectMapper.createObjectNode().set("items", objectMapper.createArrayNode());
     }
 
+    /** No database: no photo for any id, so the endpoint runs end-to-end returning 404. */
+    @Override
+    public byte[] newsPhoto(String id) {
+        return null;
+    }
+
     /** No database: nothing to export, so every id is "not found" (controller maps to 404). */
     @Override
     public JsonNode exportNews(String id) {

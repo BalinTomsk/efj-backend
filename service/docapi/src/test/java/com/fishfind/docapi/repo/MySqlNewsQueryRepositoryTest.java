@@ -12,7 +12,10 @@ import org.springframework.jdbc.core.RowMapper;
 import java.sql.ResultSet;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -62,7 +65,10 @@ class MySqlNewsQueryRepositoryTest {
 
     @Test
     void defaultNewsParsesEachRowAsAJsonDocumentInTheItemsArray() {
-        when(mysqlJdbc.query(eq("CALL sp_news_default()"), any(RowMapper.class))).thenAnswer(invocation -> {
+        // Not "CALL sp_news_default()": 1.8.3 inlined the procedure's body because the view it reads
+        // (v_news_default_doc) does not exist in the live Winhost database. Stubbing the old literal
+        // matched nothing and quietly asserted an empty page.
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.DEFAULT_SQL), any(RowMapper.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             RowMapper<String> mapper = invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
@@ -104,5 +110,43 @@ class MySqlNewsQueryRepositoryTest {
         assertEquals(page, repository.search("walleye"));
         verify(sqlServerDelegate).search("walleye");
         verifyNoInteractions(mysqlJdbc);
+    }
+
+    // ---- news photo ----------------------------------------------------------------------------
+
+    @Test
+    void photoReadsTheBlobFromMySqlByPrimaryKey() {
+        byte[] bytes = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 7};
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.PHOTO_SQL), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenReturn(List.of(bytes));
+
+        assertArrayEquals(bytes, repository.newsPhoto("n1"));
+        verifyNoInteractions(sqlServerDelegate);
+    }
+
+    @Test
+    void photoOfAnUnknownOrUnpublishedArticleIsNull() {
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.PHOTO_SQL), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenReturn(List.of());
+
+        assertNull(repository.newsPhoto("nope"));
+    }
+
+    /**
+     * The live Winhost host hangs indefinitely on any query that touches {@code news_photo0} while
+     * materializing more than one row, and a draft's photo must be as unreachable as its text. Both
+     * guarantees live in this one statement, so pin its shape rather than only its behaviour.
+     */
+    @Test
+    void photoQueryIsASingleRowPrimaryKeyLookupOverPublishedRowsOnly() {
+        String sql = MySqlNewsQueryRepository.PHOTO_SQL;
+
+        assertTrue(sql.contains("WHERE news_id = ?"), sql);
+        assertTrue(sql.contains("news_publish = 1"), sql);
+        assertTrue(sql.contains("LIMIT 1"), sql);
+        assertTrue(sql.contains("SELECT news_photo0"), sql);
+        // No join and no IN-list: either would make this a multi-row read of the blob column.
+        assertTrue(!sql.toUpperCase(java.util.Locale.ROOT).contains(" JOIN "), sql);
+        assertTrue(!sql.toUpperCase(java.util.Locale.ROOT).contains(" IN ("), sql);
     }
 }

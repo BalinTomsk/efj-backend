@@ -10,17 +10,21 @@ import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import com.fishfind.docapi.service.NewsDocumentService;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 
@@ -54,6 +58,8 @@ public class NewsController extends AbstractDocumentController {
     static final int DEFAULT_LIMIT = 25;
     /** Upper bound on page size. */
     static final int MAX_LIMIT = 200;
+    /** How long a browser may reuse a lead photo without revalidating. */
+    static final int PHOTO_CACHE_DAYS = 7;
 
     private final NewsQueryRepository queryRepository;
     private final ObjectMapper objectMapper;
@@ -195,6 +201,73 @@ public class NewsController extends AbstractDocumentController {
             }
         }
         return ApiResponse.ok(wrap(items));
+    }
+
+    /**
+     * One article's <strong>lead photo</strong>, as the raw image bytes rather than JSON. This is the
+     * by-URL form of the photo {@code /featured} already embeds as base64, and it exists so the
+     * frontend never needs a database connection of its own to render a news image: the home page
+     * seeds its process cache from the embedded copy while rendering, and the browser's follow-up
+     * request for a cache miss lands here instead of on MySQL directly.
+     *
+     * <p>The literal {@code /photo/...} prefix is matched ahead of the templated {@code /{id}} handler,
+     * so it never collides with a plain document fetch.
+     *
+     * <p><strong>Caching.</strong> The bytes for an id are immutable in practice — replacing an
+     * article's photo replaces the bytes but keeps the id — so the response carries a long public
+     * {@code max-age} and a weak-free {@code ETag} of {@code "<id>-<length>"}. The ETag is what
+     * corrects a stale copy when a photo really is replaced: the length changes, the revalidation
+     * misses, and the new bytes are sent. {@code If-None-Match} is honoured with a 304.
+     *
+     * <p>Content type is sniffed from the file's own magic bytes; the column holds whatever was
+     * uploaded, which is mostly JPEG despite the old markup having hard-coded {@code image/png}.
+     *
+     * @param id the article id
+     * @return {@code 200} with the image bytes, {@code 304} when the caller's ETag still matches, or
+     *         {@code 404} when the article is missing, unpublished, or carries no photo
+     */
+    @GetMapping(value = "/photo/{id}", produces = MediaType.ALL_VALUE)
+    public ResponseEntity<byte[]> newsPhoto(@PathVariable String id,
+                                            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        byte[] photo = queryRepository.newsPhoto(id);
+
+        if (photo == null || photo.length == 0) {
+            return ResponseEntity.notFound().build();
+        }
+        String etag = "\"" + id.toLowerCase(Locale.ROOT) + "-" + photo.length + "\"";
+        CacheControl cache = CacheControl.maxAge(Duration.ofDays(PHOTO_CACHE_DAYS)).cachePublic();
+
+        if (ifNoneMatch != null && ifNoneMatch.contains(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cache).build();
+        }
+        return ResponseEntity.ok()
+                .eTag(etag)
+                .cacheControl(cache)
+                .contentType(MediaType.parseMediaType(sniffContentType(photo)))
+                .contentLength(photo.length)
+                .body(photo);
+    }
+
+    /**
+     * Content type from the file's own magic bytes — PNG, JPEG, GIF and WebP, which is everything the
+     * library actually holds. Anything unrecognised is served as {@code application/octet-stream}
+     * rather than guessed: a wrong image type is worse than an honest unknown one.
+     */
+    private static String sniffContentType(byte[] bytes) {
+        if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') {
+            return MediaType.IMAGE_PNG_VALUE;
+        }
+        if (bytes.length >= 3 && bytes[0] == (byte) 0xFF && bytes[1] == (byte) 0xD8 && bytes[2] == (byte) 0xFF) {
+            return MediaType.IMAGE_JPEG_VALUE;
+        }
+        if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+            return MediaType.IMAGE_GIF_VALUE;
+        }
+        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+            return "image/webp";
+        }
+        return MediaType.APPLICATION_OCTET_STREAM_VALUE;
     }
 
     /** The assembled home page's items, or an empty array if the payload is not the expected shape. */

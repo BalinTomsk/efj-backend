@@ -145,6 +145,39 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
         return root;
     }
 
+    /**
+     * One article's lead photo, by primary key. Inlined rather than {@code CALL sp_news_get_by_id(?)}
+     * for two reasons: that procedure returns all fifteen news columns when only one is wanted, and —
+     * as {@link #DEFAULT_SQL} records at length — a named object existing in
+     * {@code envfish-db/mysql} is no evidence it exists in the live Winhost database. This statement
+     * depends on nothing but the {@code news} table itself.
+     *
+     * <p><strong>The BLOB hazard is respected.</strong> {@code news_photo0} is a {@code LONGBLOB} and
+     * the live Winhost host hangs indefinitely on any query that references it while materializing
+     * more than one row. This is a single-row lookup by primary key — the one access pattern
+     * documented as safe against that column. Never widen it to a scan, a join, or an {@code IN} list.
+     *
+     * <p>{@code news_publish = 1} is part of the key predicate, not a filter applied afterwards: a
+     * draft must be a miss here, not a photo served for an article whose text is unreachable.
+     */
+    static final String PHOTO_SQL =
+            "SELECT news_photo0 FROM news WHERE news_id = ? AND news_publish = 1 LIMIT 1";
+
+    /**
+     * The lead photo's bytes, or {@code null}. Deliberately <em>not</em> cached in the
+     * {@link NewsQueryCache} layer: these are megabyte-scale blobs whose caller (the frontend's
+     * {@code NewsPhoto.ashx}) already caches them in its own process and hands the browser a
+     * seven-day {@code max-age}, so a second copy here would buy a hit rate near zero at a real cost
+     * in heap.
+     */
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "photoFallback")
+    public byte[] newsPhoto(String id) {
+        List<byte[]> found = mysqlJdbc.query(PHOTO_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getBytes(1));
+        return found.isEmpty() ? null : found.get(0);
+    }
+
     /** Not in scope for the MySQL move -- delegates to the SQL-Server-backed repository unchanged. */
     @Override
     public JsonNode exportNews(String id) {
@@ -177,6 +210,14 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode defaultFallback(Throwable ex) {
         throw new RuntimeException("MySQL default-news query failed", ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #newsPhoto}.
+     */
+    @SuppressWarnings("unused")
+    public byte[] photoFallback(String id, Throwable ex) {
+        throw new RuntimeException("MySQL news-photo query failed", ex);
     }
 
     private JsonNode parseItem(String json) {

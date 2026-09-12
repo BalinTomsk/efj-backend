@@ -28,6 +28,21 @@ public interface NewsQueryRepository {
     JsonNode defaultNews();
 
     /**
+     * The lead photo ({@code news_photo0}) of one published article, as the raw bytes that were
+     * uploaded — no base64, no envelope. This is the by-URL counterpart of the base64 photo embedded
+     * in {@link #defaultNews()}: the home page renders its leads from that embedded copy, and the
+     * browser then fetches the very same bytes through this endpoint on a cache miss, so the frontend
+     * needs no database connection of its own to show a news photo.
+     *
+     * <p>Unpublished articles return {@code null} here exactly as their text is invisible everywhere
+     * else, so a draft's photo can never be reached by guessing its id.
+     *
+     * @param id the article id
+     * @return the photo bytes, or {@code null} when the article is missing, unpublished, or has no photo
+     */
+    byte[] newsPhoto(String id);
+
+    /**
      * Exports one article as the {@code fn_news_json} interchange document — every field needed to
      * re-create it, with the 3 paragraph photos embedded as base64. This is the same shape the
      * News.aspx "Save JSON" link and the AddNews "Import from JSON" round-trip use.

@@ -56,6 +56,7 @@ class NewsCacheTest {
         final AtomicInteger exportCalls = new AtomicInteger();
         final AtomicInteger importCalls = new AtomicInteger();
         final AtomicInteger searchCalls = new AtomicInteger();
+        final AtomicInteger photoCalls = new AtomicInteger();
         private final long total;
 
         CountingRepo(long total) {
@@ -91,6 +92,12 @@ class NewsCacheTest {
         public NewsSearchPage search(String query) {
             searchCalls.incrementAndGet();
             return new NewsSearchPage(List.of(), 0, query);
+        }
+
+        @Override
+        public byte[] newsPhoto(String id) {
+            photoCalls.incrementAndGet();
+            return new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00};
         }
     }
 
@@ -564,5 +571,21 @@ class NewsCacheTest {
         // No probe, no clear — the cache is untouched on a healthy day.
         org.mockito.Mockito.verifyNoInteractions(jdbc);
         assertThat(queryCache.sizes()[0]).isEqualTo(NewsQueryCache.BUCKET_ROWS);
+    }
+
+    // ---- /news/photo ---------------------------------------------------------------------------
+
+    @Test
+    void photosAreNeverCachedSoEveryRequestReachesTheDatabase() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo);
+
+        // Lead photos are megabyte-scale blobs whose caller already caches them; holding a second
+        // copy here would cost heap for a hit rate near zero. Pin the pass-through deliberately.
+        cache.newsPhoto("abc");
+        cache.newsPhoto("abc");
+        cache.newsPhoto("abc");
+
+        assertThat(repo.photoCalls.get()).isEqualTo(3);
     }
 }
