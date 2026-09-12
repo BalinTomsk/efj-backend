@@ -150,6 +150,10 @@ portal's `Default.aspx` renders for its 2 lead articles and 3 "More News" items,
 article's `snippet`, and the `lake_id` / `fish1..3_id` it mentions), its two halves
 `GET /api/v1/news/featured` (the 2 leads with their photos, ~1.09 MB) and `GET /api/v1/news/more`
 (the sidebar column, ~1.6 KB — fetch this instead of the whole page when you only need the list),
+`GET /api/v1/news/photo/{id}` (1.9.0 — one lead photo as **raw image bytes**, the by-URL form of the
+base64 `photo` the other two embed, with a sniffed content type, a 7-day `Cache-Control` and an
+`ETag` of `"<id>-<length>"`, so a caller renders the page without re-downloading photos it already
+has; `404` for a missing id, an unpublished draft, or an article with no photo),
 `GET /api/v1/news/search?q=`
 (up to 100 published matches across headline/source/paragraphs/photo-alts **and the mentioned fishes'
 names**, newest first — `dbo.fn_news_search`; blank `q` ⇒ 400), and the interchange

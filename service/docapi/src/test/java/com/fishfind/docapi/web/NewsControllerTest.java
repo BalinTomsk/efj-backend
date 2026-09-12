@@ -23,6 +23,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -381,5 +383,94 @@ class NewsControllerTest {
                         .content(""))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    // ---- /news/photo/{id} : the lead photo as raw bytes ----------------------------------------
+
+    /** A minimal but genuine JPEG header — the sniffer reads the first three bytes. */
+    private static final byte[] JPEG = new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 1, 2, 3};
+    /** A minimal but genuine PNG signature. */
+    private static final byte[] PNG = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 9};
+
+    @Test
+    void photoReturnsTheRawBytesWithTheSniffedContentType() throws Exception {
+        when(queryRepository.newsPhoto("a1")).thenReturn(JPEG);
+
+        mockMvc.perform(get("/api/v1/news/photo/a1"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_JPEG))
+                .andExpect(content().bytes(JPEG));
+    }
+
+    /**
+     * The column holds whatever was uploaded, so the type must come from the bytes and not from a
+     * hard-coded guess — the old inline markup said PNG for a library that is mostly JPEG.
+     */
+    @Test
+    void photoContentTypeFollowsTheBytesNotAFixedDefault() throws Exception {
+        when(queryRepository.newsPhoto("a2")).thenReturn(PNG);
+
+        mockMvc.perform(get("/api/v1/news/photo/a2"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+    }
+
+    @Test
+    void photoIsPubliclyCacheableAndCarriesAnEtagOfIdAndLength() throws Exception {
+        when(queryRepository.newsPhoto("A3")).thenReturn(JPEG);
+
+        mockMvc.perform(get("/api/v1/news/photo/A3"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"a3-" + JPEG.length + "\""))
+                .andExpect(header().string("Cache-Control", "max-age=604800, public"));
+    }
+
+    @Test
+    void photoRevalidationWithAMatchingEtagIs304() throws Exception {
+        when(queryRepository.newsPhoto("a4")).thenReturn(JPEG);
+
+        mockMvc.perform(get("/api/v1/news/photo/a4").header("If-None-Match", "\"a4-" + JPEG.length + "\""))
+                .andExpect(status().isNotModified())
+                .andExpect(content().bytes(new byte[0]));
+    }
+
+    /**
+     * Replacing an article's photo keeps its id but changes the length, so the caller's ETag stops
+     * matching and it is sent the new bytes. That is the whole reason length is part of the tag.
+     */
+    @Test
+    void photoRevalidationWithAStaleEtagSendsTheNewBytes() throws Exception {
+        when(queryRepository.newsPhoto("a5")).thenReturn(JPEG);
+
+        mockMvc.perform(get("/api/v1/news/photo/a5").header("If-None-Match", "\"a5-999\""))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(JPEG));
+    }
+
+    /** Missing, unpublished, or simply photo-less all arrive here as null and must read the same. */
+    @Test
+    void photoReturns404WhenTheRepositoryHasNothing() throws Exception {
+        when(queryRepository.newsPhoto("gone")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/news/photo/gone"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void photoReturns404ForAnEmptyBlobRatherThanAZeroLengthImage() throws Exception {
+        when(queryRepository.newsPhoto("empty")).thenReturn(new byte[0]);
+
+        mockMvc.perform(get("/api/v1/news/photo/empty"))
+                .andExpect(status().isNotFound());
+    }
+
+    /** Unrecognised bytes are served honestly rather than mislabelled as an image. */
+    @Test
+    void photoOfAnUnrecognisedFormatIsOctetStream() throws Exception {
+        when(queryRepository.newsPhoto("odd")).thenReturn(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+
+        mockMvc.perform(get("/api/v1/news/photo/odd"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_OCTET_STREAM));
     }
 }

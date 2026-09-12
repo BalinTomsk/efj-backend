@@ -47,6 +47,10 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
             "SELECT news_id, news_title, news_source, stamp, country, fish1, fish2, fish3 "
                     + "FROM dbo.fn_news_search(?)";
 
+    /** One article's lead photo by primary key; published rows only. */
+    static final String PHOTO_SQL =
+            "SELECT TOP 1 news_photo0 FROM dbo.news WHERE news_id = ? AND news_publish = 1";
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -181,6 +185,25 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
             }
         }
         return out;
+    }
+
+    /**
+     * The lead photo of one published article. SQL Server still carries an older, much smaller copy of
+     * the news library than MySQL does, so this is the fallback backing rather than the live one —
+     * {@link MySqlNewsQueryRepository#newsPhoto} is what serves the portal.
+     */
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "photoFallback")
+    public byte[] newsPhoto(String id) {
+        List<byte[]> found = jdbc.query(PHOTO_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getBytes(1));
+        return found.isEmpty() ? null : found.get(0);
+    }
+
+    /** Circuit-breaker fallback for {@link #newsPhoto}. */
+    @SuppressWarnings("unused")
+    public byte[] photoFallback(String id, Throwable ex) {
+        throw new RuntimeException("news-photo query failed", ex);
     }
 
     /**

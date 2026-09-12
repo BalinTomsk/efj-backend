@@ -256,6 +256,7 @@ Resilience4j guards as the document reads.
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document. **One call renders every news section of `fishfind-frontend`'s `Default.aspx`**: both lead articles (headline, byline + `author_link`, `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, and the tag row as `lake_id`/`lake_name` + `fishes`) and all three "More News" items (title, `source` — falling back to `author` when blank — `date`, `snippet`, `source_link`). The only thing on that page that is *not* news-table data is the "Latest Catch" sidebar card (`dbo.fn_default_latest_catch_json`, `catch_memo`), which has no endpoint here |
 | `GET /api/v1/news/featured` | *(projection of `/default`)* | **just the 2 lead articles**, full documents incl. their base64 `photo`. Same cached assembly as `/default` — no extra query |
 | `GET /api/v1/news/more` | *(projection of `/default`)* | **just the "More News" column**, compact: `news_id`, `date`, `title`, `source`, `link`, `snippet`. **~1.6 KB versus `/default`'s ~1.09 MB** (measured on prod) — that size gap is the entire reason the split exists. `source` falls back to `author`, and `snippet` is derived in Java from `paragraph0`/`paragraph1` when the DB does not supply one, so this works **without** the MySQL `snippet` view |
+| `GET /api/v1/news/photo/{id}` | `SELECT news_photo0 FROM news WHERE news_id = ? AND news_publish = 1 LIMIT 1` (MySQL) | **one lead photo as RAW BYTES, not JSON** (1.9.0). Content type sniffed from the file's own magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"` (the length is what makes a replaced photo self-correct — new bytes, same id); `If-None-Match` → 304; missing / unpublished / photo-less → 404. **Single-row by primary key, never widen it**: `news_photo0` is a `LONGBLOB` and the live Winhost host hangs indefinitely on any query that references it while materializing more than one row. Deliberately **not** cached in `NewsQueryCache` — megabyte blobs with a hit rate near zero, since the caller only reaches here after its own cache missed |
 | `GET /api/v1/news/search?q=` | `SELECT … FROM dbo.fn_news_search(?)` | up to 100 published matches, newest first, over headline/source/paragraphs/photo-alts + the up-to-3 mentioned fishes' names; caller escapes `% _ [`; blank `q` ⇒ 400; not cached (free-form key) |
 
 ### Fish-catalogue search query (function that already exists in `envfish-db`)
@@ -404,10 +405,12 @@ Three rules keep the "only on a cold entry" promise honest — **do not regress 
    minute, not at the next daily clear. A publish/update *through* docapi drops the remembered miss
    immediately. This is the only entry in either cache that expires by itself.
 
-**Deliberately not cached:** `/news/search` (open-ended term, unbounded key space) and
-`/news/export/{id}` (large per-id document with base64 photos, rarely re-requested). Also
-(there is no third thing to cache: `/news/default`, `/news/featured` and `/news/more` are all
-projections of the one cached assembly).
+**Deliberately not cached:** `/news/search` (open-ended term, unbounded key space),
+`/news/export/{id}` (large per-id document with base64 photos, rarely re-requested), and
+`/news/photo/{id}` (1.9.0 — megabyte-scale blobs that a caller only asks for after its OWN cache has
+missed, so a copy here would cost real heap for a hit rate near zero; `NewsQueryCache.newsPhoto`
+passes straight through and a test pins that). `/news/default`, `/news/featured` and `/news/more`
+need no separate entry — all three are projections of the one cached assembly.
 
 **Invalidation** is `NewsCacheEvictor`: one clear a day at 00:00 UTC, **skipped while SQL Server is
 unreachable** (clearing mid-outage would turn a database outage into a total content outage) and

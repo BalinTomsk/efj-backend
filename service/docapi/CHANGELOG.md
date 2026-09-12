@@ -2,6 +2,51 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-11: **1.9.0 — `GET /api/v1/news/photo/{id}`: a lead photo as raw bytes.** The home page's
+  news moved to this gateway, but its *photos* had not: the portal's `NewsPhoto.ashx` fell back to its
+  own direct MySQL connection whenever its process cache missed. That is a second path to the same
+  bytes, needing `MySqlNews:ConnectionString` to be correct on the web host — a credential the home
+  page otherwise no longer needs. This endpoint removes it.
+
+  - **`NewsController.newsPhoto`** returns the bytes with a sniffed content type (`image/jpeg`,
+    `image/png`, `image/gif`, `image/webp`, else `application/octet-stream` — the column holds
+    whatever was uploaded and is mostly JPEG, so a fixed type would be wrong for most of the
+    library), `Cache-Control: public, max-age=604800`, and an `ETag` of `"<id>-<length>"`.
+    `If-None-Match` → `304`. Missing id, unpublished draft, or no photo → `404`, all indistinguishable.
+  - **The length is in the ETag on purpose.** An edited article gets new bytes but keeps its id; with
+    the id alone in the tag a replaced photo would stay stale for the full seven days.
+  - **`MySqlNewsQueryRepository.PHOTO_SQL` is a single-row lookup by primary key** with
+    `news_publish = 1` in the key predicate. `news_photo0` is a `LONGBLOB` and the live Winhost host
+    hangs indefinitely on any query that references it while materializing more than one row, so this
+    must never be widened to a scan, a join or an `IN` list. It is inlined rather than
+    `CALL sp_news_get_by_id(?)` for the reason `DEFAULT_SQL` records at length: a named object
+    existing in `envfish-db/mysql` is no evidence it exists in the live database.
+  - **Deliberately not cached in `NewsQueryCache`.** Everything else there is a small JSON document
+    read on nearly every page view; a lead photo is a megabyte-scale blob read only after the
+    caller's own cache has missed, so a second copy would cost heap for a hit rate near zero.
+    `NewsCacheTest.photosAreNeverCachedSoEveryRequestReachesTheDatabase` pins the pass-through.
+  - **Gate.** cproxy 0.14.0 adds `/news/photo` to `CPROXY_DAYKEY_PATHS`. It serves the same content as
+    `/news/featured`, so leaving it open would have been the post-1.8.1 bypass a third time; this is
+    the first of the four home-page paths to be gated in the release that created it.
+  - Tests: 8 new controller cases (bytes + sniffed type, type follows the bytes not a default, cache
+    headers + ETag shape, 304 on a match, new bytes on a stale tag, 404 for null and for an empty
+    blob, octet-stream for an unrecognised format) and 3 repository cases, one of which pins the
+    SQL's shape rather than only its behaviour. **172/172 pass.**
+  - **Also fixed here:** `MySqlNewsQueryRepositoryTest.defaultNewsParsesEachRowAsAJsonDocument…` had
+    been failing since 1.8.3 — it stubbed the literal `"CALL sp_news_default()"`, which 1.8.3 replaced
+    with the inlined `DEFAULT_SQL`, so the stub matched nothing and the test asserted an empty page.
+    It now stubs `MySqlNewsQueryRepository.DEFAULT_SQL` and passes.
+  - **Deployed 2026-09-12.** Built, pushed, and swapped in on the droplet per `docs/do-update.md`;
+    `GET /health` → `1.9.0`, `jdbc` profile active, `docapi-news-mysql-hikari` pool started cleanly.
+    Verified directly against the live Winhost MySQL library: a real published article's photo comes
+    back as a 525,222-byte PNG with a correct `ETag`/`Cache-Control`; a matching `If-None-Match` → 304,
+    a stale one → 200 with fresh bytes; an unknown id and a real id with no photo both → 404. Then
+    verified through cproxy 0.14.0 (its matching gate) — byte-identical to the direct response — and
+    confirmed `fishfind-frontend`'s `NewsPhoto.ashx` genuinely uses this path now rather than its MySQL
+    fallback (a never-before-cached article's photo, requested through the live site, produced a
+    matching line in cproxy's own access log). See `efc-proxy/service/cproxy/docs/memory.md` and
+    `fishfind-frontend/aspnet/memory.md` for the full verification record.
+
 - 2026-09-09: **1.8.3 — `/news/default`, `/news/featured` and `/news/more` were returning 500 in
   production. FIXED and DEPLOYED.**
 
