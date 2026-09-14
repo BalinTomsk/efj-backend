@@ -154,9 +154,13 @@ article's `snippet`, and the `lake_id` / `fish1..3_id` it mentions), its two hal
 base64 `photo` the other two embed, with a sniffed content type, a 7-day `Cache-Control` and an
 `ETag` of `"<id>-<length>"`, so a caller renders the page without re-downloading photos it already
 has; `404` for a missing id, an unpublished draft, or an article with no photo),
-`GET /api/v1/news/search?q=`
-(up to 100 published matches across headline/source/paragraphs/photo-alts **and the mentioned fishes'
-names**, newest first — `dbo.fn_news_search`; blank `q` ⇒ 400), and the interchange
+`GET /api/v1/news/search?q=&fish=&country=&offset=&limit=`
+(1.10.0 — up to 100 published matches across headline/source/the 3 paragraphs/the 3 photo-alts, plus
+any article tagged with one of the species ids in `fish`; newest first, **paged with `offset`/`limit`
+and carrying `total`** so one call renders a numbered pager, optional ISO-2 `country` filter. Reads
+the MySQL `news` table; species are matched by id because that database has no `fish` table, so the
+caller resolves the term to ids against its own catalogue. Blank `q` or a bad `country` ⇒ 400), and
+the interchange
 `GET /api/v1/news/export/{id}` + `POST /api/v1/news/import`. **Only export/import carry the full
 document** (every field + the 3 paragraph photos embedded as base64, the same `fn_news_json` format the
 portal's News.aspx "Save JSON" / AddNews "Import from JSON" round-trip use); the other endpoints keep
@@ -304,7 +308,10 @@ Notes:
   `dbo.fn_news_json(@id)` (already deployed) for export and `dbo.sp_news_import(@json)` (added
   test-first — `unit_test@NewsImport.sql`) for import. These carry the **full** article (all fields +
   base64 photos); the `fn_<entity>_doc` document reads above keep their existing lighter shapes.
-- **News search** (`/api/v1/news/search`) → `dbo.fn_news_search(@q)`; **fish search**
+- **News search** (`/api/v1/news/search`) → the MySQL `news` table, via SQL inlined in
+  `MySqlNewsQueryRepository` (1.10.0; `dbo.fn_news_search` still backs the SQL-Server profile).
+  Inlined rather than a procedure because the application's MySQL account holds no `CREATE ROUTINE`
+  privilege. **Fish search**
   (`/api/v1/fish/search`) → `dbo.SearchFishList(@q)` (a `varchar(64)` TVF returning
   `num, fish_name, name, fish_latin, fish_id, irank`, ranked best-first — already in prod, backs
   `FishList.aspx`).

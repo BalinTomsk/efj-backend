@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -60,6 +61,8 @@ public class NewsController extends AbstractDocumentController {
     static final int MAX_LIMIT = 200;
     /** How long a browser may reuse a lead photo without revalidating. */
     static final int PHOTO_CACHE_DAYS = 7;
+    /** Hard cap on the species ids {@code /search?fish=} accepts — see {@link #parseFishIds}. */
+    static final int MAX_SEARCH_FISH_IDS = 3;
 
     private final NewsQueryRepository queryRepository;
     private final ObjectMapper objectMapper;
@@ -338,19 +341,41 @@ public class NewsController extends AbstractDocumentController {
     }
 
     /**
-     * Full-text-ish search over published news: matches the term against the headline, source,
-     * paragraphs, photo alts, and the names of the up-to-3 mentioned fishes (so "walleye" finds an
-     * article tagged with walleye even when the headline doesn't say it). Up to 100 matches, newest
-     * first. Backed by {@code dbo.fn_news_search}.
+     * Full-text-ish search over published news: matches the term against the headline, source, the
+     * three paragraphs and the three photo alts, and additionally matches any article tagged with one
+     * of the species named in {@code fish}. Up to {@value NewsQueryRepository#SEARCH_CAP} matches, newest first, paged
+     * with {@code offset}/{@code limit} and carrying the grand {@code total} so a numbered pager can
+     * be rendered from a single call.
+     *
+     * <p><strong>Why {@code fish} is a parameter rather than a join.</strong> The search reads the
+     * MySQL {@code news} table, which holds no {@code fish} table — the species an article mentions
+     * are bare guids there. So the caller resolves a term like {@code walleye} to species ids against
+     * its own catalogue and passes them here, and the article stays a pure {@code news}-table read.
+     * That keeps {@code fn_news_search}'s "walleye finds an article tagged with walleye even when the
+     * headline doesn't say it" behaviour without making one news read span two databases — the same
+     * reason {@code /news/list}, {@code /news/default} and {@code GET /news/{id}} all return lake and
+     * species ids and leave the names to the caller (a cross-database lookup for exactly this
+     * existed as {@code dbo.fn_news_ref_names_json} in 1.8.0–1.8.1 and was deliberately dropped).
      *
      * <p>The literal {@code /search} path is matched ahead of the templated {@code /{id}} handler.
      *
      * @param q the search term (required, non-blank; trimmed and capped at 100 chars)
-     * @return the matching news list in the response envelope
-     * @throws InvalidDocumentException if {@code q} is missing or blank (→ 400)
+     * @param fish comma-separated species ids to match in the article's three species slots, or
+     *             omitted for a text-only search; blank entries and anything past
+     *             {@value #MAX_SEARCH_FISH_IDS} ids are dropped
+     * @param country ISO-2 code to restrict results to, or omitted/blank for all countries
+     * @param offset rows to skip (null/negative → 0)
+     * @param limit page size (null/&lt;1 → {@value #DEFAULT_LIMIT}; capped at {@value #MAX_LIMIT})
+     * @return the matching news page in the response envelope
+     * @throws InvalidDocumentException if {@code q} is missing or blank, or {@code country} is present
+     *         but not a 2-letter code (→ 400)
      */
     @GetMapping("/search")
-    public ApiResponse<NewsSearchPage> search(@RequestParam(required = false) String q) {
+    public ApiResponse<NewsSearchPage> search(@RequestParam(required = false) String q,
+                                              @RequestParam(required = false) String fish,
+                                              @RequestParam(required = false) String country,
+                                              @RequestParam(required = false) Integer offset,
+                                              @RequestParam(required = false) Integer limit) {
         if (q == null || q.isBlank()) {
             throw new InvalidDocumentException("q (search term) is required");
         }
@@ -358,7 +383,37 @@ public class NewsController extends AbstractDocumentController {
         if (term.length() > 100) {
             term = term.substring(0, 100);
         }
-        return ApiResponse.ok(queryRepository.search(term));
+        String normalizedCountry = normalizeCountry(country);
+        int safeOffset = (offset == null || offset < 0) ? 0 : offset;
+        int safeLimit = (limit == null || limit < 1) ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+
+        return ApiResponse.ok(queryRepository.search(
+                new NewsSearchQuery(term, parseFishIds(fish), normalizedCountry, safeOffset, safeLimit)));
+    }
+
+    /**
+     * Splits the {@code fish} parameter into at most {@value #MAX_SEARCH_FISH_IDS} non-blank ids.
+     *
+     * <p>The cap is what keeps the parameter from turning into an unbounded {@code IN} list: a term
+     * matching every species in the catalogue would otherwise build a predicate as wide as the
+     * catalogue is long. Three is also the most a single article can be tagged with, so a wider list
+     * only ever widens the set of articles matched, never the precision of a match.
+     *
+     * @param fish the raw parameter, possibly null
+     * @return the parsed ids, never null (empty for a null/blank parameter)
+     */
+    private static List<String> parseFishIds(String fish) {
+        if (fish == null || fish.isBlank()) {
+            return List.of();
+        }
+        List<String> ids = new ArrayList<>();
+        for (String part : fish.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty() && !ids.contains(trimmed) && ids.size() < MAX_SEARCH_FISH_IDS) {
+                ids.add(trimmed);
+            }
+        }
+        return List.copyOf(ids);
     }
 
     private String normalizeCountry(String country) {
@@ -415,16 +470,41 @@ public class NewsController extends AbstractDocumentController {
     }
 
     /**
-     * One hit from {@code dbo.fn_news_search}: the compact fields needed to render a result row. The
-     * paragraphs, photo alts and fish latin/alt names are searched but not returned, keeping the
-     * response token-cheap.
+     * One news search: everything {@link NewsQueryRepository#search} needs, as one value rather than
+     * five positional parameters repeated across every implementation and every circuit-breaker
+     * fallback signature.
+     *
+     * @param query the trimmed, non-blank, &le;100-char search term
+     * @param fishIds species ids to match in the article's three species slots; never null, possibly
+     *                empty, at most {@value #MAX_SEARCH_FISH_IDS} entries
+     * @param country ISO-2 code to restrict to, or null for all countries
+     * @param offset rows to skip (non-negative)
+     * @param limit page size (already clamped)
+     */
+    public record NewsSearchQuery(
+            String query,
+            List<String> fishIds,
+            String country,
+            int offset,
+            int limit) {
+    }
+
+    /**
+     * One search hit: the compact fields needed to render a result row. The paragraphs and photo alts
+     * are searched but not returned, keeping the response token-cheap.
      *
      * @param newsId the article id
      * @param title the headline
      * @param source the publication/source label
      * @param stamp the publish date as an ISO {@code yyyy-MM-dd} string
      * @param country the ISO-2 country of the article
-     * @param fishes distinct common names of the mentioned fishes (0–3), in slot order
+     * @param fishes distinct common names of the mentioned fishes (0–3), in slot order — populated
+     *               only by the SQL-Server backing, which has the {@code fish} table to join.
+     *               <strong>Empty on the MySQL backing that serves production</strong>, whose
+     *               {@code news} table holds species as bare guids; read {@code fishIds} there and
+     *               resolve the names against the caller's own catalogue, exactly as
+     *               {@code /news/list} and {@code GET /news/{id}} already require
+     * @param fishIds ids of the mentioned fishes (0–3), in slot order, blanks dropped
      */
     public record NewsSearchItem(
             String newsId,
@@ -432,19 +512,25 @@ public class NewsController extends AbstractDocumentController {
             String source,
             String stamp,
             String country,
-            List<String> fishes) {
+            List<String> fishes,
+            List<String> fishIds) {
     }
 
     /**
-     * The result of a news search.
+     * One page of a news search plus the grand total, so a numbered pager can be rendered from a
+     * single call (the same contract as {@link NewsListPage}).
      *
-     * @param items the matching rows (newest first; up to 100)
-     * @param total the number of rows returned (capped at 100 by {@code fn_news_search})
+     * @param items the rows on this page (newest first)
+     * @param total the full match count, itself capped at {@value NewsQueryRepository#SEARCH_CAP}
      * @param query the (trimmed) term that was searched, echoed back
+     * @param offset the (clamped) row offset this page started at
+     * @param limit the (clamped) page size used
      */
     public record NewsSearchPage(
             List<NewsSearchItem> items,
             int total,
-            String query) {
+            String query,
+            int offset,
+            int limit) {
     }
 }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -89,9 +90,9 @@ class NewsCacheTest {
         }
 
         @Override
-        public NewsSearchPage search(String query) {
+        public NewsSearchPage search(NewsSearchQuery request) {
             searchCalls.incrementAndGet();
-            return new NewsSearchPage(List.of(), 0, query);
+            return new NewsSearchPage(List.of(), 0, request.query(), request.offset(), request.limit());
         }
 
         @Override

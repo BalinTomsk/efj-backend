@@ -54,7 +54,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | `GET` | `/api/v1/news/featured` | 200 | `{ items:[ <news JSON>, … ] }` — just the 2 lead articles, full documents incl. their base64 `photo` |
 | `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
 | `GET` | `/api/v1/news/photo/{id}` | 200 / 304 / 404 | **raw image bytes**, not JSON — one article's lead photo. Content type sniffed from the file's magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"`; `If-None-Match` → 304; missing/unpublished/photo-less → 404 (1.9.0) |
-| `GET` | `/api/v1/news/search?q=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…] }], total, query }` (≤100, newest first; blank `q` ⇒ 400) |
+| `GET` | `/api/v1/news/search?q=&fish=&country=&offset=&limit=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…], fishIds:[…] }], total, query, offset, limit }` (≤100 matches, newest first, paged; blank `q` ⇒ 400, bad `country` ⇒ 400) |
 
 **Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
 already exists in `envfish-db`; see [Data access](#data-access)):
@@ -518,7 +518,8 @@ included.
 
 `GET /api/v1/news/{id}`, `GET /api/v1/news/list`, and `GET /api/v1/news/default` read from the
 **MySQL** `news` table (Winhost, the same table `fishfind-frontend`'s `News.aspx` reads via
-`MySqlNewsHelper`) instead of SQL Server. `POST`/`PUT /api/v1/news/{id}`, `/news/search`,
+`MySqlNewsHelper`) instead of SQL Server. **`/news/search` joined them in 1.10.0** (see below).
+`POST`/`PUT /api/v1/news/{id}`,
 `/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
 described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
 `lake_name`/fish names against and no interchange or full-text-search objects. `/news/default` is a

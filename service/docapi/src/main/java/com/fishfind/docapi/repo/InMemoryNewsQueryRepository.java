@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 
 import java.util.List;
 import java.util.UUID;
@@ -50,7 +51,7 @@ public class InMemoryNewsQueryRepository implements NewsQueryRepository {
 
     /** No database: no matches, so the search endpoint runs end-to-end returning an empty result. */
     @Override
-    public NewsSearchPage search(String query) {
-        return new NewsSearchPage(List.of(), 0, query);
+    public NewsSearchPage search(NewsSearchQuery request) {
+        return new NewsSearchPage(List.of(), 0, request.query(), request.offset(), request.limit());
     }
 }

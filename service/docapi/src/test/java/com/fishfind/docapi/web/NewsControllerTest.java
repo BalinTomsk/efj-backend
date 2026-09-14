@@ -20,6 +20,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -283,28 +284,91 @@ class NewsControllerTest {
     @Test
     void searchMapsRepositoryResultsIntoTheEnvelope() throws Exception {
         NewsController.NewsSearchItem item = new NewsController.NewsSearchItem(
-                "n-id", "Walleye run peaks", "Outdoor Canada", "2026-05-14", "CA", List.of("Walleye"));
-        when(queryRepository.search("walleye"))
-                .thenReturn(new NewsController.NewsSearchPage(List.of(item), 1, "walleye"));
+                "n-id", "Walleye run peaks", "Outdoor Canada", "2026-05-14", "CA",
+                List.of("Walleye"), List.of("f-1"));
+        when(queryRepository.search(any(NewsController.NewsSearchQuery.class)))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(item), 1, "walleye", 0, 25));
 
         mockMvc.perform(get("/api/v1/news/search").param("q", "walleye"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.query").value("walleye"))
                 .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.offset").value(0))
+                .andExpect(jsonPath("$.data.limit").value(25))
                 .andExpect(jsonPath("$.data.items[0].newsId").value("n-id"))
                 .andExpect(jsonPath("$.data.items[0].title").value("Walleye run peaks"))
-                .andExpect(jsonPath("$.data.items[0].fishes[0]").value("Walleye"));
+                .andExpect(jsonPath("$.data.items[0].fishes[0]").value("Walleye"))
+                .andExpect(jsonPath("$.data.items[0].fishIds[0]").value("f-1"));
     }
 
     @Test
     void searchTrimsTheTermBeforeQuerying() throws Exception {
-        when(queryRepository.search("pike"))
-                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "pike"));
+        when(queryRepository.search(any(NewsController.NewsSearchQuery.class)))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "pike", 0, 25));
 
         mockMvc.perform(get("/api/v1/news/search").param("q", "  pike  "))
                 .andExpect(status().isOk());
-        // verified via the stub: the controller must have passed the trimmed term
-        org.mockito.Mockito.verify(queryRepository).search("pike");
+
+        assertEquals("pike", captureSearch().query());
+    }
+
+    /** The {@code fish} parameter is what lets a MySQL-only backing match species names. */
+    @Test
+    void searchParsesTheFishParameterIntoDistinctCappedIds() throws Exception {
+        when(queryRepository.search(any(NewsController.NewsSearchQuery.class)))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "walleye", 0, 25));
+
+        mockMvc.perform(get("/api/v1/news/search")
+                        .param("q", "walleye")
+                        .param("fish", " f1 , f2 ,, f1 , f3 , f4 "))
+                .andExpect(status().isOk());
+
+        assertEquals(List.of("f1", "f2", "f3"), captureSearch().fishIds());
+    }
+
+    @Test
+    void searchWithNoFishParameterPassesAnEmptyIdList() throws Exception {
+        when(queryRepository.search(any(NewsController.NewsSearchQuery.class)))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "walleye", 0, 25));
+
+        mockMvc.perform(get("/api/v1/news/search").param("q", "walleye"))
+                .andExpect(status().isOk());
+
+        assertEquals(List.of(), captureSearch().fishIds());
+    }
+
+    @Test
+    void searchClampsThePageWindowAndUpperCasesTheCountry() throws Exception {
+        when(queryRepository.search(any(NewsController.NewsSearchQuery.class)))
+                .thenReturn(new NewsController.NewsSearchPage(List.of(), 0, "walleye", 0, 200));
+
+        mockMvc.perform(get("/api/v1/news/search")
+                        .param("q", "walleye").param("country", "ca")
+                        .param("offset", "-5").param("limit", "9999"))
+                .andExpect(status().isOk());
+
+        NewsController.NewsSearchQuery sent = captureSearch();
+        assertEquals("CA", sent.country());
+        assertEquals(0, sent.offset());
+        assertEquals(200, sent.limit());
+    }
+
+    @Test
+    void searchWithABadCountryReturns400() throws Exception {
+        mockMvc.perform(get("/api/v1/news/search").param("q", "walleye").param("country", "CAN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        org.mockito.Mockito.verify(queryRepository, org.mockito.Mockito.never())
+                .search(any(NewsController.NewsSearchQuery.class));
+    }
+
+    /** The {@link NewsController.NewsSearchQuery} the controller actually handed the repository. */
+    private NewsController.NewsSearchQuery captureSearch() {
+        org.mockito.ArgumentCaptor<NewsController.NewsSearchQuery> captor =
+                org.mockito.ArgumentCaptor.forClass(NewsController.NewsSearchQuery.class);
+        org.mockito.Mockito.verify(queryRepository).search(captor.capture());
+        return captor.getValue();
     }
 
     @Test

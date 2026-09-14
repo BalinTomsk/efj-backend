@@ -120,13 +120,14 @@ com.fishfind.docapi
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
-│   ├── NewsQueryRepository        # interface: list(country, offset, limit) + defaultNews() (news-page queries)
+│   ├── NewsQueryRepository        # interface: list/defaultNews/newsPhoto/search/export/import (news-page queries)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcNewsQueryRepository    # SQL Server backing — dbo.fn_news_list / dbo.fn_default_news_json
 │   │                              #   / dbo.fn_news_search / dbo.fn_news_json / dbo.sp_news_import
-│   ├── MySqlNewsQueryRepository   # MySQL backing (2026-08-31) — list/defaultNews only, via
-│   │                              #   sp_news_list_json/sp_news_default; search/export/import
-│   │                              #   delegate to a wrapped JdbcNewsQueryRepository (SQL Server)
+│   ├── MySqlNewsQueryRepository   # MySQL backing — list/defaultNews/newsPhoto (2026-08-31) and
+│   │                              #   search (1.10.0), via sp_news_list_json/sp_news_default and
+│   │                              #   inlined SQL; export/import delegate to a wrapped
+│   │                              #   JdbcNewsQueryRepository (SQL Server)
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -218,16 +219,54 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
 
 `GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
 (Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
-Everything else on `NewsController` (`POST`/`PUT /{id}`, `/news/search`, `/news/export/{id}`,
-`/news/import`) is unchanged, still SQL Server — the MySQL database has no `lake`/`fish` tables to
-resolve names against and no interchange/full-text-search objects.
+`/news/search` joined them in **1.10.0** — see "MySQL-backed news search" below. Everything else
+on `NewsController` (`POST`/`PUT /{id}`, `/news/export/{id}`, `/news/import`) is unchanged, still SQL
+Server: the MySQL database has no `lake`/`fish` tables to resolve names against and no `fn_news_json`
+interchange object.
 
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
 | `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`; `addDocument`/`updateDocument` delegate to the wrapped `NewsDocumentRepository` (SQL Server) |
 | `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list` |
 | `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape), carrying `snippet`. **Pure MySQL read** — the mentioned `lake_id`/`fish1..3_id` come back as bare guids and the caller resolves names if it wants them. A SQL Server lookup for that existed in docapi 1.8.0–1.8.1 (`dbo.fn_news_ref_names_json`) and was **removed 2026-09-03**: it made this read span both databases, which the move to MySQL existed to avoid |
-| `search`/`export`/`import` | SQL Server (unchanged) | `MySqlNewsQueryRepository` delegates these three to a wrapped `JdbcNewsQueryRepository` |
+| `GET /api/v1/news/search` | MySQL, inlined in `MySqlNewsQueryRepository` (1.10.0) | `MySqlNewsQueryRepository.search`; **paged with `offset`/`limit` + `total`**, optional ISO-2 `country`, and species matched from the caller-supplied `?fish=` ids. See "MySQL-backed news search" below |
+| `export`/`import` | SQL Server (unchanged) | `MySqlNewsQueryRepository` delegates these two to a wrapped `JdbcNewsQueryRepository`. Deliberate: they are the two halves of one admin interchange round trip whose writing half (`Editor/AddNews.aspx`, `dbo.sp_news_import`) never moved, and MySQL has no `fn_news_json` to export from |
+
+### MySQL-backed news search (1.10.0)
+
+`GET /api/v1/news/search` reads the MySQL `news` table instead of `dbo.fn_news_search`. This is what
+lets **`News.aspx` take every piece of news it shows from the gateway** — the article, the paged
+list, the search results and the admin JSON export — so that page needs no news query of its own
+against SQL Server. Four things about it are deliberate:
+
+- **Species are matched by ID, supplied by the caller** (`?fish=<id>,<id>,<id>`, capped at 3).
+  `fn_news_search` joined `dbo.fish` and matched the term against common/Latin/alt names, so
+  "walleye" found an article *tagged* with walleye even when the headline never said it. This
+  database has no `fish` table, so the caller resolves the term to species ids against its own
+  catalogue (`News.aspx` uses `dbo.SearchFishList`, the same lookup its hover card makes) and passes
+  them in. Nothing is lost, and the article rows still come only from the `news` table. **Do not
+  "fix" this by resolving names here** — that is the cross-database read `dbo.fn_news_ref_names_json`
+  was and it was dropped on purpose (see the `/news/default` row above).
+  Consequence: `NewsSearchItem.fishes` (names) is **empty** on this backing and `fishIds` carries the
+  article's tags, exactly as `/news/list` and `GET /news/{id}` already leave lake/species names to the
+  caller.
+- **The SQL is inlined in Java, not a stored procedure.** The application's MySQL account (`portos`)
+  holds no `CREATE ROUTINE` privilege, so a new procedure cannot be created from here — same reason
+  and same pattern as `DEFAULT_SQL` and `PHOTO_SQL` in that class.
+- **Two statements, and no window function.** A `COUNT(*)` for the total plus a plain filtered
+  `ORDER BY … LIMIT` for the rows. A windowed single query would force the plan to materialize rows
+  while the WHERE references the three `LONGTEXT` paragraph columns, and on the live Winhost host an
+  off-page column in a plan that buffers multiple rows hangs indefinitely (confirmed 2026-08-31 for
+  `news_photo0`; see `envfish-db/CLAUDE.md` → "`news_photo0`/`1`/`2` are dangerous at scale"). The
+  shape used here — filter on the paragraphs, select only narrow columns — is the one
+  `sp_news_list_for_grid`/`sp_news_count` have used on this host since the migration.
+  `MySqlNewsQueryRepositoryTest.searchFiltersOnParagraphsButNeitherSelectsThemNorUsesAWindowFunction`
+  pins it. **The photo BLOBs are not referenced at all.**
+- **The `LIKE` escape character is a DOUBLED backslash in the emitted SQL** (`ESCAPE '\\'`, i.e. four
+  backslashes in the Java text block). MySQL parses the string literal before the `ESCAPE` clause, so
+  `ESCAPE '\'` is an escaped quote followed by an unterminated string — a syntax error, not a
+  backslash. This was caught against a real MySQL 8 before it shipped;
+  `searchEmitsADoubledBackslashAsTheLikeEscapeCharacter` is what stops it coming back.
 
 New MySQL objects live in `envfish-db/mysql/script02_Proc.sql` (`sp_news_doc_get`,
 `sp_news_list_json`, `sp_news_default`) — see that repo's `CLAUDE.md` → "MySQL (`mysql/`)" for the
@@ -257,7 +296,7 @@ Resilience4j guards as the document reads.
 | `GET /api/v1/news/featured` | *(projection of `/default`)* | **just the 2 lead articles**, full documents incl. their base64 `photo`. Same cached assembly as `/default` — no extra query |
 | `GET /api/v1/news/more` | *(projection of `/default`)* | **just the "More News" column**, compact: `news_id`, `date`, `title`, `source`, `link`, `snippet`. **~1.6 KB versus `/default`'s ~1.09 MB** (measured on prod) — that size gap is the entire reason the split exists. `source` falls back to `author`, and `snippet` is derived in Java from `paragraph0`/`paragraph1` when the DB does not supply one, so this works **without** the MySQL `snippet` view |
 | `GET /api/v1/news/photo/{id}` | `SELECT news_photo0 FROM news WHERE news_id = ? AND news_publish = 1 LIMIT 1` (MySQL) | **one lead photo as RAW BYTES, not JSON** (1.9.0). Content type sniffed from the file's own magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"` (the length is what makes a replaced photo self-correct — new bytes, same id); `If-None-Match` → 304; missing / unpublished / photo-less → 404. **Single-row by primary key, never widen it**: `news_photo0` is a `LONGBLOB` and the live Winhost host hangs indefinitely on any query that references it while materializing more than one row. Deliberately **not** cached in `NewsQueryCache` — megabyte blobs with a hit rate near zero, since the caller only reaches here after its own cache missed |
-| `GET /api/v1/news/search?q=` | `SELECT … FROM dbo.fn_news_search(?)` | up to 100 published matches, newest first, over headline/source/paragraphs/photo-alts + the up-to-3 mentioned fishes' names; caller escapes `% _ [`; blank `q` ⇒ 400; not cached (free-form key) |
+| `GET /api/v1/news/search?q=&fish=&country=&offset=&limit=` | MySQL, inlined in `MySqlNewsQueryRepository.SEARCH_SELECT` + `SEARCH_FROM_WHERE` (1.10.0; was `dbo.fn_news_search`) | up to `NewsQueryRepository.SEARCH_CAP` (100) published matches, newest first, **paged with `offset`/`limit` and carrying `total`** so one call renders a numbered pager. Matches headline/source/the 3 paragraphs/the 3 photo-alts, **plus any article tagged with one of the species ids in `fish`** — see "MySQL-backed news search" below for why species are matched by id here. Optional ISO-2 `country` filter; blank `q` or a bad `country` ⇒ 400; not cached (free-form key) |
 
 ### Fish-catalogue search query (function that already exists in `envfish-db`)
 
@@ -534,21 +573,35 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (144 tests):
+`mvn test` — no DB needed (184 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`), SQL Server.
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the
   mocked MySQL `JdbcTemplate`; `addDocument`/`updateDocument` delegate to a mocked `DocumentStore`
   (never touching MySQL).
-- `MySqlNewsQueryRepositoryTest` — `list`/`defaultNews` read via `CALL sp_news_list_json(?, ?, ?)` /
-  `CALL sp_news_default()` against the mocked MySQL `JdbcTemplate`; `search`/`exportNews`/`importNews`
-  delegate to a mocked `NewsQueryRepository` (never touching MySQL). Also covers the home-page name
-  enrichment (removed 2026-09-03 along with the SQL Server lookup it tested).
-- `NewsControllerTest` — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
+- `MySqlNewsQueryRepositoryTest` (16) — `list`/`defaultNews` read via `CALL sp_news_list_json(?, ?, ?)` /
+  the inlined home-page query against the mocked MySQL `JdbcTemplate`; `exportNews`/`importNews`
+  delegate to a mocked `NewsQueryRepository` (never touching MySQL). **`search` (1.10.0) is covered by
+  8 cases that assert the emitted SQL as much as the result**: it never touches the SQL Server
+  delegate, filters on the paragraphs but neither selects them nor uses a window function and never
+  names a photo BLOB, emits `ESCAPE` as a doubled backslash, adds the country clause only when asked,
+  compares every supplied species id against all three slots, omits the `IN` clause entirely for an
+  empty id list, caps the reported total and skips the row statement past the cap, and binds the
+  escaped `LIKE` pattern / country / ids / `LIMIT` pair in that exact order.
+  **Verified beyond the mocks**: the emitted statements were also run against a real MySQL 8 through
+  the production code path (18 assertions, including that `%`/`_` in a term match literally — which a
+  mysql-CLI script cannot test, since a string literal is unescaped before `LIKE` sees it). That run
+  is what caught the single-backslash `ESCAPE` bug before it shipped.
+- `NewsControllerTest` (38) — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
   queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
   successful queries returning paginated items or home-page JSON, **and the interchange
-  `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
+  `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**. `/search`
+  (1.10.0) adds 6: the envelope now carries `offset`/`limit`/`fishIds`; the term is trimmed before the
+  repository sees it; `?fish=` is split into de-duplicated ids capped at `MAX_SEARCH_FISH_IDS` with
+  blanks dropped; an absent `fish` yields an empty list, not null; `offset`/`limit` are clamped and
+  `country` upper-cased; a non-two-letter `country` is a 400 **and the repository is never called**.
+  All six read the `NewsSearchQuery` the controller actually built, via an `ArgumentCaptor`.
 - `NewsCacheTest` — both news caches: what is held, `/export` read-through (never cached), `/import`
   evicting the cached lists + home page, and the three "only on a cold entry" guarantees — deep pages
   cached after their first load, cold entries loaded **once** under concurrency (16 threads ⇒ 1
