@@ -2,6 +2,113 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-14 (latest): **1.12.0 DEPLOYED and verified live** (also ships 1.11.0's
+  `/news/lake/{guid}` — both were bundled into one image build). Image
+  `ghcr.io/balintomsk/docapi:1.12.0`, digest
+  `sha256:61c7c92c95f4a8fedd7f463b435d8a7bd4ad8f9648c150623aad52f98cc45d8e`. `/health` → `1.12.0`,
+  0 restarts, `jdbc` profile active, clean startup-window scan (no ERROR/FATAL/Exception lines up
+  to `Started DocApiApplication`). The full `update-docapi` smoke matrix passed in the documented
+  order (healthy reads first, so the shared `sqlBreaker` isn't tripped before it's checked):
+  `/health` 200, `/news/list?country=CA&limit=2` 200 with real rows (`total:650`, matching SQL
+  Server's 427-row library being long superseded), `/news/default` 200, a real article GUID 200,
+  an unknown GUID 404; the four documented-500 doc-CRUD endpoints (`waterbody`/`fish`/`station`/{1}
+  and `news/1`→404) matched the expected matrix exactly; breaker closed on the first poll after.
+
+  **Both new endpoints verified against live prod data, including through the public cproxy
+  gateway** (not just `localhost:8080` on the droplet): `GET /news/lake/c586fb25-…` and
+  `GET /news/fish/a85ebf22-…` (the exact fish id from the reported URL) each returned real articles
+  with `200`, matching what the local MySQL validation before the deploy predicted; both also
+  answered `200` with empty `items` for the all-zero GUID (never a `404`) and `400` for a
+  non-GUID path. Round-tripped through `http://<cproxy-droplet>/api/v1/news/fish/…` end to end —
+  the exact path the frontend will use once its DLL ships.
+
+  **Docs note (found during this deploy, not caused by it):** `.claude/skills/update-docapi/SKILL.md`
+  Step 10's grep pattern says `profiles are active` (plural); the actual Spring Boot log line for a
+  single active profile is `"The following 1 profile is active"` (singular), so that one grep
+  pattern always returns empty even on a healthy start. Confirmed the signal by reading the raw log
+  instead. Not fixed in this pass — flagged for whoever next touches that skill.
+
+- 2026-09-14: **1.12.0 — `GET /news/fish/{guid}`, the species counterpart of 1.11.0's
+  `/news/lake/{guid}`.** The portal's public species page (`Resources/wfFishViewer.aspx`) rendered
+  its own "Last news" section from `dbo.fn_fish_view_news` — a direct SQL Server read, and, with
+  `/news/lake/{guid}` shipped the same day, the **only** remaining one anywhere on the site.
+
+  Same shape as `lakeNews`, differing only in the match: an article carries up to three species
+  tags (`fish1_id`/`fish2_id`/`fish3_id`, set on `Editor/AddNews.aspx`), so `fishNews` matches
+  `fish1_id = ? OR fish2_id = ? OR fish3_id = ?` — the same three-slot rule `/news/search?fish=`
+  already applies. Every other constraint carries over unchanged: published-only (stricter than
+  `fn_fish_view_news`, which never checked the flag), five narrow columns with no photo column and
+  no window function, `news_id` as the tiebreaker after the timestamp, empty `items` rather than a
+  404 for a species with no news, not cached, and a non-GUID path is a 400.
+
+  **Deduplicated rather than copied.** `NewsLakeItem` was renamed to `NewsRefItem` (both endpoints
+  answer the identical five-field row) and both repositories now share one `REF_ROW_MAPPER` between
+  their lake and fish statements, so the two column lists cannot drift apart the way the account-
+  creation gotcha's nine copies did. The frontend half mirrors this: `ApiNewsLakeItem` became
+  `ApiNewsRefItem` in `Models/FishApiNews.cs`, and the row-markup builder that used to be a private
+  method on `wfRiverViewer.aspx.cs` moved to a new shared `NewsRefRowMarkup.BuildRow` next to it, so
+  `wfFishViewer.aspx.cs` calls the same encoding logic rather than a second copy of it.
+
+  **`FISH_SQL` was run against a real MySQL 8** (local 8.0.46 over `mysql_111487_envfish`) the same
+  way `LAKE_SQL` was: the exact fish id from the reported URL
+  (`a85ebf22-4ab9-4a91-a14a-cef6c8e64d97`) returned 10 real bass-fishing articles, matching
+  case-insensitively; `EXPLAIN` is the same table-scan-plus-filesort shape as `LAKE_SQL` (no index
+  covers the three `fish*_id` columns); an unknown id returns zero rows rather than erroring.
+
+  205 tests green (was 193). Bundled with 1.11.0 into one image build — **deployed and verified
+  live the same day**, see the entry above. No cproxy change needed, for the identical reason
+  `/news/lake/{guid}` needed none: `/news/fish/<guid>`'s parent is `/news/fish`, which does not end
+  with `/news`, so the document-id gate does not match it. **The frontend DLL is still not
+  deployed** — until it is, `wfFishViewer.aspx` keeps falling back to the SQL path.
+
+- 2026-09-14: **1.11.0 — `GET /news/lake/{guid}`, so the water-body page stops reading SQL Server's
+  `dbo.news`.** The portal's public water-body page (`Resources/wfRiverViewer.aspx`) rendered its
+  "Last news" panel from `dbo.fn_river_view_news`, a direct SQL Server read — the last news read
+  on the portal that had not moved. SQL Server's `news` table is being dropped, so that panel now
+  comes from here, off the same MySQL library `Default.aspx` and `News.aspx` already use.
+
+  Four decisions worth keeping:
+
+  - **One ordered list, not two columns.** `fn_river_view_news` takes a `@col` argument and returns
+    every other row (`@col = num % 2`), because the page called it once per rendered column. That
+    split is layout, so the endpoint returns one list and the caller deals it. `news_id` is the
+    tiebreaker after `news_stamp` so the order is total — two articles sharing a timestamp swapping
+    places between requests would move a headline from one column to the other on a refresh.
+  - **Empty, never 404.** A water body with no news answers 200 with `items: []`. "This lake has no
+    news" is an ordinary answer; only `/news/{id}` has a genuinely missing document to report.
+  - **Stricter than what it replaces.** `news_publish = 1` is in the predicate.
+    `fn_river_view_news` never checked the flag — it could show a draft's headline linking to an
+    article the reader cannot open. Its sibling `fn_fish_view_news` did check it.
+  - **Narrow columns, no window function, not cached.** Five short columns and a plain
+    `ORDER BY … LIMIT`; no photo column is referenced, not even `has_photo0`. That is the rule the
+    live Winhost host imposes (an off-page column in a plan that buffers rows hangs indefinitely),
+    and it matters more here than anywhere else because this runs on a public page view rather than
+    on a search. `NewsQueryCache` passes it through for the same reason it passes `/news/search`
+    through: one key per water body across tens of thousands of them.
+
+  **Validated against a real MySQL 8** (local 8.0.46 over the `mysql_111487_envfish` copy) rather
+  than only against a mocked `JdbcTemplate`, which never parses SQL: the statement runs, an
+  upper- and a lower-cased guid return identical rows (`lake_id` is `CHAR(36)`,
+  `utf8mb4_unicode_ci`, and the live data is stored upper-case while the controller lower-cases),
+  and an unknown guid returns no rows rather than erroring. `EXPLAIN` is a table scan + filesort
+  over the narrow columns — no index covers `lake_id` — the same shape `sp_news_list_for_grid`
+  has run on this host since the migration. An index on `(lake_id, news_stamp)` would help and
+  `portos` does hold `INDEX`; not added here because nothing asked for a schema change.
+
+  193 tests green (was 184). Bundled with 1.12.0 into one image build — **deployed and verified
+  live the same day**, see the top entry. The frontend half is in `fishfind-frontend`
+  (`Resources/wfRiverViewer.aspx.cs`); its DLL is **still not deployed**, so the page keeps falling
+  back to the SQL path until it ships. No cproxy change was needed — `/news/lake/<guid>`
+  is ungated like `/news/list` and `/news/search` (the day-key id-path gate matches `<entry>/<guid>`
+  only when the parent ends with `/news`, and this one's parent is `/news/lake`).
+
+  Fixed three pieces of staleness in `docs/api-reference.html` found in the same pass, none caused
+  by this change: the status chip and footer still said 1.10.0 was "built, not deployed" when the
+  2026-09-14 entry below records it deployed and verified live, and the news overview paragraph
+  still described `/news/default` as a hybrid spanning both databases — that lookup
+  (`dbo.fn_news_ref_names_json`) was removed on 2026-09-03 and the endpoint's own section already
+  said so.
+
 - 2026-09-14: **1.10.0 DEPLOYED and verified live.** Image
   `ghcr.io/balintomsk/docapi:1.10.0`, digest
   `sha256:61d9fd9cc07bac836c29b1b3eb49df27a60956a21c6e925781ab976794deae89`. `/health` → `1.10.0`,

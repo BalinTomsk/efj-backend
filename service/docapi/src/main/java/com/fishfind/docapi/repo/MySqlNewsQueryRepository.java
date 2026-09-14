@@ -10,6 +10,10 @@ import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.core.RowMapper;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsRefItem;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchItem;
@@ -385,6 +389,104 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
             }
         }
         return List.copyOf(out);
+    }
+
+    /**
+     * One water body's latest published articles. The MySQL {@code news} table carries the water body
+     * as {@code lake_id CHAR(36)}, so this is a plain equality filter and needs no join -- and, as
+     * everywhere else on this backing, no {@code fish} or {@code lake} table is consulted to turn an
+     * id into a name.
+     *
+     * <p><strong>Narrow columns and a bare {@code ORDER BY ... LIMIT}, on purpose.</strong> Same rule
+     * as {@link #SEARCH_FROM_WHERE}: no photo column is referenced, not even {@code has_photo0}, and
+     * there is no window function, so the plan only ever buffers the five short columns selected here.
+     * On the live Winhost host a plan that materializes multiple rows while referencing an off-page
+     * column hangs indefinitely (confirmed 2026-08-31 for {@code news_photo0}). This runs on a public
+     * page view, which is the last place to risk that.
+     *
+     * <p>{@code news_publish = 1} is part of the predicate rather than a filter applied afterwards, so
+     * a draft is never counted toward the limit and then dropped. Note this is <em>stricter</em> than
+     * the {@code dbo.fn_river_view_news} it replaces, which never checked the flag at all and could
+     * therefore show an unpublished article's headline linking to an article the reader cannot open;
+     * its sibling {@code dbo.fn_fish_view_news} did check it.
+     *
+     * <p>{@code news_id} is the tiebreaker after the timestamp so the order is total: these rows are
+     * dealt alternately into two columns by the caller, and two articles sharing a timestamp swapping
+     * places between requests would move a headline from one column to the other on a refresh.
+     */
+    static final String LAKE_SQL = """
+            SELECT news_id, news_title AS title, news_source AS source,
+                   DATE_FORMAT(news_stamp, '%Y-%m-%d') AS stamp, country
+              FROM news
+             WHERE news_publish = 1
+               AND lake_id = ?
+             ORDER BY news_stamp DESC, news_id DESC
+             LIMIT ?""";
+
+    /** The row shape {@link #LAKE_SQL} and {@link #FISH_SQL} share, so their columns cannot drift. */
+    private static final RowMapper<NewsRefItem> REF_ROW_MAPPER = (rs, i) -> new NewsRefItem(
+            rs.getString("news_id"),
+            rs.getString("title"),
+            rs.getString("source"),
+            rs.getString("stamp"),
+            rs.getString("country"));
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "lakeNewsFallback")
+    public NewsLakePage lakeNews(String lakeId, int limit) {
+        List<NewsRefItem> items = mysqlJdbc.query(LAKE_SQL, ps -> {
+            ps.setString(1, lakeId);
+            ps.setInt(2, limit);
+        }, REF_ROW_MAPPER);
+
+        return new NewsLakePage(lakeId, limit, List.copyOf(items));
+    }
+
+    /** Circuit-breaker fallback for {@link #lakeNews}. */
+    @SuppressWarnings("unused")
+    public NewsLakePage lakeNewsFallback(String lakeId, int limit, Throwable ex) {
+        throw new RuntimeException("MySQL lake-news query failed", ex);
+    }
+
+    /**
+     * One species' latest published articles. Same statement as {@link #LAKE_SQL} but keyed on the
+     * three species slots an article can be tagged in — {@code fn_fish_view_news}'s own
+     * {@code fish1_id OR fish2_id OR fish3_id}, and the same three slots {@link #FISH_SLOTS} drives
+     * for search.
+     *
+     * <p>Every constraint {@link #LAKE_SQL} documents applies here unchanged: narrow columns, no
+     * photo column, no window function, {@code news_publish = 1} in the predicate, and
+     * {@code news_id} as the tiebreaker so a two-column caller sees a stable order. This one runs on
+     * a public page view too.
+     */
+    static final String FISH_SQL = """
+            SELECT news_id, news_title AS title, news_source AS source,
+                   DATE_FORMAT(news_stamp, '%Y-%m-%d') AS stamp, country
+              FROM news
+             WHERE news_publish = 1
+               AND (fish1_id = ? OR fish2_id = ? OR fish3_id = ?)
+             ORDER BY news_stamp DESC, news_id DESC
+             LIMIT ?""";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fishNewsFallback")
+    public NewsFishPage fishNews(String fishId, int limit) {
+        List<NewsRefItem> items = mysqlJdbc.query(FISH_SQL, ps -> {
+            for (int slot = 1; slot <= FISH_SLOTS.length; slot++) {
+                ps.setString(slot, fishId);
+            }
+            ps.setInt(FISH_SLOTS.length + 1, limit);
+        }, REF_ROW_MAPPER);
+
+        return new NewsFishPage(fishId, limit, List.copyOf(items));
+    }
+
+    /** Circuit-breaker fallback for {@link #fishNews}. */
+    @SuppressWarnings("unused")
+    public NewsFishPage fishNewsFallback(String fishId, int limit, Throwable ex) {
+        throw new RuntimeException("MySQL fish-news query failed", ex);
     }
 
     /** Circuit-breaker fallback for {@link #search}. */

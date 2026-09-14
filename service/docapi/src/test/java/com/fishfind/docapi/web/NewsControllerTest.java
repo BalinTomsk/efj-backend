@@ -537,4 +537,158 @@ class NewsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_OCTET_STREAM));
     }
+
+    // ---- /news/lake/{guid} (the water-body page's news panel) ------------------------------------
+
+    private static final String LAKE = "fc0d917b-d053-11d8-92e2-080020a0f4c9";
+
+    @Test
+    void lakeNewsMapsRepositoryResultsIntoTheEnvelope() throws Exception {
+        NewsController.NewsRefItem item =
+                new NewsController.NewsRefItem("n-id", "Ice out on the Grand", "Outdoor Canada", "2026-05-14", "CA");
+        when(queryRepository.lakeNews(LAKE, 12))
+                .thenReturn(new NewsController.NewsLakePage(LAKE, 12, List.of(item)));
+
+        mockMvc.perform(get("/api/v1/news/lake/" + LAKE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lakeId").value(LAKE))
+                .andExpect(jsonPath("$.data.limit").value(12))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].newsId").value("n-id"))
+                .andExpect(jsonPath("$.data.items[0].title").value("Ice out on the Grand"))
+                .andExpect(jsonPath("$.data.items[0].stamp").value("2026-05-14"));
+    }
+
+    /** A water body with no news is an ordinary empty answer, never a 404. */
+    @Test
+    void lakeNewsWithNoArticlesIsAnEmptyListNotA404() throws Exception {
+        when(queryRepository.lakeNews(LAKE, 12))
+                .thenReturn(new NewsController.NewsLakePage(LAKE, 12, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/lake/" + LAKE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void lakeNewsClampsTheLimitAndLowerCasesTheGuid() throws Exception {
+        when(queryRepository.lakeNews(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new NewsController.NewsLakePage(LAKE, 12, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/lake/" + LAKE.toUpperCase()).param("limit", "9999"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/news/lake/" + LAKE).param("limit", "0"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<String> id = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Integer> limit = org.mockito.ArgumentCaptor.forClass(Integer.class);
+        org.mockito.Mockito.verify(queryRepository, org.mockito.Mockito.times(2))
+                .lakeNews(id.capture(), limit.capture());
+
+        assertEquals(LAKE, id.getAllValues().get(0));
+        assertEquals(NewsController.MAX_LIMIT, limit.getAllValues().get(0));
+        assertEquals(NewsController.LAKE_DEFAULT_LIMIT, limit.getAllValues().get(1));
+    }
+
+    /** Junk in the path is a 400, and — as on every other validating route — no query is run. */
+    @Test
+    void lakeNewsRejectsANonGuidWith400AndNeverQueries() throws Exception {
+        mockMvc.perform(get("/api/v1/news/lake/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        org.mockito.Mockito.verify(queryRepository, org.mockito.Mockito.never())
+                .lakeNews(any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    /** {@code /lake/…} must win over the templated {@code /{id}} document fetch. */
+    @Test
+    void lakeNewsPathIsMatchedAheadOfTheDocumentFetch() throws Exception {
+        when(queryRepository.lakeNews(LAKE, 12))
+                .thenReturn(new NewsController.NewsLakePage(LAKE, 12, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/lake/" + LAKE))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
+
+    // ---- /news/fish/{guid} (the species page's news panel) ----------------------------------------
+
+    private static final String FISH = "a85ebf22-4ab9-4a91-a14a-cef6c8e64d97";
+
+    @Test
+    void fishNewsMapsRepositoryResultsIntoTheEnvelope() throws Exception {
+        NewsController.NewsRefItem item =
+                new NewsController.NewsRefItem("n-id", "Walleye run peaks", "Outdoor Canada", "2026-05-14", "CA");
+        when(queryRepository.fishNews(FISH, 10))
+                .thenReturn(new NewsController.NewsFishPage(FISH, 10, List.of(item)));
+
+        mockMvc.perform(get("/api/v1/news/fish/" + FISH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fishId").value(FISH))
+                .andExpect(jsonPath("$.data.limit").value(10))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].newsId").value("n-id"))
+                .andExpect(jsonPath("$.data.items[0].title").value("Walleye run peaks"))
+                .andExpect(jsonPath("$.data.items[0].stamp").value("2026-05-14"));
+    }
+
+    /** A species with no news is an ordinary empty answer, never a 404. */
+    @Test
+    void fishNewsWithNoArticlesIsAnEmptyListNotA404() throws Exception {
+        when(queryRepository.fishNews(FISH, 10))
+                .thenReturn(new NewsController.NewsFishPage(FISH, 10, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/fish/" + FISH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void fishNewsClampsTheLimitAndLowerCasesTheGuid() throws Exception {
+        when(queryRepository.fishNews(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new NewsController.NewsFishPage(FISH, 10, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/fish/" + FISH.toUpperCase()).param("limit", "9999"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/news/fish/" + FISH).param("limit", "0"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<String> id = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Integer> limit = org.mockito.ArgumentCaptor.forClass(Integer.class);
+        org.mockito.Mockito.verify(queryRepository, org.mockito.Mockito.times(2))
+                .fishNews(id.capture(), limit.capture());
+
+        assertEquals(FISH, id.getAllValues().get(0));
+        assertEquals(NewsController.MAX_LIMIT, limit.getAllValues().get(0));
+        assertEquals(NewsController.FISH_DEFAULT_LIMIT, limit.getAllValues().get(1));
+    }
+
+    /** Junk in the path is a 400, and — as on every other validating route — no query is run. */
+    @Test
+    void fishNewsRejectsANonGuidWith400AndNeverQueries() throws Exception {
+        mockMvc.perform(get("/api/v1/news/fish/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        org.mockito.Mockito.verify(queryRepository, org.mockito.Mockito.never())
+                .fishNews(any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    /** {@code /fish/…} must win over the templated {@code /{id}} document fetch. */
+    @Test
+    void fishNewsPathIsMatchedAheadOfTheDocumentFetch() throws Exception {
+        when(queryRepository.fishNews(FISH, 10))
+                .thenReturn(new NewsController.NewsFishPage(FISH, 10, List.of()));
+
+        mockMvc.perform(get("/api/v1/news/fish/" + FISH))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
 }

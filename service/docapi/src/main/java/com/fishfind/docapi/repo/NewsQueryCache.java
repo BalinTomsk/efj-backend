@@ -1,6 +1,8 @@
 package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
@@ -209,6 +211,26 @@ public class NewsQueryCache implements NewsQueryRepository {
     @Override
     public NewsSearchPage search(NewsSearchQuery request) {
         return delegate.search(request);
+    }
+
+    /**
+     * Not cached, for the same reason as {@link #search}: the key space is one entry per water body,
+     * of which there are tens of thousands, so a bounded LRU would mostly miss and an unbounded one
+     * would hold the whole catalogue. (The species key space is far smaller — about a thousand —
+     * but {@link #fishNews} stays uncached with it for consistency, and because the read is the same
+     * cheap one.) The read it passes through is deliberately cheap — at most a
+     * dozen short rows, no photo column (see {@code MySqlNewsQueryRepository.LAKE_SQL}) — which is
+     * what makes running it per page view acceptable without a cache in front.
+     */
+    @Override
+    public NewsLakePage lakeNews(String lakeId, int limit) {
+        return delegate.lakeNews(lakeId, limit);
+    }
+
+    /** Not cached, for the same reasons as {@link #lakeNews} — one key per species, a cheap read. */
+    @Override
+    public NewsFishPage fishNews(String fishId, int limit) {
+        return delegate.fishNews(fishId, limit);
     }
 
     /**

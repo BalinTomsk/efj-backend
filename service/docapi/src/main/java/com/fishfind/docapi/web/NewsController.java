@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * News endpoints under {@code /api/v1/news}. Inherits the generic JSON-document CRUD
@@ -38,7 +39,11 @@ import java.util.Locale;
  *   <li>{@code GET /api/v1/news/list} — one page of the latest news (country filter + pagination);</li>
  *   <li>{@code GET /api/v1/news/default} — the assembled home page;</li>
  *   <li>{@code GET /api/v1/news/featured} — just the two lead articles (with their photos);</li>
- *   <li>{@code GET /api/v1/news/more} — just the "More News" column, in its compact shape.</li>
+ *   <li>{@code GET /api/v1/news/more} — just the "More News" column, in its compact shape;</li>
+ *   <li>{@code GET /api/v1/news/lake/{guid}} — one water body's latest articles, for the public
+ *       water-body page;</li>
+ *   <li>{@code GET /api/v1/news/fish/{guid}} — the same, keyed on a species, for the public
+ *       species page.</li>
  * </ul>
  *
  * <p>{@code /featured} and {@code /more} are the two halves of {@code /default}, split because their
@@ -48,8 +53,9 @@ import java.util.Locale;
  *
  * <p>Both queries are delegated to {@link NewsQueryRepository}, which handles DB access via SQL
  * functions and provides in-memory implementations for the no-database profile. The literal
- * {@code /list}, {@code /default}, {@code /featured} and {@code /more} paths are matched ahead of the
- * templated {@code /{id}} handler, so they never collide with a document fetch.
+ * {@code /list}, {@code /default}, {@code /featured}, {@code /more}, {@code /lake/…} and
+ * {@code /fish/…} paths are matched ahead of the templated {@code /{id}} handler, so they never
+ * collide with a document fetch.
  */
 @RestController
 @RequestMapping(value = "/api/v1/news", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -63,6 +69,22 @@ public class NewsController extends AbstractDocumentController {
     static final int PHOTO_CACHE_DAYS = 7;
     /** Hard cap on the species ids {@code /search?fish=} accepts — see {@link #parseFishIds}. */
     static final int MAX_SEARCH_FISH_IDS = 3;
+    /**
+     * Default article count for {@code /lake/{guid}} — the twelve {@code dbo.fn_river_view_news}
+     * took, so the water-body page's panel is unchanged by the move to this endpoint.
+     */
+    static final int LAKE_DEFAULT_LIMIT = 12;
+
+    /**
+     * Default article count for {@code /fish/{guid}} — the ten {@code dbo.fn_fish_view_news} took.
+     * Two short of {@link #LAKE_DEFAULT_LIMIT} because the two functions it replaces chose
+     * differently; each panel keeps the size it has always had.
+     */
+    static final int FISH_DEFAULT_LIMIT = 10;
+
+    /** Canonical 8-4-4-4-12 hex GUID, the only shape {@code /lake/{guid}} accepts. */
+    private static final Pattern GUID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     private final NewsQueryRepository queryRepository;
     private final ObjectMapper objectMapper;
@@ -140,6 +162,85 @@ public class NewsController extends AbstractDocumentController {
         int safeLimit = (limit == null || limit < 1) ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
 
         return ApiResponse.ok(queryRepository.list(normalizedCountry, safeOffset, safeLimit));
+    }
+
+    /**
+     * The latest published articles that name one water body, newest first.
+     *
+     * <p>This is what the public water-body pages ({@code Resources/wfRiverViewer.aspx}) render in
+     * their "Last news" panel. It replaces a direct SQL Server read of {@code dbo.fn_river_view_news},
+     * so that page — like {@code Default.aspx} and {@code News.aspx} before it — takes its news from
+     * the news library rather than from the smaller, soon-to-be-dropped SQL Server copy.
+     *
+     * <p>{@code fn_river_view_news} splits its rows into two columns ({@code @col = num % 2}) and is
+     * called once per column. That split is layout, not data: this returns one ordered list and the
+     * page arranges it. A caller wanting the old two-column look alternates rows itself.
+     *
+     * <p>The literal {@code /lake/…} prefix is matched ahead of the templated {@code /{id}} handler,
+     * so it never collides with a document fetch.
+     *
+     * @param guid the water body's GUID
+     * @param limit how many articles at most (null/&lt;1 → {@value #LAKE_DEFAULT_LIMIT}; capped at
+     *              {@value #MAX_LIMIT})
+     * @return the articles in the response envelope; {@code items} is empty — not a 404 — for a water
+     *         body with no news, since "this lake has no news" is an ordinary answer rather than a
+     *         missing document
+     * @throws InvalidDocumentException if {@code guid} is not a canonical 8-4-4-4-12 GUID (→ 400)
+     */
+    @GetMapping("/lake/{guid}")
+    public ApiResponse<NewsLakePage> lakeNews(@PathVariable String guid,
+                                              @RequestParam(required = false) Integer limit) {
+        String lakeId = normalizeGuid(guid);
+        int safeLimit = (limit == null || limit < 1) ? LAKE_DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+
+        return ApiResponse.ok(queryRepository.lakeNews(lakeId, safeLimit));
+    }
+
+    /**
+     * The latest published articles that mention one species, newest first.
+     *
+     * <p>The species counterpart of {@link #lakeNews}, for the public species page
+     * ({@code Resources/wfFishViewer.aspx}), which read {@code dbo.fn_fish_view_news} directly.
+     * An article carries up to three species tags ({@code fish1_id}/{@code fish2_id}/
+     * {@code fish3_id}, set on {@code Editor/AddNews.aspx}) and matching any one of them counts —
+     * the same three-slot rule {@code /news/search?fish=} already applies.
+     *
+     * <p>As everywhere on this API, the species is an <b>id</b>: the MySQL database behind it has no
+     * {@code fish} table, so nothing here turns a name into one. The caller holds the name it is
+     * rendering already.
+     *
+     * <p>The literal {@code /fish/…} prefix is matched ahead of the templated {@code /{id}}
+     * handler, so it never collides with a document fetch.
+     *
+     * @param guid the species GUID
+     * @param limit how many articles at most (null/&lt;1 → {@value #FISH_DEFAULT_LIMIT}; capped at
+     *              {@value #MAX_LIMIT})
+     * @return the articles in the response envelope; {@code items} is empty — not a 404 — for a
+     *         species with no news
+     * @throws InvalidDocumentException if {@code guid} is not a canonical 8-4-4-4-12 GUID (→ 400)
+     */
+    @GetMapping("/fish/{guid}")
+    public ApiResponse<NewsFishPage> fishNews(@PathVariable String guid,
+                                              @RequestParam(required = false) Integer limit) {
+        String fishId = normalizeGuid(guid);
+        int safeLimit = (limit == null || limit < 1) ? FISH_DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+
+        return ApiResponse.ok(queryRepository.fishNews(fishId, safeLimit));
+    }
+
+    /**
+     * Validates a path GUID and returns it lower-cased, so one water body is one cache/query key
+     * whatever case the caller sent.
+     *
+     * @throws InvalidDocumentException if the value is not a canonical 8-4-4-4-12 hex GUID (→ 400)
+     */
+    private static String normalizeGuid(String guid) {
+        String trimmed = guid == null ? "" : guid.trim();
+
+        if (!GUID.matcher(trimmed).matches()) {
+            throw new InvalidDocumentException("guid must be a GUID (8-4-4-4-12 hex)");
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -467,6 +568,60 @@ public class NewsController extends AbstractDocumentController {
             long total,
             int offset,
             int limit) {
+    }
+
+    /**
+     * One article in the news panel of a water-body or species page. Narrower than
+     * {@link NewsListItem} on purpose: the panel renders a headline, a source badge and a date, so
+     * nothing else is read or sent — in particular no photo column is touched, which is what keeps
+     * these queries safe to run on a page view (see {@code MySqlNewsQueryRepository} on the
+     * lead-photo BLOB at scale).
+     *
+     * <p><b>One record, two endpoints.</b> {@code /news/lake/{guid}} and {@code /news/fish/{guid}}
+     * render the identical row; a second copy of these five fields would be the duplication this
+     * codebase has paid for before.
+     *
+     * @param newsId the article id — what the page links to as {@code News.aspx?LeadID=<id>}
+     * @param title the headline
+     * @param source the publication/source label, possibly null
+     * @param stamp the publish date as an ISO {@code yyyy-MM-dd} string
+     * @param country the ISO-2 country of the article, possibly null
+     */
+    public record NewsRefItem(
+            String newsId,
+            String title,
+            String source,
+            String stamp,
+            String country) {
+    }
+
+    /**
+     * One water body's news panel: the articles plus the id and window they were asked for, so a
+     * response is self-describing when it is logged or cached.
+     *
+     * @param lakeId the water body's guid, lower-cased
+     * @param limit the (clamped) maximum asked for
+     * @param items the articles, newest first — empty when the water body has no news
+     */
+    public record NewsLakePage(
+            String lakeId,
+            int limit,
+            List<NewsRefItem> items) {
+    }
+
+    /**
+     * One species' news panel — {@link NewsLakePage}'s counterpart, differing only in which id it
+     * names. Kept as its own record rather than a shared one with a vague {@code refId}, so a
+     * response says what it is when it is read or logged.
+     *
+     * @param fishId the species guid, lower-cased
+     * @param limit the (clamped) maximum asked for
+     * @param items the articles, newest first — empty when the species has no news
+     */
+    public record NewsFishPage(
+            String fishId,
+            int limit,
+            List<NewsRefItem> items) {
     }
 
     /**
