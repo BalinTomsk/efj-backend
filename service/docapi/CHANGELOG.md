@@ -2,6 +2,81 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-14: **1.10.0 DEPLOYED and verified live.** Image
+  `ghcr.io/balintomsk/docapi:1.10.0`, digest
+  `sha256:61d9fd9cc07bac836c29b1b3eb49df27a60956a21c6e925781ab976794deae89`. `/health` → `1.10.0`,
+  0 restarts, `jdbc` profile active, `docapi-news-mysql-hikari` pool started cleanly, no ERROR or
+  Exception in the startup log. **`/news/search` verified against the real Winhost MySQL** — the one
+  thing that could not be tested before shipping, because this workstation cannot reach that host:
+  the three-`LONGTEXT`-paragraph scan the design was most at risk on completes in **0.9–3.2 s** over
+  4,824 published rows (first call includes pool warm-up), with no sign of the multi-row off-page
+  hang that afflicts the photo BLOBs. Also verified live: the `country` filter returns genuinely
+  different row sets (CA 57 vs US 100-capped), `offset=98&limit=5` correctly yields 2 rows at the
+  cap, `offset=100` yields an empty page with the total intact, a term containing `%`/`_` matches
+  nothing rather than over-matching (so the escape survives the wire), both 400s hold, and
+  **`?fish=<id>` alone finds 100 articles for a term that text-matches zero** — every one of them
+  carrying that id in `fishIds`, which is `fn_news_search`'s species behaviour fully preserved.
+  `fishes` empty + `fishIds` populated is the signature that confirms the MySQL path is answering,
+  not the SQL-Server delegate. The frontend was deployed the same day: `News.aspx` renders 0
+  `data:image` URIs, its photo through `NewsPhoto.ashx`, 25 grid rows and a country-filtered total of
+  650 that matches `/news/list?country=CA` exactly — a number SQL Server's 427-row library cannot
+  produce. `dbo.LogException` has **zero rows ever** for `LoadNewsFromApi`,
+  `BindGridViewFromApi`, `LatestLeadIdFromApi` or `ExportNewsJsonFromApi`, so nothing has fallen back.
+
+- 2026-09-12: **1.10.0 — `/news/search` moves to MySQL and gains `fish`, `country`, `offset`,
+  `limit`.** The last news read still answered from SQL Server. `News.aspx` was being moved onto this
+  gateway for everything it shows, and its search box is news like any other — leaving search behind
+  would have meant that page still needed a news query of its own against a library 11x smaller
+  (`dbo.news` 427 published rows vs MySQL's 4,824). `/news/search` now reads the MySQL `news` table,
+  which makes **every** news read the portal performs a gateway read.
+
+  - **Contract.** `NewsQueryRepository.search(NewsSearchQuery)` replaces `search(String)` — one value
+    object rather than five positional parameters repeated across four implementations and their
+    circuit-breaker fallbacks. `NewsSearchPage` gains `offset`/`limit`, `NewsSearchItem` gains
+    `fishIds`, and `NewsQueryRepository.SEARCH_CAP` (100) promotes `fn_news_search`'s own `TOP 100`
+    to a contract the MySQL backing — which has no such function to inherit it from — caps
+    identically.
+  - **Paging, not just a cap.** Both `offset`/`limit` and the grand `total` come back, so one call
+    renders a numbered pager. `News.aspx` previously needed a `SELECT COUNT(*)` of its own beside the
+    row query.
+  - **Species are matched by ID, supplied by the caller** (`?fish=<id>,<id>,<id>`, capped at 3, blanks
+    and duplicates dropped). `fn_news_search` joined `dbo.fish` so "walleye" found an article *tagged*
+    with walleye even when the headline never said it; this database has no `fish` table, so the
+    caller resolves the term against its own catalogue and passes the ids. Nothing is lost and the
+    rows still come only from `news`. `fishes` (names) is consequently empty on this backing and
+    `fishIds` carries the tags — the same "the caller resolves names" rule `/news/list` and
+    `GET /news/{id}` already follow. **Do not reintroduce a server-side name join**: that was
+    `dbo.fn_news_ref_names_json`, dropped 2026-09-03 for making one news read span both databases.
+  - **Two statements, no window function.** A `COUNT(*)` plus a plain filtered
+    `ORDER BY … LIMIT`. A windowed single query would force the plan to materialize rows while the
+    WHERE references the three `LONGTEXT` paragraph columns, and on the live Winhost host an off-page
+    column in a plan that buffers multiple rows hangs indefinitely (confirmed 2026-08-31 for
+    `news_photo0`). The shape used — filter on the paragraphs, select only narrow columns — is what
+    `sp_news_list_for_grid`/`sp_news_count` have used on that host since the migration. The photo
+    BLOBs are not referenced at all. A test pins both properties.
+  - **Inlined in Java, not a stored procedure**, because `portos` holds no `CREATE ROUTINE` privilege
+    — same reason and pattern as `DEFAULT_SQL` and `PHOTO_SQL`.
+  - **Bug caught before shipping: the `LIKE` escape must be a DOUBLED backslash in the emitted SQL.**
+    A Java text block halves every pair, so `ESCAPE '\\'` in source emits `ESCAPE '\'` — and MySQL
+    parses a string literal before the `ESCAPE` clause, making that an escaped quote followed by an
+    unterminated string. A syntax error, not a backslash. Found by running the emitted statements
+    against a real MySQL 8 (a mocked `JdbcTemplate` never parses SQL, so no unit test could have
+    found it); `searchEmitsADoubledBackslashAsTheLikeEscapeCharacter` now guards it.
+  - **`JdbcNewsQueryRepository.search` is no longer the production path** but still implements the new
+    contract, applying the country filter and page window in Java over `fn_news_search`'s `TOP 100` —
+    which is what `News.aspx` used to do around that function in its own SQL. It ignores `fishIds` by
+    design: it joins `dbo.fish` and matches the same term against the names itself.
+  - **No cproxy change needed.** `/news/search` already passes through, and only query parameters were
+    added.
+  - **Tests: 184, up from 144.** 8 new search cases in `MySqlNewsQueryRepositoryTest` (asserting the
+    emitted SQL as much as the results), 6 in `NewsControllerTest` (all reading the `NewsSearchQuery`
+    the controller built, via an `ArgumentCaptor`). Verified beyond the mocks against a real MySQL 8
+    through the production code path — 18 assertions, including that `%`/`_` in a term match literally,
+    which a mysql-CLI script structurally cannot test because a string literal is unescaped before
+    `LIKE` sees it — and end-to-end over HTTP against a locally-run 1.10.0 (11 probes: text-only,
+    country-filtered, fish-id-matched, paged, escaped-wildcard both directions, past-the-cap, and the
+    two 400s).
+
 - 2026-09-11: **1.9.0 — `GET /api/v1/news/photo/{id}`: a lead photo as raw bytes.** The home page's
   news moved to this gateway, but its *photos* had not: the portal's `NewsPhoto.ashx` fell back to its
   own direct MySQL connection whenever its process cache missed. That is a second path to the same

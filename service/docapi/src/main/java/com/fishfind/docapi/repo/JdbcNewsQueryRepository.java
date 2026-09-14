@@ -15,6 +15,7 @@ import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchItem;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 
 import java.sql.Statement;
 import java.sql.Types;
@@ -149,13 +150,32 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
         });
     }
 
+    /**
+     * News search over SQL Server. <strong>No longer the production path</strong> — since 1.10.0
+     * {@link MySqlNewsQueryRepository#search} answers {@code /news/search} from the MySQL
+     * {@code news} table, and this implementation backs the SQL-Server profile and the
+     * {@code exportNews}/{@code importNews} delegate only.
+     *
+     * <p>{@code dbo.fn_news_search} takes only the term, and caps itself at {@code TOP 100}. The
+     * country filter and the page window are therefore applied here, over those rows — which is
+     * exactly what {@code News.aspx} used to do around this function in its own SQL
+     * ({@code WHERE country = @country} plus {@code OFFSET/FETCH}) before it moved onto the gateway.
+     *
+     * <p>{@link NewsSearchQuery#fishIds()} is deliberately <strong>ignored</strong> here, and that is
+     * not a gap: the ids exist so a database with no {@code fish} table can still match species, and
+     * this one joins {@code dbo.fish} and matches the very same term against the common, Latin and
+     * alt names itself. Honouring both would only widen the match to species whose name does not
+     * contain the term.
+     */
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")
-    public NewsSearchPage search(String query) {
+    public NewsSearchPage search(NewsSearchQuery request) {
         // The term is escaped here (LIKE metacharacters) and fn_news_search wraps it as %term% ESCAPE '\'.
-        String escaped = escapeLike(query);
-        List<NewsSearchItem> items = jdbc.query(
+        String escaped = escapeLike(request.query());
+        String country = request.country();
+
+        List<NewsSearchItem> matches = jdbc.query(
                 SEARCH_SQL,
                 ps -> ps.setString(1, escaped),
                 (rs, i) -> new NewsSearchItem(
@@ -164,8 +184,20 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
                         rs.getString("news_source"),
                         rs.getString("stamp"),
                         rs.getString("country"),
-                        distinctFishes(rs.getString("fish1"), rs.getString("fish2"), rs.getString("fish3"))));
-        return new NewsSearchPage(items, items.size(), query);
+                        distinctFishes(rs.getString("fish1"), rs.getString("fish2"), rs.getString("fish3")),
+                        List.of()));
+
+        List<NewsSearchItem> filtered = new ArrayList<>();
+        for (NewsSearchItem item : matches) {
+            if (country == null || country.equalsIgnoreCase(item.country())) {
+                filtered.add(item);
+            }
+        }
+        int from = Math.min(request.offset(), filtered.size());
+        int to = Math.min(from + request.limit(), filtered.size());
+
+        return new NewsSearchPage(new ArrayList<>(filtered.subList(from, to)), filtered.size(),
+                request.query(), request.offset(), request.limit());
     }
 
     /**
@@ -218,7 +250,7 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
      * Circuit-breaker fallback for {@link #search}.
      */
     @SuppressWarnings("unused")
-    public NewsSearchPage searchFallback(String query, Throwable ex) {
+    public NewsSearchPage searchFallback(NewsSearchQuery request, Throwable ex) {
         throw new RuntimeException("SQL news-search query failed", ex);
     }
 

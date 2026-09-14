@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -206,8 +207,8 @@ public class NewsQueryCache implements NewsQueryRepository {
      * list/home-page reads, so each reads straight through to the delegate.
      */
     @Override
-    public NewsSearchPage search(String query) {
-        return delegate.search(query);
+    public NewsSearchPage search(NewsSearchQuery request) {
+        return delegate.search(request);
     }
 
     /**

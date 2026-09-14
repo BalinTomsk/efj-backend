@@ -3,12 +3,21 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
+import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 
 /**
  * Query repository for news-page read operations, backed by SQL functions in the DB.
  * Separates HTTP/controller concerns from DB access logic.
  */
 public interface NewsQueryRepository {
+
+    /**
+     * Hard cap on how many matches a {@link #search} considers, before {@code offset}/{@code limit}
+     * page them. This is {@code dbo.fn_news_search}'s own {@code TOP 100} promoted to a contract, so
+     * the MySQL backing — which has no such function to inherit it from — caps identically and a
+     * caller's pager total means the same thing whichever backing answered it.
+     */
+    int SEARCH_CAP = 100;
 
     /**
      * One page of the latest news with optional country filter and pagination.
@@ -62,11 +71,12 @@ public interface NewsQueryRepository {
     String importNews(String json);
 
     /**
-     * Searches published news for a term across the headline, source, paragraphs, photo alts, and the
-     * names of the mentioned fishes. Up to 100 matches, newest first.
+     * Searches published news for a term across the headline, source, paragraphs and photo alts, plus
+     * any article tagged with one of the species named in {@link NewsSearchQuery#fishIds()}. Newest
+     * first, capped and paged as the request asks.
      *
-     * @param query the (trimmed, non-blank) search term
-     * @return the matching news list
+     * @param request the term, species ids, country filter and page window
+     * @return the matching page of news plus the grand total
      */
-    NewsSearchPage search(String query);
+    NewsSearchPage search(NewsSearchQuery request);
 }
