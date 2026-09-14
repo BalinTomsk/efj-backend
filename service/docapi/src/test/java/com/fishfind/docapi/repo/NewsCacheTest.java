@@ -2,6 +2,8 @@ package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
@@ -58,6 +60,8 @@ class NewsCacheTest {
         final AtomicInteger importCalls = new AtomicInteger();
         final AtomicInteger searchCalls = new AtomicInteger();
         final AtomicInteger photoCalls = new AtomicInteger();
+        final AtomicInteger lakeCalls = new AtomicInteger();
+        final AtomicInteger fishCalls = new AtomicInteger();
         private final long total;
 
         CountingRepo(long total) {
@@ -99,6 +103,18 @@ class NewsCacheTest {
         public byte[] newsPhoto(String id) {
             photoCalls.incrementAndGet();
             return new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00};
+        }
+
+        @Override
+        public NewsLakePage lakeNews(String lakeId, int limit) {
+            lakeCalls.incrementAndGet();
+            return new NewsLakePage(lakeId, limit, List.of());
+        }
+
+        @Override
+        public NewsFishPage fishNews(String fishId, int limit) {
+            fishCalls.incrementAndGet();
+            return new NewsFishPage(fishId, limit, List.of());
         }
     }
 
@@ -588,5 +604,38 @@ class NewsCacheTest {
         cache.newsPhoto("abc");
 
         assertThat(repo.photoCalls.get()).isEqualTo(3);
+    }
+
+    // ---- /news/lake/{guid} ---------------------------------------------------------------------
+
+    @Test
+    void lakeNewsIsNeverCachedSoEveryRequestReachesTheDatabase() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo);
+
+        // One entry per water body across tens of thousands of them: a bounded LRU would mostly
+        // miss and an unbounded one would hold the catalogue. The read itself is a dozen narrow
+        // rows, which is what makes the pass-through affordable. Pin it deliberately.
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+
+        assertThat(repo.lakeCalls.get()).isEqualTo(3);
+    }
+
+    // ---- /news/fish/{guid} -----------------------------------------------------------------------
+
+    @Test
+    void fishNewsIsNeverCachedSoEveryRequestReachesTheDatabase() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo);
+
+        // Same reasoning as lakeNews: a small, cheap, per-entity read that a bounded LRU would
+        // mostly miss anyway. Pin the pass-through deliberately.
+        cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+        cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+        cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+
+        assertThat(repo.fishCalls.get()).isEqualTo(3);
     }
 }

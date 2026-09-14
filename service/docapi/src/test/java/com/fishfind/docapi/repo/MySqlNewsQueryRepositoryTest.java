@@ -1,6 +1,9 @@
 package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.docapi.web.NewsController.NewsRefItem;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchItem;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
@@ -11,6 +14,10 @@ import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.List;
 
@@ -21,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -103,6 +111,180 @@ class MySqlNewsQueryRepositoryTest {
         assertEquals("new-id", repository.importNews("{}"));
         verify(sqlServerDelegate).importNews("{}");
         verifyNoInteractions(mysqlJdbc);
+    }
+
+    // ---- one water body's news (wfRiverViewer.aspx) ---------------------------------------------
+
+    /**
+     * Stubs the single lake-news statement and returns the SQL it was given, so a test can assert the
+     * statement as well as the mapping.
+     */
+    private String[] stubLakeNews(List<String[]> rows) {
+        String[] captured = new String[1];
+        when(mysqlJdbc.query(any(String.class), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenAnswer(invocation -> {
+                    captured[0] = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    RowMapper<NewsRefItem> mapper = invocation.getArgument(2);
+                    List<NewsRefItem> out = new java.util.ArrayList<>();
+                    for (String[] row : rows) {
+                        ResultSet rs = mock(ResultSet.class);
+                        when(rs.getString("news_id")).thenReturn(row[0]);
+                        when(rs.getString("title")).thenReturn(row[1]);
+                        when(rs.getString("source")).thenReturn(row[2]);
+                        when(rs.getString("stamp")).thenReturn(row[3]);
+                        when(rs.getString("country")).thenReturn(row[4]);
+                        out.add(mapper.mapRow(rs, 0));
+                    }
+                    return out;
+                });
+        return captured;
+    }
+
+    @Test
+    void lakeNewsReadsFromMySqlAndNeverFromTheSqlServerDelegate() {
+        stubLakeNews(List.<String[]>of(
+                new String[]{"n1", "Ice out on the Grand", "Outdoor Canada", "2026-05-14", "CA"},
+                new String[]{"n2", "Walleye opener", null, "2026-05-01", "CA"}));
+
+        NewsLakePage page = repository.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+
+        assertEquals(2, page.items().size());
+        assertEquals("fc0d917b-d053-11d8-92e2-080020a0f4c9", page.lakeId());
+        assertEquals(12, page.limit());
+        assertEquals("n1", page.items().get(0).newsId());
+        assertEquals("Ice out on the Grand", page.items().get(0).title());
+        assertEquals("2026-05-14", page.items().get(0).stamp());
+        assertNull(page.items().get(1).source());
+        verifyNoInteractions(sqlServerDelegate);
+    }
+
+    /**
+     * The same rule the search statements live under: this runs on a public page view, so the plan
+     * must never reference a photo column while buffering rows. It must also stay published-only and
+     * totally ordered -- the caller deals these rows alternately into two columns, so a tie broken
+     * differently between requests would move a headline from one column to the other on a refresh.
+     */
+    @Test
+    void lakeNewsSelectsNarrowColumnsOnlyAndIsPublishedOnlyAndTotallyOrdered() {
+        String[] sql = stubLakeNews(List.of());
+
+        repository.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+
+        assertFalse(sql[0].contains("news_photo"), sql[0]);
+        assertFalse(sql[0].contains("has_photo0"), sql[0]);
+        assertFalse(sql[0].contains("news_paragraph"), sql[0]);
+        assertFalse(sql[0].contains("OVER ("), sql[0]);
+        assertTrue(sql[0].contains("news_publish = 1"), sql[0]);
+        assertTrue(sql[0].contains("lake_id = ?"), sql[0]);
+        assertTrue(sql[0].contains("ORDER BY news_stamp DESC, news_id DESC"), sql[0]);
+        assertTrue(sql[0].contains("LIMIT ?"), sql[0]);
+    }
+
+    /** The lake id binds before the limit; swapping them silently returns the wrong article set. */
+    @Test
+    void lakeNewsBindsTheLakeIdThenTheLimit() throws Exception {
+        stubLakeNews(List.of());
+        ArgumentCaptor<PreparedStatementSetter> binder = ArgumentCaptor.forClass(PreparedStatementSetter.class);
+
+        repository.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+
+        verify(mysqlJdbc).query(any(String.class), binder.capture(), any(RowMapper.class));
+        PreparedStatement ps = mock(PreparedStatement.class);
+        binder.getValue().setValues(ps);
+
+        InOrder order = inOrder(ps);
+        order.verify(ps).setString(1, "fc0d917b-d053-11d8-92e2-080020a0f4c9");
+        order.verify(ps).setInt(2, 12);
+    }
+
+    // ---- one species' news (wfFishViewer.aspx) -----------------------------------------------------
+
+    /**
+     * Stubs the single fish-news statement and returns the SQL it was given, so a test can assert the
+     * statement as well as the mapping. Same row shape as {@link #stubLakeNews}, since both share
+     * {@code MySqlNewsQueryRepository.REF_ROW_MAPPER}.
+     */
+    private String[] stubFishNews(List<String[]> rows) {
+        String[] captured = new String[1];
+        when(mysqlJdbc.query(any(String.class), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenAnswer(invocation -> {
+                    captured[0] = invocation.getArgument(0);
+                    @SuppressWarnings("unchecked")
+                    RowMapper<NewsRefItem> mapper = invocation.getArgument(2);
+                    List<NewsRefItem> out = new java.util.ArrayList<>();
+                    for (String[] row : rows) {
+                        ResultSet rs = mock(ResultSet.class);
+                        when(rs.getString("news_id")).thenReturn(row[0]);
+                        when(rs.getString("title")).thenReturn(row[1]);
+                        when(rs.getString("source")).thenReturn(row[2]);
+                        when(rs.getString("stamp")).thenReturn(row[3]);
+                        when(rs.getString("country")).thenReturn(row[4]);
+                        out.add(mapper.mapRow(rs, 0));
+                    }
+                    return out;
+                });
+        return captured;
+    }
+
+    @Test
+    void fishNewsReadsFromMySqlAndNeverFromTheSqlServerDelegate() {
+        stubFishNews(List.<String[]>of(
+                new String[]{"n1", "Walleye run peaks", "Outdoor Canada", "2026-05-14", "CA"},
+                new String[]{"n2", "Ice fishing guide", null, "2026-05-01", "CA"}));
+
+        NewsFishPage page = repository.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+
+        assertEquals(2, page.items().size());
+        assertEquals("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", page.fishId());
+        assertEquals(10, page.limit());
+        assertEquals("n1", page.items().get(0).newsId());
+        assertEquals("Walleye run peaks", page.items().get(0).title());
+        assertEquals("2026-05-14", page.items().get(0).stamp());
+        assertNull(page.items().get(1).source());
+        verifyNoInteractions(sqlServerDelegate);
+    }
+
+    /**
+     * Same rule as {@link #lakeNewsSelectsNarrowColumnsOnlyAndIsPublishedOnlyAndTotallyOrdered}: no
+     * photo column, no window function, published-only, totally ordered. This statement additionally
+     * must match ANY of the three species slots, not just one column.
+     */
+    @Test
+    void fishNewsSelectsNarrowColumnsOnlyAndIsPublishedOnlyAndTotallyOrdered() {
+        String[] sql = stubFishNews(List.of());
+
+        repository.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+
+        assertFalse(sql[0].contains("news_photo"), sql[0]);
+        assertFalse(sql[0].contains("has_photo0"), sql[0]);
+        assertFalse(sql[0].contains("news_paragraph"), sql[0]);
+        assertFalse(sql[0].contains("OVER ("), sql[0]);
+        assertTrue(sql[0].contains("news_publish = 1"), sql[0]);
+        assertTrue(sql[0].contains("fish1_id = ?"), sql[0]);
+        assertTrue(sql[0].contains("fish2_id = ?"), sql[0]);
+        assertTrue(sql[0].contains("fish3_id = ?"), sql[0]);
+        assertTrue(sql[0].contains("ORDER BY news_stamp DESC, news_id DESC"), sql[0]);
+        assertTrue(sql[0].contains("LIMIT ?"), sql[0]);
+    }
+
+    /** All three slots bind the same fish id, then the limit -- a fourth or reordered bind silently changes which rows match. */
+    @Test
+    void fishNewsBindsTheFishIdToAllThreeSlotsThenTheLimit() throws Exception {
+        stubFishNews(List.of());
+        ArgumentCaptor<PreparedStatementSetter> binder = ArgumentCaptor.forClass(PreparedStatementSetter.class);
+
+        repository.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+
+        verify(mysqlJdbc).query(any(String.class), binder.capture(), any(RowMapper.class));
+        PreparedStatement ps = mock(PreparedStatement.class);
+        binder.getValue().setValues(ps);
+
+        InOrder order = inOrder(ps);
+        order.verify(ps).setString(1, "a85ebf22-4ab9-4a91-a14a-cef6c8e64d97");
+        order.verify(ps).setString(2, "a85ebf22-4ab9-4a91-a14a-cef6c8e64d97");
+        order.verify(ps).setString(3, "a85ebf22-4ab9-4a91-a14a-cef6c8e64d97");
+        order.verify(ps).setInt(4, 10);
     }
 
     // ---- news search (MySQL as of 1.10.0; was delegated to SQL Server) --------------------------

@@ -1,6 +1,8 @@
 package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
@@ -79,4 +81,37 @@ public interface NewsQueryRepository {
      * @return the matching page of news plus the grand total
      */
     NewsSearchPage search(NewsSearchQuery request);
+
+    /**
+     * The latest published articles that name one water body, newest first.
+     *
+     * <p>This is the news half of the public water-body pages ({@code Resources/wfRiverViewer.aspx}),
+     * which until now read SQL Server's {@code dbo.fn_river_view_news} directly. The column split
+     * that function performs ({@code @col = num % 2}, one call per rendered column) is presentation
+     * and is deliberately <em>not</em> reproduced here: this returns one ordered list and the caller
+     * lays it out.
+     *
+     * <p>Species and the water body itself come back as they do everywhere else on this API — the
+     * caller already holds the name it is rendering, so nothing here joins another database to
+     * resolve one.
+     *
+     * @param lakeId the water body's guid, as the caller's canonical 8-4-4-4-12 text form
+     * @param limit how many articles at most (already clamped)
+     * @return the articles, newest first — empty (never null) when the water body has none
+     */
+    NewsLakePage lakeNews(String lakeId, int limit);
+
+    /**
+     * The latest published articles that mention one species, newest first.
+     *
+     * <p>{@link #lakeNews}'s counterpart for {@code Resources/wfFishViewer.aspx}, which read
+     * {@code dbo.fn_fish_view_news} directly. An article carries up to three species tags and
+     * matching any one of them counts, the same three-slot rule {@link #search} applies to its
+     * {@code fishIds}.
+     *
+     * @param fishId the species guid, as the caller's canonical 8-4-4-4-12 text form
+     * @param limit how many articles at most (already clamped)
+     * @return the articles, newest first — empty (never null) when the species has none
+     */
+    NewsFishPage fishNews(String fishId, int limit);
 }

@@ -369,7 +369,7 @@
     <h1 class="display">DocAPI Reference</h1>
     <p class="dek">Every controller in <code>docapi</code> — the Spring Boot JSON-document API behind fishfind.info's news, fish, river, regulation, water-body and station data. Seven controllers, one response envelope, documented and example-verified against the live service.</p>
     <div class="chip-row">
-      <span class="chip"><span class="live-dot"></span>docapi <strong>1.10.0</strong> in <code>pom.xml</code> &mdash; <strong>1.10.0 deployed and live</strong> (2026‑09‑14, digest <code>sha256:61d9fd9c…deae89</code>); <code>/news/search</code> verified against the live Winhost MySQL</span>
+      <span class="chip"><span class="live-dot"></span>docapi <strong>1.12.0</strong> in <code>pom.xml</code> &mdash; <strong>deployed and live</strong> (2026‑09‑14, digest <code>sha256:61c7c92c…c45d8e</code>), carrying both <strong>1.11.0</strong> (<code>/news/lake/{guid}</code>) and <strong>1.12.0</strong> (<code>/news/fish/{guid}</code>); the frontend consumer is still undeployed</span>
       <span class="chip">Envelope: <code>{ data, error, meta }</code></span>
       <span class="chip">Public gateway: GET only</span>
     </div>
@@ -480,7 +480,7 @@
       <span class="tag">NewsController · /api/v1/news</span>
     </div>
     <p class="prose" style="margin-bottom:22px;">The one entity with a fully-built backend: the generic CRUD above, plus five endpoints for the News-page UI and JSON import/export.</p>
-    <p class="prose" style="margin-bottom:22px;"><strong>Backing (2026-08-31):</strong> <code>GET /{id}</code>, <code>/news/list</code>, and <code>/news/default</code> below now read from the MySQL <code>news</code> table (Winhost — the same table <code>News.aspx</code> reads) instead of SQL Server; the JSON field names are unchanged. <code>POST</code>/<code>PUT /{id}</code>, <code>/news/export/{id}</code>, and <code>/news/import</code> are unaffected — still SQL Server. <strong>(2026‑09‑12, docapi 1.10.0)</strong> <code>/news/search</code> moved to MySQL too, and gained <code>fish</code>/<code>country</code>/<code>offset</code>/<code>limit</code> — see that endpoint below. Export/import stay on SQL Server deliberately: they are the two halves of one admin interchange round trip whose writing half never moved, and MySQL has no <code>fn_news_json</code> to export from. <strong>(2026-09-02)</strong> <code>/news/default</code> is the one hybrid: article rows from MySQL, plus a single SQL Server lookup that turns the mentioned <code>lake_id</code>/<code>fish*_id</code> into the names the home page's tag row shows — see that endpoint below.</p>
+    <p class="prose" style="margin-bottom:22px;"><strong>Backing (2026-08-31):</strong> <code>GET /{id}</code>, <code>/news/list</code>, and <code>/news/default</code> below now read from the MySQL <code>news</code> table (Winhost — the same table <code>News.aspx</code> reads) instead of SQL Server; the JSON field names are unchanged. <code>POST</code>/<code>PUT /{id}</code>, <code>/news/export/{id}</code>, and <code>/news/import</code> are unaffected — still SQL Server. <strong>(2026‑09‑12, docapi 1.10.0)</strong> <code>/news/search</code> moved to MySQL too, and gained <code>fish</code>/<code>country</code>/<code>offset</code>/<code>limit</code> — see that endpoint below. <strong>(2026‑09‑14, docapi 1.11.0/1.12.0)</strong> <code>/news/lake/{guid}</code> and <code>/news/fish/{guid}</code> were added on the same MySQL backing, for the portal&rsquo;s water-body and species pages. Export/import stay on SQL Server deliberately: they are the two halves of one admin interchange round trip whose writing half never moved, and MySQL has no <code>fn_news_json</code> to export from. <strong>(2026‑09‑03)</strong> <code>/news/default</code> is a <strong>pure MySQL read</strong> too: the SQL Server lookup that turned the mentioned <code>lake_id</code>/<code>fish*_id</code> into names (<code>dbo.fn_news_ref_names_json</code>, docapi 1.8.0‑1.8.1) was removed, because it made one news read span both databases. Every news read here now emits bare guids and leaves the names to the caller.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -667,6 +667,98 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
     <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"A2230445-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Walleye Fishing is Boost to Local Economy"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-08-11"</span><span class="p">,</span>
      <span class="k">"country"</span><span class="p">:</span> <span class="s">"US"</span><span class="p">,</span> <span class="k">"fishes"</span><span class="p">:</span> <span class="p">[],</span> <span class="k">"fishIds"</span><span class="p">:</span> <span class="p">[</span><span class="s">"7D739494-…"</span><span class="p">]},</span> <span class="p">…</span>
   <span class="p">],</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">72</span><span class="p">,</span> <span class="k">"query"</span><span class="p">:</span> <span class="s">"walleye"</span><span class="p">,</span> <span class="k">"offset"</span><span class="p">:</span> <span class="n">0</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">25</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/lake/<span class="param">{guid}</span><span class="param">?limit=</span></span></div>
+        <span class="specimen-label">one water body&rsquo;s news</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;14, docapi 1.11.0 &mdash; DEPLOYED AND VERIFIED LIVE the same day (1.12.0 image, digest <code>sha256:61c7c92c…c45d8e</code>), including through cproxy.</strong> The news panel of the portal&rsquo;s public water-body page (<code>Resources/wfRiverViewer.aspx</code>) read SQL Server&rsquo;s <code>dbo.fn_river_view_news</code> directly. SQL Server&rsquo;s <code>dbo.news</code> is being dropped, so that page now takes its news from here &mdash; the same MySQL library <code>Default.aspx</code> and <code>News.aspx</code> already read. The frontend consumer is not deployed yet, so the page still falls back to the old query until its DLL ships.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">guid</td><td><span class="req">Path</span></td><td>The water body&rsquo;s GUID, canonical 8-4-4-4-12 hex. Anything else &rarr; 400. Matched case-insensitively (the column&rsquo;s collation is <code>utf8mb4_unicode_ci</code>), and lower-cased before the query.</td></tr>
+            <tr><td class="pname">limit</td><td>Optional</td><td>How many articles. Null/&lt;1 &rarr; 12 &mdash; <code>fn_river_view_news</code>&rsquo;s own <code>TOP 12</code>, so the panel is unchanged &mdash; capped at 200.</td></tr>
+          </tbody>
+        </table>
+        <p class="prose" style="margin-bottom:18px;">Published articles whose <code>lake_id</code> is this water body, newest first. Narrow by design: a headline, a source badge and a date are all that panel renders, so nothing else is selected.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>No 404.</strong> A water body with no news answers <code>200</code> with an empty <code>items</code>. &ldquo;This lake has no news&rdquo; is an ordinary answer, not a missing document &mdash; unlike <code>/news/{id}</code>, where an unknown id genuinely is one.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>One list, not two columns.</strong> <code>fn_river_view_news</code> takes a <code>@col</code> argument and returns every other row, because it was written to be called once per rendered column. That split is layout: this returns one ordered list and the caller deals it into columns. <code>news_id</code> is the tiebreaker after the timestamp so the order is total &mdash; two articles sharing a timestamp swapping places between requests would move a headline from one column to the other on a refresh.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Stricter than what it replaces:</strong> <code>news_publish = 1</code> is part of the predicate. <code>fn_river_view_news</code> never checked the flag, so it could show a draft&rsquo;s headline linking to an article the reader cannot open; its sibling <code>fn_fish_view_news</code> did check it.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Not cached, and safe to run per page view.</strong> One entry per water body across tens of thousands of them makes a bounded LRU mostly miss, so <code>NewsQueryCache</code> passes this through &mdash; the same call it makes for <code>/news/search</code>. What makes that affordable is the statement: five short columns, no photo column referenced (not even <code>has_photo0</code>), no window function, so the plan never buffers rows while touching an off-page column. That is the rule the live Winhost host imposes, and this runs on a public page.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">a water body with news</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/lake/c586fb25-ba2a-11d8-92e2-080020a0f4c9?limit=12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"c586fb25-ba2a-11d8-92e2-080020a0f4c9"</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">12</span><span class="p">,</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"A2230445-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Walleye Fishing is Boost to Local Economy"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"eastaurorany"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-08-13"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"US"</span><span class="p">},</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"B1C70341-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"What’s behind Lake Erie’s steep yellow perch decline?"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"CBC News"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-07-29"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">},</span> <span class="p">…</span>
+  <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption">no news, and a non-GUID path</span><span class="status-code status-200">200 / 400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/lake/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"00000000-…"</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">12</span><span class="p">,</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span>
+
+<span class="c"># GET /api/v1/news/lake/not-a-guid</span>
+<span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"guid must be a GUID (8-4-4-4-12 hex)"</span> <span class="p">}}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/fish/<span class="param">{guid}</span><span class="param">?limit=</span></span></div>
+        <span class="specimen-label">one species&rsquo; news</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;14, docapi 1.12.0 &mdash; DEPLOYED AND VERIFIED LIVE the same day, including through cproxy.</strong> The species counterpart of <code>/news/lake/{guid}</code> above, added the same day for the portal&rsquo;s public species page (<code>Resources/wfFishViewer.aspx</code>), which read SQL Server&rsquo;s <code>dbo.fn_fish_view_news</code> directly. The frontend consumer is not deployed yet, so the page still falls back to the old query until its DLL ships.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">guid</td><td><span class="req">Path</span></td><td>The species&rsquo; GUID, canonical 8-4-4-4-12 hex. Anything else &rarr; 400. Case-insensitive, lower-cased before the query.</td></tr>
+            <tr><td class="pname">limit</td><td>Optional</td><td>How many articles. Null/&lt;1 &rarr; 10 &mdash; <code>fn_fish_view_news</code>&rsquo;s own <code>TOP 10</code> &mdash; capped at 200.</td></tr>
+          </tbody>
+        </table>
+        <p class="prose" style="margin-bottom:18px;">Published articles that mention this species in any of its three tag slots (<code>fish1_id</code>/<code>fish2_id</code>/<code>fish3_id</code>, set on <code>Editor/AddNews.aspx</code>), newest first &mdash; the same three-slot rule <code>/news/search?fish=</code> already applies. No 404 for a species with no news, same as <code>/news/lake/{guid}</code>: an empty <code>items</code> is an ordinary answer.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Shares its row mapper with <code>/news/lake/{guid}</code>.</strong> Both endpoints answer the identical five-field shape, so <code>MySqlNewsQueryRepository.REF_ROW_MAPPER</code> maps both statements&rsquo; rows &mdash; one mapper, so the two column lists cannot drift apart. Not cached, for the same reason: one key per species across roughly a thousand of them, a read cheap enough (five narrow columns, no photo column, no window function) that a per-process cache buys little.</p>
+        <p class="prose" style="margin-bottom:18px;"><strong>Validated against a real MySQL 8</strong> using the fish id from the reported URL: <code>a85ebf22-4ab9-4a91-a14a-cef6c8e64d97</code> returned 10 real bass-fishing articles, upper- and lower-cased guids matched identically, and an unknown id returned zero rows rather than erroring.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">a species with news</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/fish/a85ebf22-4ab9-4a91-a14a-cef6c8e64d97?limit=10</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"a85ebf22-4ab9-4a91-a14a-cef6c8e64d97"</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">10</span><span class="p">,</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"E40A6912-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Grandpa Started Fishing Late In Life To Take His Grandson"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"wired2fish"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-08-24"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"US"</span><span class="p">},</span>
+    <span class="p">{</span><span class="k">"newsId"</span><span class="p">:</span> <span class="s">"E7795918-…"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"Catfish bite tops summer fishing scene"</span><span class="p">,</span>
+     <span class="k">"source"</span><span class="p">:</span> <span class="s">"parispi"</span><span class="p">,</span> <span class="k">"stamp"</span><span class="p">:</span> <span class="s">"2026-08-14"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">},</span> <span class="p">…</span>
+  <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption">no news, and a non-GUID path</span><span class="status-code status-200">200 / 400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/news/fish/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"00000000-…"</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">10</span><span class="p">,</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span>
+
+<span class="c"># GET /api/v1/news/fish/not-a-guid</span>
+<span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"guid must be a GUID (8-4-4-4-12 hex)"</span> <span class="p">}}</span></pre>
             </div>
           </div>
         </div>
@@ -1312,7 +1404,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
   <section class="block" id="quickref" style="margin-bottom: 0;">
     <div class="block-head">
       <h2 class="display">Quick reference</h2>
-      <span class="tag">verified live · docapi 1.9.0 (1.10.0 built, not deployed)</span>
+      <span class="tag">verified live · docapi 1.12.0</span>
     </div>
     <div class="ref-wrap">
       <table class="ref-tbl">
@@ -1325,6 +1417,8 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/more</td><td>200</td><td>3 sidebar items (~1.6 KB) — fixed in 1.8.3, re-verified 2026‑09‑09</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/photo/{id}</td><td>200</td><td>525,222-byte PNG, byte-identical through cproxy — verified live 2026‑09‑12 (docapi 1.9.0)</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/search?q=walleye</td><td>200</td><td>72 matches (MySQL backing, docapi 1.10.0) — paged, with <code>fish</code>/<code>country</code>/<code>offset</code>/<code>limit</code></td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/lake/{guid}</td><td>200</td><td>one water body&rsquo;s latest published articles (MySQL backing, docapi 1.11.0) — empty <code>items</code>, never 404, when it has none</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/fish/{guid}</td><td>200</td><td>one species&rsquo; latest published articles (MySQL backing, docapi 1.12.0) — same empty-not-404 contract, matches any of the 3 species slots</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;guid&gt;</td><td>200</td><td>full article</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;unknown-guid&gt;</td><td>404</td><td>not_found</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/search?q=burbot</td><td>200</td><td>1 exact match</td></tr>
@@ -1350,7 +1444,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
   <footer>
     <span>docapi — <code>com.fishfind.docapi</code> · 7 controllers: Health, News, Fish, River, Regulation, Waterbody, Station</span>
-    <span class="fver">deployed <strong>1.9.0</strong> (2026‑09‑12, news/photo verified live) · <strong>1.10.0</strong> built and tested, <em>not deployed</em> · full 7-controller sweep 2026‑09‑09</span>
+    <span class="fver">deployed <strong>1.12.0</strong> (2026‑09‑14, digest <code>sha256:61c7c92c…c45d8e</code>, includes <strong>1.11.0</strong>/<strong>1.12.0</strong>'s <code>/news/lake/{guid}</code> + <code>/news/fish/{guid}</code> — both verified against live prod, incl. through cproxy) · full 7-controller sweep 2026‑09‑09</span>
   </footer>
 
 </div>

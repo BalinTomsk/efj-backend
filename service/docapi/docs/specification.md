@@ -55,6 +55,8 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
 | `GET` | `/api/v1/news/photo/{id}` | 200 / 304 / 404 | **raw image bytes**, not JSON — one article's lead photo. Content type sniffed from the file's magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"`; `If-None-Match` → 304; missing/unpublished/photo-less → 404 (1.9.0) |
 | `GET` | `/api/v1/news/search?q=&fish=&country=&offset=&limit=` | 200 | `{ items:[{ newsId, title, source, stamp, country, fishes:[…], fishIds:[…] }], total, query, offset, limit }` (≤100 matches, newest first, paged; blank `q` ⇒ 400, bad `country` ⇒ 400) |
+| `GET` | `/api/v1/news/lake/{guid}?limit=` | 200 | `{ lakeId, limit, items:[{ newsId, title, source, stamp, country }] }` — one water body's latest published articles, newest first (default 12, cap 200). **Empty `items`, never 404**, for a water body with no news; a non-GUID path ⇒ 400 (1.11.0) |
+| `GET` | `/api/v1/news/fish/{guid}?limit=` | 200 | `{ fishId, limit, items:[{ newsId, title, source, stamp, country }] }` — the species counterpart of `/news/lake/{guid}`: one species' latest published articles, newest first (default 10, cap 200), matching any of the article's three species slots. **Empty `items`, never 404**, for a species with no news; a non-GUID path ⇒ 400 (1.12.0) |
 
 **Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
 already exists in `envfish-db`; see [Data access](#data-access)):
@@ -518,7 +520,9 @@ included.
 
 `GET /api/v1/news/{id}`, `GET /api/v1/news/list`, and `GET /api/v1/news/default` read from the
 **MySQL** `news` table (Winhost, the same table `fishfind-frontend`'s `News.aspx` reads via
-`MySqlNewsHelper`) instead of SQL Server. **`/news/search` joined them in 1.10.0** (see below).
+`MySqlNewsHelper`) instead of SQL Server. **`/news/search` joined them in 1.10.0**, and
+**`/news/lake/{guid}` (1.11.0) and `/news/fish/{guid}` (1.12.0) were added on the same backing**
+(see below).
 `POST`/`PUT /api/v1/news/{id}`,
 `/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
 described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
@@ -532,8 +536,10 @@ through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
   SQL-Server-backed `NewsDocumentRepository` instance (composition, not inheritance, so the two
   backends can differ per method while writes keep their existing Resilience4j-proxied delegate).
 - **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
-  `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `exportNews`/`importNews`/`search`
-  delegate unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
+  `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `search` (1.10.0), `lakeNews`
+  (1.11.0) and `fishNews` (1.12.0) run inlined MySQL statements — `lakeNews` and `fishNews` share one
+  `REF_ROW_MAPPER` for their identical five-column row shape; `exportNews`/`importNews` delegate
+  unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
   `defaultNews` touches SQL Server not at all — a `resolveRefNames` call that put `lake_name` and
   the `fishes` names on each item existed in 1.8.0–1.8.1 and was removed on 2026-09-03 with the
   database function behind it, so no read here spans both databases any more.
@@ -669,8 +675,10 @@ just a slow one. `NewsDocumentCache` fronts `GET /news/{id}`; `NewsQueryCache` f
    — within a minute rather than at the next daily clear. A publish/update through docapi drops the
    remembered miss at once. This is the only self-expiring entry in either cache.
 
-Deliberately uncached: `/news/search` (unbounded key space) and `/news/export/{id}` (large per-id
-document). Invalidation is `NewsCacheEvictor` — see below.
+Deliberately uncached: `/news/search` (unbounded key space), `/news/lake/{guid}` and
+`/news/fish/{guid}` (one entry per water body / species — a bounded LRU would mostly miss, an
+unbounded one would hold the catalogue) and `/news/export/{id}` (large per-id document).
+Invalidation is `NewsCacheEvictor` — see below.
 
 Consequence to be aware of: the caches are per-process and hold whatever was loaded, so a page
 assembled during a MySQL blip is served until the next eviction.
@@ -687,6 +695,39 @@ assembled during a MySQL blip is served until the next eviction.
   `LIKE N'%'+@q+N'%' ESCAPE '\'` with the **caller** escaping `% _ [` (`JdbcNewsQueryRepository.escapeLike`);
   NULL/empty ⇒ latest 100. The repo projects `news_id, news_title, news_source, stamp, country,
   fish1/2/3` into `NewsSearchItem` (fishes de-duped). Not cached (`NewsQueryCache.search` reads through).
+- **`/news/lake/{guid}` (1.11.0)** — an inlined MySQL statement, not a procedure (`portos` holds no
+  `CREATE ROUTINE`, same reason as `DEFAULT_SQL`/`PHOTO_SQL`/the search statements):
+  `SELECT news_id, news_title, news_source, DATE_FORMAT(news_stamp,'%Y-%m-%d'), country FROM news
+  WHERE news_publish = 1 AND lake_id = ? ORDER BY news_stamp DESC, news_id DESC LIMIT ?`. Five narrow
+  columns, **no photo column referenced** (not even `has_photo0`) and **no window function**, so the
+  plan never buffers rows while touching an off-page column — the same rule the search statements
+  live under, and it matters more here because this runs on a public page view. `news_id` is the
+  tiebreaker so the order is total: the caller deals these rows alternately into two columns, and a
+  tie broken differently between requests would move a headline across columns on a refresh.
+  `lake_id` is `CHAR(36)` with a `utf8mb4_unicode_ci` collation, so the comparison is
+  case-insensitive; the controller lower-cases the guid anyway. **Validated against a real MySQL 8**
+  (local 8.0.46, `mysql_111487_envfish`): the statement parses, an upper- and a lower-cased guid
+  return identical rows, and an unknown guid returns none rather than erroring. The plan is a table
+  scan + filesort over those narrow columns — no index covers `lake_id` — which is the same shape
+  `sp_news_list_for_grid`/`sp_news_count` have run on this host since the migration.
+  The SQL Server counterpart (`JdbcNewsQueryRepository.LAKE_SQL`) is `SELECT TOP (?) … FROM dbo.news
+  WHERE news_publish = 1 AND lake_id = ? ORDER BY news_stamp DESC, news_id DESC` — deliberately not
+  `dbo.fn_river_view_news`, whose `@col` argument returns every other row because it was written to
+  be called once per rendered column. That split is layout and belongs to the caller.
+- **`/news/fish/{guid}` (1.12.0)** — `lakeNews`'s species counterpart, same inlined-statement
+  reasoning (`portos` has no `CREATE ROUTINE`):
+  `SELECT news_id, news_title, news_source, DATE_FORMAT(news_stamp,'%Y-%m-%d'), country FROM news
+  WHERE news_publish = 1 AND (fish1_id = ? OR fish2_id = ? OR fish3_id = ?)
+  ORDER BY news_stamp DESC, news_id DESC LIMIT ?`. Every constraint on `/news/lake/{guid}` above
+  applies unchanged — narrow columns, no photo column, no window function, `news_id` tiebreaker —
+  and `MySqlNewsQueryRepository.REF_ROW_MAPPER` maps both statements' rows, so their five columns
+  cannot drift apart. **Validated against a real MySQL 8** the same way: the fish id from the
+  reported `wfFishViewer.aspx?fishId=` URL (`a85ebf22-4ab9-4a91-a14a-cef6c8e64d97`) returned 10 real
+  bass-fishing articles, upper/lower-case matched identically, an unknown id returned none, and
+  `EXPLAIN` showed the same table-scan-plus-filesort shape (no index covers `fish1_id`/`fish2_id`/
+  `fish3_id`). The SQL Server counterpart (`JdbcNewsQueryRepository.FISH_SQL`) is not
+  `dbo.fn_fish_view_news` for the identical reason `LAKE_SQL` is not `dbo.fn_river_view_news` — that
+  function's `@col` argument bakes the caller's two-column layout into the query.
 - `dbo.fn_default_news_ids()` — the home-page ids with `with_photo` (1 = lead/photo slot, 2 leads;
   0 = right column) and `ord` (1-based display position). `dbo.fn_default_news_json(@news_id,
   @with_photo)` — the per-item JSON document (info + base64 photo for a lead; compact for a

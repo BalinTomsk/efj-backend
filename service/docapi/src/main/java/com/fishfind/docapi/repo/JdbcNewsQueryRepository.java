@@ -11,6 +11,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.core.RowMapper;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsRefItem;
+import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
 import com.fishfind.docapi.web.NewsController.NewsListPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchItem;
@@ -51,6 +55,25 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
     /** One article's lead photo by primary key; published rows only. */
     static final String PHOTO_SQL =
             "SELECT TOP 1 news_photo0 FROM dbo.news WHERE news_id = ? AND news_publish = 1";
+
+    /**
+     * One water body's latest published articles.
+     *
+     * <p>Not {@code dbo.fn_river_view_news}, which the water-body page used to call directly: that
+     * function takes a {@code @col} argument and returns every other row, because it was written to
+     * be called once per rendered column. The column split is layout and belongs to the caller, so
+     * this reads the table the same way the function does — newest first, published only — and hands
+     * back one ordered list.
+     *
+     * <p>{@code news_id} is the tiebreaker after the timestamp so the order is total; see
+     * {@link MySqlNewsQueryRepository#LAKE_SQL}, whose statement this mirrors, for why that matters
+     * to a caller dealing rows into two columns.
+     */
+    static final String LAKE_SQL =
+            "SELECT TOP (?) news_id, news_title, news_source, "
+                    + "CONVERT(varchar(10), news_stamp, 23) AS stamp, country "
+                    + "FROM dbo.news WHERE news_publish = 1 AND lake_id = ? "
+                    + "ORDER BY news_stamp DESC, news_id DESC";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -230,6 +253,65 @@ public class JdbcNewsQueryRepository implements NewsQueryRepository {
     public byte[] newsPhoto(String id) {
         List<byte[]> found = jdbc.query(PHOTO_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getBytes(1));
         return found.isEmpty() ? null : found.get(0);
+    }
+
+    /** The row shape {@link #LAKE_SQL} and {@link #FISH_SQL} share, so their columns cannot drift. */
+    private static final RowMapper<NewsRefItem> REF_ROW_MAPPER = (rs, i) -> new NewsRefItem(
+            rs.getString("news_id"),
+            rs.getString("news_title"),
+            rs.getString("news_source"),
+            rs.getString("stamp"),
+            rs.getString("country"));
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "lakeNewsFallback")
+    public NewsLakePage lakeNews(String lakeId, int limit) {
+        List<NewsRefItem> items = jdbc.query(LAKE_SQL, ps -> {
+            ps.setInt(1, limit);
+            ps.setString(2, lakeId);
+        }, REF_ROW_MAPPER);
+
+        return new NewsLakePage(lakeId, limit, List.copyOf(items));
+    }
+
+    /** Circuit-breaker fallback for {@link #lakeNews}. */
+    @SuppressWarnings("unused")
+    public NewsLakePage lakeNewsFallback(String lakeId, int limit, Throwable ex) {
+        throw new RuntimeException("SQL lake-news query failed", ex);
+    }
+
+    /**
+     * One species' latest published articles — {@link #LAKE_SQL} keyed on the three species slots.
+     * Not {@code dbo.fn_fish_view_news}, for the same reason {@link #LAKE_SQL} is not
+     * {@code dbo.fn_river_view_news}: that function's {@code @col} argument returns every other row,
+     * which is the caller's two-column layout baked into a query.
+     */
+    static final String FISH_SQL =
+            "SELECT TOP (?) news_id, news_title, news_source, "
+                    + "CONVERT(varchar(10), news_stamp, 23) AS stamp, country "
+                    + "FROM dbo.news WHERE news_publish = 1 "
+                    + "AND (fish1_id = ? OR fish2_id = ? OR fish3_id = ?) "
+                    + "ORDER BY news_stamp DESC, news_id DESC";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "fishNewsFallback")
+    public NewsFishPage fishNews(String fishId, int limit) {
+        List<NewsRefItem> items = jdbc.query(FISH_SQL, ps -> {
+            ps.setInt(1, limit);
+            ps.setString(2, fishId);
+            ps.setString(3, fishId);
+            ps.setString(4, fishId);
+        }, REF_ROW_MAPPER);
+
+        return new NewsFishPage(fishId, limit, List.copyOf(items));
+    }
+
+    /** Circuit-breaker fallback for {@link #fishNews}. */
+    @SuppressWarnings("unused")
+    public NewsFishPage fishNewsFallback(String fishId, int limit, Throwable ex) {
+        throw new RuntimeException("SQL fish-news query failed", ex);
     }
 
     /** Circuit-breaker fallback for {@link #newsPhoto}. */
