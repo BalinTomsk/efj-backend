@@ -18,9 +18,11 @@ import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
 import com.fishfind.docapi.repo.NewsDocumentRepository;
+import com.fishfind.docapi.repo.MySqlNewsAdminCommandRepository;
 import com.fishfind.docapi.repo.MySqlNewsDocumentRepository;
 import com.fishfind.docapi.repo.MySqlNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsQueryCache;
@@ -285,6 +287,20 @@ public class JdbcStoreConfig {
      * Drives the once-a-day cache clear. Registered only here, because the caches themselves exist
      * only under the {@code jdbc} profile — the in-memory backing has nothing to evict.
      */
+    /**
+     * News-admin writes (draft/publish/photo), a bean in its own right so Resilience4j can proxy it
+     * -- see {@link #jdbcNewsStore} for why this matters. Targets the MySQL news pool, same as the
+     * read side -- these procedures were created there specifically because {@code portos} cannot
+     * create routines on SQL Server's {@code dbo.news} either, and that table is being retired.
+     * Not cached (a write path) and no SQL Server delegate (there is nothing to fall back to: this
+     * is the whole point of moving {@code Editor/AddNews.aspx} off SQL Server).
+     */
+    @Bean
+    public NewsAdminCommandRepository newsAdminCommandRepository(
+            @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
+        return new MySqlNewsAdminCommandRepository(mysqlJdbc);
+    }
+
     @Bean
     public NewsCacheEvictor newsCacheEvictor(NewsQueryRepository newsQueryRepository,
                                              @Qualifier("newsStore") DocumentStore newsStore,

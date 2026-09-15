@@ -811,6 +811,43 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
         </ul>
       </div>
     </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row">
+          <span class="verb verb-post" style="margin-right:2px;">POST</span><span class="path mono" style="margin-right:14px;">/admin/draft</span>
+          <span class="verb verb-put" style="margin-right:2px;">PATCH</span><span class="path mono" style="margin-right:14px;">/admin/{id}</span>
+          <span class="verb verb-put" style="margin-right:2px;">PATCH</span><span class="path mono">/admin/{id}/photo/{index}</span>
+        </div>
+        <span class="specimen-label">admin writes &mdash; Editor/AddNews.aspx</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin-bottom:14px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;14, docapi 1.13.0 &mdash; DEPLOYED 2026&#8209;09&#8209;15, endpoints reachable but the writes themselves not yet functional.</strong> Backs <code>fishfind-frontend</code>'s <code>Editor/AddNews.aspx</code> admin authoring page, which used to write SQL Server's <code>dbo.news</code> directly and is being moved off it before that table is dropped. A <strong>separate controller</strong> (<code>NewsAdminController</code>) from everything else on this page, because it mutates the flat <code>news</code> row rather than a JSON document. <strong>The three backing MySQL procedures are not yet created</strong> (<code>portos</code>, the app's only MySQL credential, holds no <code>INSERT</code>/<code>UPDATE</code>/<code>CREATE ROUTINE</code> &mdash; needs the Winhost control panel, see <code>envfish-db/mysql/ADMIN_WRITE_news_procs.sql</code>), so every call currently answers a clean docapi <code>500</code> rather than the shape documented below &mdash; verified live: <code>POST /news/admin/draft</code> &rarr; <code>500</code>, not a crash, and every other endpoint on this service unaffected.</p>
+        <ul class="notes">
+          <li><span class="verb verb-post" style="margin-right:6px;">POST</span><code>/api/v1/news/admin/draft</code> &mdash; purges every unpublished draft, inserts one fresh placeholder draft, returns its id. 201 <code>{ "id": &lt;newId&gt; }</code>.</li>
+          <li><span class="verb verb-put" style="margin-right:6px;">PATCH</span><code>/api/v1/news/admin/{id}</code> &mdash; upserts every editable field (<code>title</code> required; <code>author</code>, <code>source</code>, <code>sourceLink</code>, <code>authorLink</code>, <code>stamp</code>, <code>videoLink</code>, <code>paragraph0/1/2</code>, <code>country</code>, <code>lakeId</code>, <code>fish1Id/2Id/3Id</code>) and marks the article published. An unknown id <strong>inserts</strong> rather than 404ing. 200 <code>{ id, action }</code> (<code>inserted</code>/<code>updated</code>); blank <code>title</code> &rarr; 400.</li>
+          <li><span class="verb verb-put" style="margin-right:6px;">PATCH</span><code>/api/v1/news/admin/{id}/photo/{index}</code> &mdash; replaces paragraph-photo slot 0/1/2 (<code>photoBase64</code> required; optional <code>author</code>/<code>alt</code>, omitted &rArr; unchanged). 200 <code>{ id, index, updated:true }</code>; bad <code>index</code> or invalid <code>photoBase64</code> &rarr; 400; unknown <code>id</code> &rarr; 404.</li>
+          <li><strong>No admin check here</strong> &mdash; same trust model as every other write endpoint on this service (river-fish upsert, description/source/mouth patch, regulation upsert): the frontend page is already admin-gated, and the gateway's signed JWT is what proves a genuine site session.</li>
+        </ul>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">create a draft</span><span class="status-code status-200">201</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">POST</span>/api/v1/news/admin/draft</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="s">"3fa1c2d0-1234-4a5b-8c9d-000000000001"</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption">publish, blank title</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/news/admin/3fa1c2d0-1234-4a5b-8c9d-000000000001 &#123;&hellip;&#125;</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span>
+  <span class="k">"message"</span><span class="p">:</span> <span class="s">"title is required and must not be blank"</span> <span class="p">}}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ============================= FISH ============================= -->
@@ -1421,6 +1458,9 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/fish/{guid}</td><td>200</td><td>one species&rsquo; latest published articles (MySQL backing, docapi 1.12.0) — same empty-not-404 contract, matches any of the 3 species slots</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;guid&gt;</td><td>200</td><td>full article</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">GET /api/v1/news/&lt;unknown-guid&gt;</td><td>404</td><td>not_found</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">POST /api/v1/news/admin/draft</td><td>500</td><td>docapi 1.13.0, live — <strong>backing MySQL proc not yet created</strong> (Winhost control panel); would be 201 with a new draft id once it is</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">PATCH /api/v1/news/admin/{id}</td><td>500</td><td>docapi 1.13.0, live — same MySQL-proc gap; would be 200 upsert &amp; publish</td></tr>
+          <tr><td class="qctrl">News</td><td class="qpath">PATCH /api/v1/news/admin/{id}/photo/{index}</td><td>500</td><td>docapi 1.13.0, live — same MySQL-proc gap; would be 200 replacing one photo slot</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/search?q=burbot</td><td>200</td><td>1 exact match</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=AB&amp;codes={"BURB","WALL"}</td><td>200</td><td>2 resolved</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=BC&amp;codes=RB</td><td>200</td><td>2 results — ambiguous code</td></tr>

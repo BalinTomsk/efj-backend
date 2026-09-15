@@ -117,6 +117,10 @@ com.fishfind.docapi
 │   ├── NewsDocumentRepository     # SQL Server: dbo.fn_news_doc / sp_news_doc_add / sp_news_doc_update
 │   ├── MySqlNewsDocumentRepository # MySQL backing (2026-08-31) for GET only (sp_news_doc_get);
 │   │                              #   addDocument/updateDocument delegate to NewsDocumentRepository
+│   ├── NewsAdminCommandRepository # interface: createDraft/publish/updatePhoto (Editor/AddNews.aspx
+│   │                              #   admin writes, 1.13.0) -- flat `news` row, not a JSON document
+│   ├── InMemoryNewsAdminCommandRepository / MySqlNewsAdminCommandRepository (sp_news_admin_draft_create
+│   │                              #   / sp_news_admin_publish / sp_news_admin_photo_update)
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
@@ -157,6 +161,8 @@ com.fishfind.docapi
     ├── NewsController             # base-path CRUD + News-page queries (/list, /default, /featured,
     │                              #   /more, /photo, /search, /lake/{guid}, /fish/{guid}) +
     │                              #   interchange /export, /import
+    ├── NewsAdminController         # /api/v1/news/admin -- POST /draft, PATCH /{id}, PATCH
+    │                              #   /{id}/photo/{index} (Editor/AddNews.aspx writes, 1.13.0)
     ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
     ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid}
@@ -285,6 +291,58 @@ more than one row (a temp table, a window function), even a bare `IS NOT NULL` c
 found live, post-deploy, and fixed the same day — see `envfish-db/CLAUDE.md` → "Cached flags on
 `news`" and the `⚠️` warning above it before changing either procedure or adding a new one that
 touches these columns at scale.
+
+### News-admin writes (1.13.0) — `POST`/`PATCH /api/v1/news/admin/*`
+
+`NewsAdminController` (`/api/v1/news/admin`) is what let `fishfind-frontend`'s `Editor/AddNews.aspx`
+— the actual admin news-authoring page — stop talking to SQL Server's `dbo.news` directly. It is
+deliberately a **separate controller** from `NewsController`: these three operations mutate the flat
+`news` row (title, author, paragraphs, photo slots, …), a different shape from both `NewsController`'s
+read queries and the generic JSON-document CRUD `AbstractDocumentController` exposes on the same base
+path (`POST`/`PUT /api/v1/news/{id}`, still SQL-Server-backed — see "Database contract" above; that
+surface is unrelated to this page and untouched by this change).
+
+| Endpoint | Backing | Notes |
+|----------|---------|-------|
+| `POST /api/v1/news/admin/draft` | MySQL `{call sp_news_admin_draft_create(?)}` | Purges every unpublished draft, then inserts one fresh draft (`news_title='title'`, `news_author='Lepsik'`, `news_publish=0`) and returns its id — the gateway equivalent of the page's old `Page_Load`, same placeholder values, not new behaviour. `201 {id}` |
+| `PATCH /api/v1/news/admin/{id}` | MySQL `CALL sp_news_admin_publish(...)` | Upserts every editable field and sets `news_publish=1`. An unknown id **inserts** rather than 404ing — mirrors `ButtonSubmitAddNews_Click`'s original update-or-recover-by-insert (the draft can be gone if a second `AddNews` tab's `Page_Load` purged it first). `title` is the only required field (blank ⇒ 400); everything else defaults sensibly (`stamp` missing/unparseable/in-the-future/over-a-year-old ⇒ now, mirroring the page's own clamp; a `lakeId`/`fish1Id`/`fish2Id`/`fish3Id` that isn't a canonical GUID is dropped, not stored). `200 {id, action}` where `action` is `inserted`/`updated` |
+| `PATCH /api/v1/news/admin/{id}/photo/{index}` | MySQL `CALL sp_news_admin_photo_update(...)` | Replaces one paragraph-photo slot (`index` 0/1/2, validated before any DB call ⇒ 400 otherwise). Body carries `photoBase64` (required) plus optional `author`/`alt` — omitted/`null` leaves that column's current value in place, matching `GetPicture`/`ImportPhoto` (bytes only) vs. `btnBriefUpload_Click` (bytes+author+alt) writing the same columns with different completeness in the original page. Unknown id ⇒ 404. `200 {id, index, updated:true}` |
+
+**No admin check happens in docapi.** Same trust model as every other write endpoint here (river-fish
+upsert, description/source/mouth patch, regulation upsert): `Editor/AddNews.aspx` is already
+admin-gated server-side (`Page_Load` redirects a non-admin before rendering), and the gateway's signed
+JWT proves the caller is a genuine, signed-in site session — this service has no independent way to
+decide who counts as an admin, so it doesn't try.
+
+**No SQL Server fallback, unlike the read-side migrations.** `Default.aspx`/`News.aspx`/the viewer
+pages keep a SQL Server fallback because their move to MySQL was a resilience-preserving read
+migration while `dbo.news` still existed as a (smaller, still-live) mirror. This is different: the
+whole point is retiring `dbo.news`, so there is deliberately nothing to fall back to — a MySQL outage
+here fails the admin page's save, which is the correct behaviour for a write.
+
+**`sp_news_admin_publish` uses `INSERT ... ON DUPLICATE KEY UPDATE`, not an UPDATE-then-check-
+`ROW_COUNT()` upsert.** MySQL's `ROW_COUNT()` after an `UPDATE` counts *changed* rows, not *matched*
+ones (unlike SQL Server's `@@ROWCOUNT`) — a resubmit whose values are byte-identical to what's already
+stored would read as "0 rows affected" and be wrongly treated as "no such draft", attempting a second
+`INSERT` under the same primary key. `sp_news_admin_photo_update` checks existence with an explicit
+`SELECT COUNT(*)` *before* its `UPDATE` for the identical reason (re-saving identical photo bytes must
+not read as "unknown id"). See `envfish-db/mysql/script02_Proc.sql`'s comments on both procedures.
+
+**Not yet applied to production.** The app's MySQL credential (`portos`) holds no `INSERT`/`UPDATE`/
+`CREATE ROUTINE` on `mysql_111487_envfish` — the same gap `envfish-db/mysql/FIX_missing_v_news_default_doc.sql`
+documents for the missing home-page view. `envfish-db/mysql/ADMIN_WRITE_news_procs.sql` is a
+ready-to-paste copy of the three `CREATE PROCEDURE` statements for the Winhost control panel; once
+created there (under whichever account runs the control panel, not `portos`), `portos`'s existing
+blanket `EXECUTE` grant is enough to call them — a MySQL routine runs under its *definer's* rights by
+default, so the `INSERT`/`UPDATE` inside happens under the definer's grants, not `portos`'s.
+
+`MySqlNewsAdminCommandRepository.publish`/`updatePhoto` reuse
+`JdbcRiverFishCommandRepository`/`JdbcRiverDescriptionCommandRepository`'s manual result-set-drain
+pattern (`ps.execute()` + `getMoreResults()`), because each procedure's `INSERT`/`UPDATE` can precede
+its one result-row `SELECT` and a plain `executeQuery()` cannot be trusted to skip past that. This is
+standard JDBC, not an MSSQL-specific trick, so it ports unchanged to MySQL Connector/J.
+`createDraft` uses a `CallableStatement` with a registered `OUT` parameter instead, since that
+procedure has no result set at all.
 
 ### News-page read queries (functions that already exist in `envfish-db`)
 
@@ -584,7 +642,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (205 tests):
+`mvn test` — no DB needed (221 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`), SQL Server.
@@ -624,6 +682,12 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   `MySqlNewsQueryRepositoryTest`, mirroring `lakeNews` exactly but asserting all three species slots
   (`fish1_id`/`fish2_id`/`fish3_id`) appear in the `WHERE` and that the fish id binds to all three
   slots before the limit.
+- `NewsAdminControllerTest` (16, 1.13.0) — `@WebMvcTest` slice, `@MockBean NewsAdminCommandRepository`:
+  draft creation 201; publish maps every field via an `ArgumentCaptor` (incl. dropping a non-GUID
+  species tag, clamping a missing or future `stamp` to now); missing/blank `title`, a missing/
+  malformed body, and a non-GUID `{id}` path are each 400 **with the repository never called**; photo
+  update decodes base64 and passes `null` through for an omitted `author`/`alt`; an out-of-range slot
+  index is 400 before any repository call; an unknown id on the photo route is 404.
 - `NewsCacheTest` — both news caches: what is held, `/export` read-through (never cached), `/import`
   evicting the cached lists + home page, and the three "only on a cold entry" guarantees — deep pages
   cached after their first load, cold entries loaded **once** under concurrency (16 threads ⇒ 1

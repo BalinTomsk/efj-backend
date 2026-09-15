@@ -58,6 +58,18 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 | `GET` | `/api/v1/news/lake/{guid}?limit=` | 200 | `{ lakeId, limit, items:[{ newsId, title, source, stamp, country }] }` — one water body's latest published articles, newest first (default 12, cap 200). **Empty `items`, never 404**, for a water body with no news; a non-GUID path ⇒ 400 (1.11.0) |
 | `GET` | `/api/v1/news/fish/{guid}?limit=` | 200 | `{ fishId, limit, items:[{ newsId, title, source, stamp, country }] }` — the species counterpart of `/news/lake/{guid}`: one species' latest published articles, newest first (default 10, cap 200), matching any of the article's three species slots. **Empty `items`, never 404**, for a species with no news; a non-GUID path ⇒ 400 (1.12.0) |
 
+**News-admin writes** (news only, added on the separate `NewsAdminController` — flat `news`-row
+mutations for `fishfind-frontend`'s `Editor/AddNews.aspx` authoring page, MySQL-backed via
+`envfish-db/mysql/script02_Proc.sql`'s `sp_news_admin_*` procedures; **not yet applied to
+production**, see `CLAUDE.md` → "News-admin writes" for the `portos` grant gap and the control-panel
+script that unblocks it):
+
+| Verb | Path | Success status | Response `data` |
+|------|------|----------------|-----------------|
+| `POST` | `/api/v1/news/admin/draft` | 201 | `{ id }` — purges every unpublished draft, inserts one fresh placeholder draft, returns its id |
+| `PATCH` | `/api/v1/news/admin/{id}` | 200 | `{ id, action }` (`inserted`/`updated`) — upserts every editable field and publishes; body: `title` (required), `author`, `source`, `sourceLink`, `authorLink`, `stamp` (`yyyy-MM-ddTHH:mm:ss`, defaults to now, clamped to the last year), `videoLink`, `paragraph0/1/2`, `country`, `lakeId`, `fish1Id/2Id/3Id`; blank `title` ⇒ 400 |
+| `PATCH` | `/api/v1/news/admin/{id}/photo/{index}` | 200 | `{ id, index, updated:true }` — replaces paragraph-photo slot 0/1/2; body: `photoBase64` (required), optional `author`/`alt` (omitted ⇒ leaves the existing value); bad `index` or missing/invalid `photoBase64` ⇒ 400; unknown `id` ⇒ 404 (1.13.0) |
+
 **Fish-catalogue search** (fish only, added on `FishController` — calls `dbo.SearchFishList`, which
 already exists in `envfish-db`; see [Data access](#data-access)):
 
@@ -740,6 +752,44 @@ assembled during a MySQL blip is served until the next eviction.
   via `xs:base64Binary`; `lake_id`/`fish1..3` via `TRY_CONVERT`, bad text ⇒ null), `news_publish = 1`,
   absent date ⇒ now, and returns the new `news_id`. Added test-first in `envfish-db`
   (`UNIT_TESTS/unit_test@NewsImport.sql`, 4 tests incl. a fn_news_json export→import round-trip).
+
+### News-admin write repository (`NewsAdminCommandRepository`, 1.13.0)
+
+A separate interface from everything above — `createDraft()`/`publish(request)`/
+`updatePhoto(id, index, photo, author, alt)`, backing `NewsAdminController`. Two implementations:
+`InMemoryNewsAdminCommandRepository` (default profile, an in-process `Set<String>` of known ids — a
+created/published id is "found" for a later photo update, everything else is not) and
+`MySqlNewsAdminCommandRepository` (`jdbc` profile, targets `mysqlNewsJdbcTemplate`, the same MySQL
+pool the read side uses).
+
+- `sp_news_admin_draft_create(OUT news_id)` — `DELETE FROM news WHERE news_publish <> 1`, then
+  `INSERT` one fresh row (`news_title='title'`, `news_author='Lepsik'`, `news_publish=0`) under a
+  server-generated `UUID()`. Called via a `CallableStatement` with a registered `OUT` parameter
+  (`Types.CHAR`) — the only one of the three procedures with no result set.
+- `sp_news_admin_publish(...)` — `INSERT ... ON DUPLICATE KEY UPDATE` across every editable column,
+  then `SELECT news_id, IF(ROW_COUNT()=1,'inserted','updated') AS action`. The upsert form is
+  deliberate: MySQL's `ROW_COUNT()` after a plain `UPDATE` counts rows actually **changed**, not
+  matched (unlike SQL Server's `@@ROWCOUNT`), so a byte-identical resubmit would otherwise read as
+  "no such draft" and attempt a duplicate-key `INSERT`. `ROW_COUNT()=1` is the one value that
+  unambiguously means "this was a fresh row" for `INSERT ... ON DUPLICATE KEY UPDATE` (0 = matched,
+  unchanged; 2 = matched, changed).
+- `sp_news_admin_photo_update(news_id, index, photo, author, alt)` — an explicit
+  `SELECT COUNT(*) INTO v_exists` before the `UPDATE`, for the identical `ROW_COUNT()` reason: a
+  resubmit of identical photo bytes must not read as "unknown id". `author`/`alt` are merged with
+  `COALESCE(new, existing)`, so a `NULL` (omitted in the JSON body) leaves that column untouched
+  while the photo bytes are always replaced. Returns `(found, updated)`; an index outside 0..2 on a
+  real id yields `found=1, updated=0` (the controller never sends one, since it validates the path
+  variable itself, but the procedure stays defensive).
+- Both `publish` and `updatePhoto` are invoked through `PreparedStatement.execute()` +
+  `getMoreResults()` (see `JdbcRiverFishCommandRepository`), not `jdbc.query()`, because each
+  procedure's `INSERT`/`UPDATE` can precede its one result-row `SELECT`.
+- **Not yet applied to production.** `portos` (the only MySQL credential in this codebase) has no
+  `INSERT`/`UPDATE`/`CREATE ROUTINE` grant on `mysql_111487_envfish` — confirmed via the same
+  `ERROR 1142` `FIX_missing_v_news_default_doc.sql` hit for `CREATE VIEW`. Once created via the
+  Winhost control panel (`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`), `portos`'s existing blanket
+  `EXECUTE` grant suffices — a MySQL routine runs under its definer's rights by default.
+- No Resilience4j fallback tries SQL Server: unlike the read-side repositories, there is nothing to
+  fall back to — this is a one-way move off `dbo.news`, which is being dropped.
 
 ### Fish-catalogue query repository (`FishQueryRepository`)
 
