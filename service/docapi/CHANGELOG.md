@@ -54,6 +54,45 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   `fishfind-frontend/Editor/CLAUDE.md` for the full session and what's still outstanding (the MySQL
   script and the `FishTracker.dll` FTP upload).
 
+  **Follow-up, same day — 1.13.1 through 1.13.5, WORKING END TO END as of 1.13.5.** The user ran
+  the control-panel script; the procedures existed but two more real bugs surfaced testing them
+  live, both fixed and redeployed in place (image swapped each time, no new endpoints):
+  - **1.13.1** — `sp_news_admin_draft_create`'s `OUT` parameter failed with "Parameter number 1 is
+    not an OUT parameter". Cause: Connector/J tries to introspect a procedure's own metadata to
+    learn its parameter directions (effectively `SHOW CREATE PROCEDURE`), and `portos` — not the
+    procedure's definer, no elevated privilege — is refused that lookup, so the driver silently
+    assumed no `OUT` parameters existed. Fixed with `noAccessToProcedureBodies=true` on the MySQL
+    datasource, which tells the driver to trust the caller's own `registerOutParameter` call
+    instead of introspecting.
+  - **1.13.2 through 1.13.4 — three connection-pool tuning attempts that all looked plausible and
+    all still failed live.** `POST /news/admin/draft` hung ~30-37s then 500'd, and the driver's own
+    error text ("last packet received Xms ago" exceeding `wait_timeout`) pointed at a stale pooled
+    connection — `Connection.isValid()` kept reporting a connection healthy moments before a real
+    query on it hung. Tried, in order: `minimumIdle=1` + `keepaliveTime`; `minimumIdle=0` +
+    `idleTimeout` alone (doesn't work — HikariCP's housekeeper only sweeps once per
+    `housekeepingPeriodMs`, default 30s, so a connection can sit stale up to `idleTimeout + 30s`
+    before eviction); tightening that sweep (no scoped per-pool setter exists, it is a JVM-wide
+    system property). None of it was the real bug.
+  - **1.13.5 — the actual fix: an index.** Isolated by testing `PATCH /news/admin/{id}/photo/{index}`
+    (no `DELETE`, unrelated to the draft path) against an unknown id — instant, 200ms. The one thing
+    `sp_news_admin_draft_create` does that nothing else does is `DELETE FROM news WHERE
+    news_publish <> 1`, and `news_publish` had no index — a full table scan of a ~4,800-row table
+    carrying several `LONGBLOB`/`LONGTEXT` columns, the exact "multi-row scan of this table hangs on
+    this host" hazard `envfish-db/CLAUDE.md` already documents for `news_photo0`/`1`/`2`. New
+    `NewsIndexBootstrap` (`config/`) creates `idx_news_publish` on startup if missing, applied live
+    via docapi's own working MySQL connection — `portos` holds `ALTER`/`INDEX` even though it holds
+    no `CREATE ROUTINE`, so this one *could* be fixed from application code without the control
+    panel. Verified: three consecutive `POST /news/admin/draft` calls all completed in under a
+    second, no idle gap needed to reproduce the old symptom (confirming it was never really about
+    connection idle time). Schema source of truth updated in
+    `envfish-db/mysql/script01_createTable.sql` (inline `KEY` on a fresh build, plus the same
+    idempotent guarded-migration pattern as `has_photo0` for an existing database).
+  The pool-tuning changes (`minimumIdle=0`, `idleTimeout(15000)`, `connectionTestQuery`) were kept
+  in 1.13.5 as reasonable hardening in their own right, but are explicitly documented in
+  `JdbcStoreConfig` as not having been the actual fix — don't let a future reader credit them for
+  something the index did. `Editor/AddNews.aspx`'s only remaining blocker is now the
+  `FishTracker.dll` FTP upload.
+
 - 2026-09-14 (latest): **1.12.0 DEPLOYED and verified live** (also ships 1.11.0's
   `/news/lake/{guid}` — both were bundled into one image build). Image
   `ghcr.io/balintomsk/docapi:1.12.0`, digest

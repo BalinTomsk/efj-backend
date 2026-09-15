@@ -107,7 +107,9 @@ public class JdbcStoreConfig {
         ds.setDriverClassName("com.mysql.cj.jdbc.Driver");
         ds.setPoolName("docapi-news-mysql-hikari");
         ds.setMaximumPoolSize(5);
-        ds.setMinimumIdle(1);
+        // minimumIdle=0 is deliberate, not an oversight -- see the idleTimeout comment below for why
+        // the value that used to be here (1) defeated idle eviction entirely.
+        ds.setMinimumIdle(0);
         // Same time budget as the SQL Server pool in application-jdbc.yml, and for the same reason:
         // cproxy's 10s read timeout means anything slower than that reaches the caller as an opaque
         // 502. This pool sits on the SAME network path to the same provider, so it hits the same
@@ -119,7 +121,47 @@ public class JdbcStoreConfig {
         // stalled read and is deliberately generous, not part of the budget.
         ds.addDataSourceProperty("connectTimeout", "3000");
         ds.addDataSourceProperty("socketTimeout", "30000");
+        // Required for CallableStatement.registerOutParameter to work against this account.
+        // Connector/J's default behaviour introspects the procedure's own metadata (effectively
+        // `SHOW CREATE PROCEDURE`) to learn which parameters are OUT -- and `portos` (not the
+        // procedure's definer, no elevated privilege) is refused that lookup. Without this flag the
+        // driver silently treats every parameter as "not OUT" instead of erroring on the connection,
+        // so `sp_news_admin_draft_create`'s OUT parameter failed at call time with "Parameter number
+        // 1 is not an OUT parameter" (confirmed live 2026-09-15, right after the three procedures
+        // were created via the Winhost control panel) even though the procedure and the registered
+        // type were both correct. `noAccessToProcedureBodies=true` tells the driver to trust the
+        // caller's own registerOutParameter/setXxx calls instead of trying to introspect -- the
+        // procedures here are simple enough (CHAR/VARCHAR/LONGBLOB/DATETIME, no unusual types) that
+        // this costs nothing in practice.
+        ds.addDataSourceProperty("noAccessToProcedureBodies", "true");
         ds.setMaxLifetime(1740000); // 29 min
+        // 2026-09-15: bringing up the news-admin WRITE endpoints surfaced a ~30-37s hang on every
+        // call to sp_news_admin_draft_create, which for a while genuinely looked like a connection-
+        // pool problem -- the driver kept reporting connections as long-idle-but-"valid" right before
+        // a query on them hung until socketTimeout. Four pool-tuning attempts in a row
+        // (minimumIdle=1+keepaliveTime; minimumIdle=0+idleTimeout alone, which doesn't work because
+        // HikariCP's housekeeper only sweeps once per housekeepingPeriodMs (default 30s), so a
+        // connection can sit stale for up to idleTimeout+30s before eviction; tightening that sweep,
+        // which turned out to have no scoped per-pool setter; connectionTestQuery to force a real
+        // `SELECT 1` on borrow) each looked plausible and each still reproduced live. The actual root
+        // cause was never the pool: `sp_news_admin_draft_create`'s `DELETE FROM news WHERE
+        // news_publish <> 1` was a full table scan (no index existed on `news_publish`) against a
+        // ~4,800-row table with several LONGBLOB/LONGTEXT columns -- the exact "multi-row scan of
+        // this table hangs on this host" hazard envfish-db/CLAUDE.md already documents for
+        // news_photo0/1/2. `read` endpoints on this same pool never hit it because none of them scan
+        // more than a handful of narrow-column rows; this was the first WRITE to touch the table
+        // broadly. Fixed by an index (see NewsIndexBootstrap, applied live via this same pool since
+        // `portos` holds ALTER/INDEX even though it holds no CREATE ROUTINE) -- confirmed instantly:
+        // three consecutive draft-create calls post-index all completed in under a second, with no
+        // idle gap needed to reproduce the old symptom.
+        //
+        // minimumIdle=0, idleTimeout(15000) and connectionTestQuery below are kept anyway -- genuine
+        // improvements in their own right (no idle floor for a low-traffic pool to let go stale, and
+        // borrow-time validation that doesn't trust a driver liveness check already shown to lie on
+        // this host at least once) -- but they are not what fixed this bug, and do not remove the
+        // need to keep any future multi-row query against `news` indexed and narrow-columned.
+        ds.setConnectionTestQuery("SELECT 1");
+        ds.setIdleTimeout(15000);
         return new JdbcTemplate(ds);
     }
 
@@ -299,6 +341,16 @@ public class JdbcStoreConfig {
     public NewsAdminCommandRepository newsAdminCommandRepository(
             @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
         return new MySqlNewsAdminCommandRepository(mysqlJdbc);
+    }
+
+    /**
+     * Ensures {@code news.idx_news_publish} exists on the live database -- see
+     * {@link NewsIndexBootstrap} for why {@code sp_news_admin_draft_create} needs it and why this
+     * runs from application code rather than the usual control-panel route.
+     */
+    @Bean
+    public NewsIndexBootstrap newsIndexBootstrap(@Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
+        return new NewsIndexBootstrap(mysqlJdbc);
     }
 
     @Bean

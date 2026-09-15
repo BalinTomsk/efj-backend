@@ -783,11 +783,19 @@ pool the read side uses).
 - Both `publish` and `updatePhoto` are invoked through `PreparedStatement.execute()` +
   `getMoreResults()` (see `JdbcRiverFishCommandRepository`), not `jdbc.query()`, because each
   procedure's `INSERT`/`UPDATE` can precede its one result-row `SELECT`.
-- **Not yet applied to production.** `portos` (the only MySQL credential in this codebase) has no
-  `INSERT`/`UPDATE`/`CREATE ROUTINE` grant on `mysql_111487_envfish` — confirmed via the same
-  `ERROR 1142` `FIX_missing_v_news_default_doc.sql` hit for `CREATE VIEW`. Once created via the
-  Winhost control panel (`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`), `portos`'s existing blanket
-  `EXECUTE` grant suffices — a MySQL routine runs under its definer's rights by default.
+- **Applied to production and verified working (2026-09-15).** `portos` (the only MySQL credential
+  in this codebase) has no `INSERT`/`UPDATE`/`CREATE ROUTINE` grant on `mysql_111487_envfish` —
+  confirmed via the same `ERROR 1142` `FIX_missing_v_news_default_doc.sql` hit for `CREATE VIEW` —
+  so the procedures were created via the Winhost control panel
+  (`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`); `portos`'s existing blanket `EXECUTE` grant then
+  sufficed to call them, since a MySQL routine runs under its definer's rights by default. Two more
+  bugs surfaced before it actually worked — `noAccessToProcedureBodies=true` for the `OUT` parameter
+  (Connector/J refuses to introspect a non-definer's procedure metadata) and, the real blocker, a
+  missing index on `news_publish` that made `sp_news_admin_draft_create`'s cleanup `DELETE` a full
+  table scan on a BLOB-heavy ~4,800-row table — see `JdbcStoreConfig.mysqlNewsJdbcTemplate`'s
+  comments in the docapi repo for the full diagnostic story, including three connection-pool tuning
+  attempts that looked plausible and were not the actual fix. `NewsIndexBootstrap` applies the index
+  live on startup, since `portos` holds `ALTER`/`INDEX` even though it holds no `CREATE ROUTINE`.
 - No Resilience4j fallback tries SQL Server: unlike the read-side repositories, there is nothing to
   fall back to — this is a one-way move off `dbo.news`, which is being dropped.
 

@@ -107,7 +107,11 @@ com.fishfind.docapi
 ├── config
 │   ├── DotenvEnvironmentPostProcessor   # local .env → low-precedence property source
 │   ├── InMemoryStoreConfig        # @Profile("!jdbc") — 4 in-memory DocumentStore beans (default)
-│   └── JdbcStoreConfig            # @Profile("jdbc")  — 4 JDBC DocumentStore beans
+│   ├── JdbcStoreConfig            # @Profile("jdbc")  — 4 JDBC DocumentStore beans
+│   └── NewsIndexBootstrap         # @Profile("jdbc") ApplicationRunner — idempotently creates
+│                                  #   news.idx_news_publish on startup (portos holds ALTER/INDEX
+│                                  #   even though it holds no CREATE ROUTINE); see JdbcStoreConfig
+│                                  #   for why sp_news_admin_draft_create needs this index (1.13.5)
 ├── domain
 │   └── DocumentType               # enum NEWS / WATERBODY / FISH / STATION (label per entity)
 ├── repo
@@ -328,13 +332,28 @@ stored would read as "0 rows affected" and be wrongly treated as "no such draft"
 `SELECT COUNT(*)` *before* its `UPDATE` for the identical reason (re-saving identical photo bytes must
 not read as "unknown id"). See `envfish-db/mysql/script02_Proc.sql`'s comments on both procedures.
 
-**Not yet applied to production.** The app's MySQL credential (`portos`) holds no `INSERT`/`UPDATE`/
-`CREATE ROUTINE` on `mysql_111487_envfish` — the same gap `envfish-db/mysql/FIX_missing_v_news_default_doc.sql`
-documents for the missing home-page view. `envfish-db/mysql/ADMIN_WRITE_news_procs.sql` is a
-ready-to-paste copy of the three `CREATE PROCEDURE` statements for the Winhost control panel; once
-created there (under whichever account runs the control panel, not `portos`), `portos`'s existing
-blanket `EXECUTE` grant is enough to call them — a MySQL routine runs under its *definer's* rights by
-default, so the `INSERT`/`UPDATE` inside happens under the definer's grants, not `portos`'s.
+**Applied to production and verified working (2026-09-15).** The app's MySQL credential (`portos`)
+holds no `INSERT`/`UPDATE`/`CREATE ROUTINE` on `mysql_111487_envfish` — the same gap
+`envfish-db/mysql/FIX_missing_v_news_default_doc.sql` documents for the missing home-page view — so
+the three procedures were created by the user via the Winhost control panel from
+`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`. `portos`'s existing blanket `EXECUTE` grant was then
+enough to call them — a MySQL routine runs under its *definer's* rights by default, so the
+`INSERT`/`UPDATE` inside happens under the definer's grants, not `portos`'s.
+
+**Getting from "procedures exist" to "actually working" took two more fixes, both in
+`JdbcStoreConfig.mysqlNewsJdbcTemplate` — see its comments there for the full story, including three
+plausible-looking connection-pool tuning attempts that turned out to be the wrong diagnosis
+entirely:**
+1. `noAccessToProcedureBodies=true` — Connector/J normally introspects a procedure's own metadata to
+   learn its parameter directions, and `portos` (not the definer) is refused that lookup, so
+   `sp_news_admin_draft_create`'s `OUT` parameter failed at call time even though the code was
+   correct.
+2. An index. `sp_news_admin_draft_create`'s `DELETE FROM news WHERE news_publish <> 1` was a full
+   table scan (no index on `news_publish`) against a ~4,800-row table with several
+   `LONGBLOB`/`LONGTEXT` columns — the same "multi-row scan hangs on this host" hazard already
+   documented for `news_photo0`/`1`/`2`. New `NewsIndexBootstrap` (`config/`) creates
+   `idx_news_publish` on startup since `portos` holds `ALTER`/`INDEX` (unlike `CREATE ROUTINE`), so
+   this one didn't need the control panel at all.
 
 `MySqlNewsAdminCommandRepository.publish`/`updatePhoto` reuse
 `JdbcRiverFishCommandRepository`/`JdbcRiverDescriptionCommandRepository`'s manual result-set-drain
