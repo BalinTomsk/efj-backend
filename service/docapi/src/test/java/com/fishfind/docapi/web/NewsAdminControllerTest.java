@@ -4,6 +4,8 @@ import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.NewsAdminPublishRequest;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PhotoUpdateResult;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PublishResult;
+import com.fishfind.docapi.repo.NewsDocumentCache;
+import com.fishfind.docapi.repo.NewsQueryCache;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -39,6 +41,12 @@ class NewsAdminControllerTest {
 
     @MockBean
     private NewsAdminCommandRepository commandRepository;
+
+    @MockBean
+    private NewsQueryCache queryRepository;
+
+    @MockBean(name = "newsStore")
+    private NewsDocumentCache newsStore;
 
     // ---- POST /draft ----
 
@@ -95,6 +103,18 @@ class NewsAdminControllerTest {
         // "not-a-guid" is not a canonical GUID, so it is dropped rather than stored verbatim.
         assertThat(r.fish2Id()).isNull();
         assertThat(r.fish3Id()).isNull();
+    }
+
+    @Test
+    void publishEvictsBothNewsCachesOnSuccess() throws Exception {
+        when(commandRepository.publish(any())).thenReturn(new PublishResult(ID, "updated"));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                        .contentType("application/json").content("{\"title\":\"A Title\"}"))
+                .andExpect(status().isOk());
+
+        verify(queryRepository).clear();
+        verify(newsStore).clear();
     }
 
     @Test
@@ -202,6 +222,32 @@ class NewsAdminControllerTest {
                 .andExpect(status().isOk());
 
         verify(commandRepository).updatePhoto(eq(ID), eq(1), any(), eq(null), eq(null));
+    }
+
+    @Test
+    void photoUpdateEvictsBothNewsCachesOnSuccess() throws Exception {
+        when(commandRepository.updatePhoto(eq(ID), eq(0), any(), any(), any()))
+                .thenReturn(new PhotoUpdateResult(true, true));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID + "/photo/0")
+                        .contentType("application/json").content("{\"photoBase64\":\"AAAA\"}"))
+                .andExpect(status().isOk());
+
+        verify(queryRepository).clear();
+        verify(newsStore).clear();
+    }
+
+    @Test
+    void photoUpdateUnknownIdDoesNotEvictCaches() throws Exception {
+        when(commandRepository.updatePhoto(eq(ID), eq(0), any(), any(), any()))
+                .thenReturn(new PhotoUpdateResult(false, false));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID + "/photo/0")
+                        .contentType("application/json").content("{\"photoBase64\":\"AAAA\"}"))
+                .andExpect(status().isNotFound());
+
+        verify(queryRepository, never()).clear();
+        verify(newsStore, never()).clear();
     }
 
     @Test

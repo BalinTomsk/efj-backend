@@ -353,6 +353,17 @@ public class JdbcStoreConfig {
         return new NewsIndexBootstrap(mysqlJdbc);
     }
 
+    /**
+     * Ensures the two {@code news.has_photo0} maintenance triggers exist on the live database --
+     * see {@link NewsPhotoTriggerBootstrap} for why they were apparently never actually applied
+     * there, and why this runs from application code rather than the usual control-panel route.
+     */
+    @Bean
+    public NewsPhotoTriggerBootstrap newsPhotoTriggerBootstrap(
+            @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
+        return new NewsPhotoTriggerBootstrap(mysqlJdbc);
+    }
+
     @Bean
     public NewsCacheEvictor newsCacheEvictor(NewsQueryRepository newsQueryRepository,
                                              @Qualifier("newsStore") DocumentStore newsStore,

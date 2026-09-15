@@ -5,12 +5,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.NewsAdminPublishRequest;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PhotoUpdateResult;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PublishResult;
+import com.fishfind.docapi.repo.NewsDocumentCache;
+import com.fishfind.docapi.repo.NewsQueryCache;
+import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -65,12 +72,49 @@ public class NewsAdminController {
 
     private static final DateTimeFormatter STAMP_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
+    private static final Logger log = LoggerFactory.getLogger(NewsAdminController.class);
+
     private final NewsAdminCommandRepository commandRepository;
     private final ObjectMapper objectMapper;
+    private final NewsQueryRepository queryRepository;
+    private final DocumentStore newsStore;
 
-    public NewsAdminController(NewsAdminCommandRepository commandRepository, ObjectMapper objectMapper) {
+    /**
+     * {@code queryRepository}/{@code newsStore} are the same beans {@code NewsController}/
+     * {@code NewsDocumentService} inject -- under the default (no-DB) profile they are plain,
+     * uncached implementations, and under {@code jdbc} they are {@link NewsQueryCache}/
+     * {@link NewsDocumentCache}. Injected by interface/base type (not the concrete cache classes
+     * directly, unlike {@code NewsCacheEvictor}) so this controller works in both profiles; the
+     * cache clear after a successful write is a no-op instanceof-check when there is no cache to
+     * clear.
+     */
+    public NewsAdminController(NewsAdminCommandRepository commandRepository, ObjectMapper objectMapper,
+                               NewsQueryRepository queryRepository,
+                               @Qualifier("newsStore") DocumentStore newsStore) {
         this.commandRepository = commandRepository;
         this.objectMapper = objectMapper;
+        this.queryRepository = queryRepository;
+        this.newsStore = newsStore;
+    }
+
+    /**
+     * Confirmed live 2026-09-15: an article published through {@code PATCH /{id}} did not appear on
+     * {@code /news/list} because nothing here ever told {@link NewsQueryCache} its cached list/
+     * home-page rows were stale -- only {@code POST /news/import} did that. Called after a
+     * successful {@link #publish}/{@link #updatePhoto}, so the next read repopulates from the
+     * database instead of serving the pre-write snapshot. Also drops {@link NewsDocumentCache} for
+     * the same reason (a document positively cached before this write, or a remembered 404 for an
+     * id this write just created, both go stale) -- harmless to clear in full for a low-frequency
+     * admin write path, and this controller has no way to target just one id in that cache.
+     */
+    private void evictNewsCaches() {
+        if (queryRepository instanceof NewsQueryCache) {
+            ((NewsQueryCache) queryRepository).clear();
+        }
+        if (newsStore instanceof NewsDocumentCache) {
+            ((NewsDocumentCache) newsStore).clear();
+        }
+        log.info("News caches evicted after an admin write");
     }
 
     /**
@@ -133,6 +177,7 @@ public class NewsAdminController {
                 guidOrNull(text(fields, "fish3Id")));
 
         PublishResult result = commandRepository.publish(request);
+        evictNewsCaches();
 
         ObjectNode out = objectMapper.createObjectNode();
         out.put("id", result.newsId());
@@ -169,7 +214,12 @@ public class NewsAdminController {
         }
         byte[] photo;
         try {
-            photo = Base64.getDecoder().decode(photoBase64);
+            // MIME decoder, not the strict basic one: tolerates embedded newlines, which is exactly
+            // the shape MySQL's TO_BASE64() emits (76-char line wraps, confirmed live 2026-09-15
+            // re-applying a photo fetched from GET /news/{id}) -- a caller round-tripping that output
+            // straight back through this endpoint must not be rejected for whitespace the source
+            // itself put there. Still correctly decodes an unwrapped single-line value.
+            photo = Base64.getMimeDecoder().decode(photoBase64);
         } catch (IllegalArgumentException ex) {
             throw new InvalidDocumentException("photoBase64 is not valid base64", ex);
         }
@@ -180,6 +230,7 @@ public class NewsAdminController {
         if (!result.found()) {
             throw new DocumentNotFoundException(DocumentType.NEWS, newsId);
         }
+        evictNewsCaches();
 
         ObjectNode out = objectMapper.createObjectNode();
         out.put("id", newsId);
