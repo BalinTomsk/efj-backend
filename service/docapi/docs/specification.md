@@ -287,9 +287,10 @@ News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use)
 - **Only these two endpoints carry the FULL document** — every field plus all three paragraph photos
   embedded as **base64**; the `/{id}`, `/list`, `/default` endpoints above keep their existing lighter
   shapes and amount.
-- `GET /api/v1/news/export/{id}` — backed by `dbo.fn_news_json(@id)`; `NULL` ⇒ 404. The literal
-  `/export/…` prefix is matched ahead of the templated `/{id}` fetch. Read straight through the news
-  cache (not cached — large per-id payload).
+- `GET /api/v1/news/export/{id}` — backed by MySQL `CALL sp_news_doc_export(?)` since **2026-09-17**
+  (`dbo.fn_news_json(@id)` before that); an empty result set ⇒ 404, where SQL Server returned a
+  `NULL` scalar. The literal `/export/…` prefix is matched ahead of the templated `/{id}` fetch. Read
+  straight through the news cache (not cached — large per-id payload).
 - `POST /api/v1/news/import` — backed by `dbo.sp_news_import(@json)`: creates a **published** article
   from an `fn_news_json` body (base64 photos decoded to binary; `lake_id`/`fish1..3` accept a GUID
   string or null), returns the new id. Blank/malformed body ⇒ 400 `invalid_document`. `news_title` is
@@ -550,8 +551,10 @@ through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
 - **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
   `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `search` (1.10.0), `lakeNews`
   (1.11.0) and `fishNews` (1.12.0) run inlined MySQL statements — `lakeNews` and `fishNews` share one
-  `REF_ROW_MAPPER` for their identical five-column row shape; `exportNews`/`importNews` delegate
-  unchanged to the injected SQL-Server-backed `JdbcNewsQueryRepository` instance.
+  `REF_ROW_MAPPER` for their identical five-column row shape; `exportNews` calls MySQL
+  `CALL sp_news_doc_export(?)` (2026-09-17). Only `importNews` still delegates to the injected
+  SQL-Server-backed `JdbcNewsQueryRepository` instance — `POST /news/import` has no caller, so there
+  is nothing to port.
   `defaultNews` touches SQL Server not at all — a `resolveRefNames` call that put `lake_name` and
   the `fishes` names on each item existed in 1.8.0–1.8.1 and was removed on 2026-09-03 with the
   database function behind it, so no read here spans both databases any more.
@@ -569,7 +572,11 @@ through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
   `DataSource`-typed bean found, regardless of qualifier) — so this pool is deliberately invisible
   to bean-type lookups. Trade-off: it isn't covered by the Actuator `db` health indicator and isn't
   closed on graceful shutdown; acceptable for a small secondary read-only pool.
-- **New DB objects** in `envfish-db/mysql/script02_Proc.sql`: `sp_news_doc_get` (mirrors
+- **New DB objects** in `envfish-db/mysql/script02_Proc.sql`: `sp_news_doc_export` (2026-09-17;
+  a field-for-field port of `dbo.fn_news_json` — same 24 camelCase keys, nulls included, base64
+  photos with MySQL's 76-column `TO_BASE64` line breaks stripped so the document is
+  indistinguishable from SQL Server's on the wire; key order cannot be matched, MySQL sorts JSON
+  object keys, and nothing reads the document positionally), `sp_news_doc_get` (mirrors
   `dbo.fn_news_doc`, minus lake/fish name resolution), `sp_news_list_json` (mirrors
   `dbo.fn_news_list` including the non-CA-country padded-with-CA-news-to-100 behaviour),
   `sp_news_default` (mirrors `dbo.fn_default_news_ids` + `dbo.fn_default_news_json` combined into
@@ -596,8 +603,8 @@ Implementations:
   `envfish-db` (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`),
   reading through functions only — never base tables. Both methods carry `@Retry("sqlRetry")` +
   `@CircuitBreaker("sqlBreaker")` with fallbacks. Now used as the SQL-Server delegate inside
-  `MySqlNewsQueryRepository` for `search`/`exportNews`/`importNews` — see "MySQL backing" above for
-  `list`/`defaultNews`, which now read from MySQL instead.
+  `MySqlNewsQueryRepository` for `importNews` alone — see "MySQL backing" above for everything else,
+  which now reads from MySQL instead.
 
 | Query | SQL | Returns |
 |-------|-----|---------|

@@ -304,10 +304,12 @@ Notes:
 - `waterbody` maps to the `dbo.lake` table.
 - The `fish` objects (`fn_fish_doc` / `sp_fish_doc_*`) are distinct from the existing
   `dbo.fn_fish_document` / `dbo.sp_add_fish_document`, which manage a PDF blob, not the species JSON.
-- **News interchange** (`/export`, `/import`) uses its own objects, both in `envfish-db`:
-  `dbo.fn_news_json(@id)` (already deployed) for export and `dbo.sp_news_import(@json)` (added
-  test-first — `unit_test@NewsImport.sql`) for import. These carry the **full** article (all fields +
-  base64 photos); the `fn_<entity>_doc` document reads above keep their existing lighter shapes.
+- **News interchange** (`/export`, `/import`) uses its own objects. Export moved to MySQL on
+  2026-09-17 — `sp_news_doc_export` (`envfish-db/mysql/script02_Proc.sql`), a field-for-field port of
+  the `dbo.fn_news_json(@id)` it replaces. Import still runs `dbo.sp_news_import(@json)` in
+  `envfish-db` (added test-first — `unit_test@NewsImport.sql`), and has no caller. These carry the
+  **full** article (all fields + base64 photos); the `fn_<entity>_doc` document reads above keep
+  their existing lighter shapes.
 - **News search** (`/api/v1/news/search`) → the MySQL `news` table, via SQL inlined in
   `MySqlNewsQueryRepository` (1.10.0; `dbo.fn_news_search` still backs the SQL-Server profile).
   Inlined rather than a procedure because the application's MySQL account holds no `CREATE ROUTINE`

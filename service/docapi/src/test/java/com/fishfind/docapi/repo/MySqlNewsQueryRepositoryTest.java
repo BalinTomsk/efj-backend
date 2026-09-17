@@ -95,15 +95,64 @@ class MySqlNewsQueryRepositoryTest {
     }
 
     @Test
-    void exportNewsDelegatesToTheSqlServerRepository() {
-        var node = objectMapper.createObjectNode();
-        when(sqlServerDelegate.exportNews("7")).thenReturn(node);
+    void exportNewsReadsTheInterchangeDocumentFromMySql() {
+        String doc = "{\"title\":\"T\",\"photo0\":\"/9j/\",\"paragraph2\":null}";
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.EXPORT_SQL), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenReturn(List.of(doc));
 
-        assertEquals(node, repository.exportNews("7"));
-        verify(sqlServerDelegate).exportNews("7");
-        verifyNoInteractions(mysqlJdbc);
+        var node = repository.exportNews("7");
+
+        assertEquals("T", node.get("title").asText());
+        assertEquals("/9j/", node.get("photo0").asText());
+        // A null field must survive as an explicit JSON null, not vanish: AddNews.aspx's importer
+        // reads every field by name and fn_news_json emitted all of them (INCLUDE_NULL_VALUES).
+        assertTrue(node.has("paragraph2"));
+        assertTrue(node.get("paragraph2").isNull());
+        verifyNoInteractions(sqlServerDelegate);
     }
 
+    @Test
+    void exportOfAnUnknownArticleIsNull() {
+        // sp_news_doc_export answers an unknown id with an empty result set, where
+        // SELECT dbo.fn_news_json(?) answered with a NULL scalar. Both must reach the same 404.
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.EXPORT_SQL), any(PreparedStatementSetter.class), any(RowMapper.class)))
+                .thenReturn(List.of());
+
+        assertNull(repository.exportNews("nope"));
+        verifyNoInteractions(sqlServerDelegate);
+    }
+
+    /**
+     * The export is the only read in this class that touches {@code news_photo1}/{@code news_photo2},
+     * and the live Winhost host hangs on any multi-row query over those columns. The safety lives in
+     * the procedure, so all this can pin is that the call stays a single parameterised CALL to it --
+     * an inlined SELECT here would be the way that guarantee gets lost.
+     */
+    @Test
+    void exportGoesThroughTheStoredProcedure() {
+        String sql = MySqlNewsQueryRepository.EXPORT_SQL;
+
+        assertEquals("CALL sp_news_doc_export(?)", sql);
+    }
+
+    @Test
+    void exportPassesTheIdAsTheOnlyParameter() throws Exception {
+        ArgumentCaptor<PreparedStatementSetter> setter = ArgumentCaptor.forClass(PreparedStatementSetter.class);
+        when(mysqlJdbc.query(eq(MySqlNewsQueryRepository.EXPORT_SQL), setter.capture(), any(RowMapper.class)))
+                .thenReturn(List.of());
+
+        repository.exportNews("abc");
+
+        PreparedStatement ps = mock(PreparedStatement.class);
+        setter.getValue().setValues(ps);
+        verify(ps).setString(1, "abc");
+    }
+
+    /**
+     * Import stays on SQL Server deliberately -- {@code POST /news/import} has no caller (the portal
+     * imports inside {@code Editor/AddNews.aspx}, against the MySQL admin procedures), so there is
+     * nothing to port. Pinned so the asymmetry with export above reads as a decision, not a gap.
+     */
     @Test
     void importNewsDelegatesToTheSqlServerRepository() {
         when(sqlServerDelegate.importNews("{}")).thenReturn("new-id");

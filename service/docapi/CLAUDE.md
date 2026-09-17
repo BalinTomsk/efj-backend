@@ -134,10 +134,10 @@ com.fishfind.docapi
 │   ├── JdbcNewsQueryRepository    # SQL Server backing — dbo.fn_news_list / dbo.fn_default_news_json
 │   │                              #   / dbo.fn_news_search / dbo.fn_news_json / dbo.sp_news_import
 │   ├── MySqlNewsQueryRepository   # MySQL backing — list/defaultNews/newsPhoto (2026-08-31),
-│   │                              #   search (1.10.0), lakeNews and fishNews (1.11.0/1.12.0), via
-│   │                              #   sp_news_list_json/sp_news_default and
-│   │                              #   inlined SQL; export/import delegate to a wrapped
-│   │                              #   JdbcNewsQueryRepository (SQL Server)
+│   │                              #   search (1.10.0), lakeNews and fishNews (1.11.0/1.12.0),
+│   │                              #   export (2026-09-17), via sp_news_list_json/sp_news_default/
+│   │                              #   sp_news_doc_export and inlined SQL; ONLY import still
+│   │                              #   delegates to a wrapped JdbcNewsQueryRepository (SQL Server)
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -233,10 +233,12 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
 
 `GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
 (Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
-`/news/search` joined them in **1.10.0** — see "MySQL-backed news search" below. Everything else
-on `NewsController` (`POST`/`PUT /{id}`, `/news/export/{id}`, `/news/import`) is unchanged, still SQL
-Server: the MySQL database has no `lake`/`fish` tables to resolve names against and no `fn_news_json`
-interchange object.
+`/news/search` joined them in **1.10.0** — see "MySQL-backed news search" below — and
+`/news/export/{id}` on **2026-09-17**, against the new `sp_news_doc_export`. What is left on SQL
+Server is `POST`/`PUT /{id}` and `/news/import`, none of which the frontend calls: the portal's own
+importing half is `Editor/AddNews.aspx`, which writes through the `sp_news_admin_*` procedures
+directly. The remaining reason anything here would need SQL Server — no `lake`/`fish` tables to
+resolve names against — does not apply to any of them.
 
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
@@ -246,7 +248,8 @@ interchange object.
 | `GET /api/v1/news/search` | MySQL, inlined in `MySqlNewsQueryRepository` (1.10.0) | `MySqlNewsQueryRepository.search`; **paged with `offset`/`limit` + `total`**, optional ISO-2 `country`, and species matched from the caller-supplied `?fish=` ids. See "MySQL-backed news search" below |
 | `GET /api/v1/news/lake/{guid}` | MySQL, inlined in `MySqlNewsQueryRepository` (1.11.0) | `MySqlNewsQueryRepository.lakeNews`; one water body’s latest published articles for `Resources/wfRiverViewer.aspx`, replacing that page’s direct read of SQL Server’s `dbo.fn_river_view_news`. Empty `items`, never 404, when the water body has none |
 | `GET /api/v1/news/fish/{guid}` | MySQL, inlined in `MySqlNewsQueryRepository` (1.12.0) | `MySqlNewsQueryRepository.fishNews`; the species counterpart of `lakeNews`, for `Resources/wfFishViewer.aspx`, replacing that page’s direct read of SQL Server’s `dbo.fn_fish_view_news`. Matches any of the article’s three species slots. Empty `items`, never 404, when the species has none |
-| `export`/`import` | SQL Server (unchanged) | `MySqlNewsQueryRepository` delegates these two to a wrapped `JdbcNewsQueryRepository`. Deliberate: they are the two halves of one admin interchange round trip whose writing half (`Editor/AddNews.aspx`, `dbo.sp_news_import`) never moved, and MySQL has no `fn_news_json` to export from |
+| `GET /api/v1/news/export/{id}` | MySQL `CALL sp_news_doc_export(?)` (2026-09-17) | `MySqlNewsQueryRepository.exportNews`; a field-for-field port of `dbo.fn_news_json` — same 24 camelCase keys, nulls included. The last news read of any kind still on SQL Server, and the one that had been silently dead for every article written since `AddNews.aspx` moved to MySQL on 2026-09-14 |
+| `import` | SQL Server (unchanged) | `MySqlNewsQueryRepository.importNews` still delegates to a wrapped `JdbcNewsQueryRepository`. Deliberate, and no longer symmetry with export: `POST /news/import` **has no caller**. `AddNews.aspx` parses an uploaded document in the page and writes it through `sp_news_admin_*`, so porting this would be writing a MySQL import nothing invokes |
 
 ### MySQL-backed news search (1.10.0)
 
@@ -488,12 +491,20 @@ payload); import evicts the cached lists + home page so a new article shows up i
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
-| `GET /api/v1/news/export/{id}` | `SELECT dbo.fn_news_json(?)` | full interchange doc (all fields + 3 base64 photos); `NULL` ⇒ 404. Literal `/export/…` prefix is matched ahead of `/{id}`. |
+| `GET /api/v1/news/export/{id}` | MySQL `CALL sp_news_doc_export(?)` | full interchange doc (all fields + 3 base64 photos); no row ⇒ 404. Literal `/export/…` prefix is matched ahead of `/{id}`. Was `SELECT dbo.fn_news_json(?)` until 2026-09-17 |
 | `POST /api/v1/news/import` | `EXEC dbo.sp_news_import ?` | creates a **published** article from an `fn_news_json` body (base64 photos decoded to binary), returns `201 { id }`; blank/malformed body ⇒ 400 |
 
-`dbo.fn_news_json` already exists in `envfish-db`; `dbo.sp_news_import` was added there test-first
-(`unit_test@NewsImport.sql`). `news_title` is UNIQUE, so importing an existing title raises the
-duplicate-key error. Both methods carry the same `sqlRetry`/`sqlBreaker` guards.
+Export was ported to MySQL on **2026-09-17** as `sp_news_doc_export`
+(`envfish-db/mysql/script02_Proc.sql`, applied to Winhost via `mysql/ADMIN_WRITE_news_export.sql`);
+`dbo.fn_news_json` remains in `envfish-db/mssql` as the reference the port was diffed against. Import
+still runs `dbo.sp_news_import`, added there test-first (`unit_test@NewsImport.sql`); `news_title` is
+UNIQUE, so importing an existing title raises the duplicate-key error. Both methods carry the same
+`sqlRetry`/`sqlBreaker` guards.
+
+**The two halves now sit on different databases, and that is fine** — the round trip an admin
+actually performs never crosses them. Export (MySQL) produces the document; `AddNews.aspx` consumes
+it in-page and writes to MySQL. `POST /news/import` is the only thing still pointing at SQL Server
+and nothing calls it.
 
 ---
 

@@ -34,10 +34,18 @@ import java.util.List;
  * every read {@code News.aspx} and {@code Default.aspx} make. That completeness is the point: with
  * search on this side, no page of the portal needs a news query against SQL Server.
  *
- * <p>{@code exportNews}/{@code importNews} still delegate to the SQL-Server-backed repository, and
- * deliberately so -- they are the two halves of one admin interchange round trip whose writing half
- * ({@code Editor/AddNews.aspx}, {@code dbo.sp_news_import}) was never moved, and this database has
- * no {@code fn_news_json} equivalent to export from.
+ * <p>Since 2026-09-17 that also covers {@code GET /news/export/{id}}, the admin "Save JSON"
+ * interchange document, against the new {@code sp_news_doc_export} -- see {@link #EXPORT_SQL}. It is
+ * the one endpoint here that is not a portal page read, and it was the last news query of any kind
+ * still answered by SQL Server.
+ *
+ * <p>{@code importNews} alone still delegates to the SQL-Server-backed repository. That is not an
+ * oversight and not symmetry for its own sake: {@code POST /news/import} has no caller. The portal's
+ * importing half is {@code Editor/AddNews.aspx}, which parses an uploaded document in the page and
+ * writes it through the {@code sp_news_admin_*} procedures directly, never through this endpoint. So
+ * the round trip an admin actually performs -- export here, re-import there -- is now entirely
+ * MySQL; what is left pointing at {@code dbo.sp_news_import} is an unused endpoint, and porting it
+ * would be writing a MySQL import nothing calls.
  */
 public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
@@ -193,13 +201,42 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
         return found.isEmpty() ? null : found.get(0);
     }
 
-    /** Not in scope for the MySQL move -- delegates to the SQL-Server-backed repository unchanged. */
+    /**
+     * The admin interchange document, mirroring {@code dbo.fn_news_json} field for field --
+     * {@code envfish-db/mysql/script02_Proc.sql} documents the port, including the two places MySQL
+     * cannot match SQL Server exactly (key order, which nothing reads positionally) and the one it
+     * can only match deliberately (base64 line breaks, stripped in the procedure).
+     *
+     * <p><strong>The BLOB hazard is respected, at triple the usual stake.</strong> This is the only
+     * statement in this class that reads {@code news_photo1} and {@code news_photo2} as well as
+     * {@code news_photo0}, and the live Winhost host hangs indefinitely on any query touching those
+     * columns while materializing more than one row. The procedure is a single-row lookup by primary
+     * key with {@code LIMIT 1} -- the one access pattern documented as safe. See {@link #PHOTO_SQL}.
+     *
+     * <p>Unlike every other read here it does <em>not</em> filter on {@code news_publish}: an admin
+     * must be able to export a draft, exactly as {@code fn_news_json} allowed. The endpoint is
+     * admin-gated on the portal and day-key gated at the proxy; it is not a public route.
+     */
+    static final String EXPORT_SQL = "CALL sp_news_doc_export(?)";
+
+    /**
+     * One article as the interchange document, or {@code null} when the id is unknown -- which the
+     * procedure expresses as an empty result set rather than a NULL scalar, the one shape difference
+     * from {@code SELECT dbo.fn_news_json(?)}. Both land on the same 404 at the controller.
+     */
     @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "exportFallback")
     public JsonNode exportNews(String id) {
-        return sqlServerDelegate.exportNews(id);
+        List<String> rows = mysqlJdbc.query(EXPORT_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parseItem(json);
     }
 
-    /** Not in scope for the MySQL move -- delegates to the SQL-Server-backed repository unchanged. */
+    /**
+     * Still delegates to the SQL-Server-backed repository -- see the class doc: {@code POST
+     * /news/import} has no caller, so there is nothing here to port.
+     */
     @Override
     public String importNews(String json) {
         return sqlServerDelegate.importNews(json);
@@ -519,11 +556,19 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
         throw new RuntimeException("MySQL news-photo query failed", ex);
     }
 
+    /**
+     * Circuit-breaker fallback for {@link #exportNews}.
+     */
+    @SuppressWarnings("unused")
+    public JsonNode exportFallback(String id, Throwable ex) {
+        throw new RuntimeException("MySQL news-export query failed for id " + id, ex);
+    }
+
     private JsonNode parseItem(String json) {
         try {
             return objectMapper.readTree(json);
         } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("MySQL home-page news JSON returned by the database is not valid JSON", ex);
+            throw new IllegalStateException("MySQL news JSON returned by the database is not valid JSON", ex);
         }
     }
 }

@@ -2,6 +2,52 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-17: **1.14.0 — `GET /api/v1/news/export/{id}` moves to MySQL, restoring the admin
+  "Save JSON" round trip.** The last news read of any kind still answered by SQL Server, and the
+  only one that was actually broken: when `Editor/AddNews.aspx`'s writes moved to the MySQL `news`
+  table on 2026-09-14, every article published after that date stopped having a SQL Server row for
+  `dbo.fn_news_json` to find, so the export 404'd, the frontend's own `dbo.fn_news_json` fallback
+  found nothing either, and News.aspx silently hid the Save JSON link. Export → import was one-way
+  for three days.
+
+  **New MySQL procedure `sp_news_doc_export`** (`envfish-db/mysql/script02_Proc.sql`), a
+  field-for-field port of `dbo.fn_news_json` — the same 24 camelCase keys, every one always present,
+  nulls included (`FOR JSON`'s `INCLUDE_NULL_VALUES` and `JSON_OBJECT` agree on that for free).
+  `MySqlNewsQueryRepository.exportNews` now runs `CALL sp_news_doc_export(?)` with the usual
+  `sqlRetry`/`sqlBreaker` guards; only `importNews` still delegates to `JdbcNewsQueryRepository`.
+
+  **Two places MySQL cannot simply match SQL Server, both settled deliberately:**
+  - `TO_BASE64` breaks its output with a newline every 76 characters where `FOR JSON` emits one
+    unbroken run, so the procedure wraps it in `REPLACE(…, '\n', '')`. Both consumers tolerate the
+    whitespace, but the document is an interchange format and should be indistinguishable on the
+    wire. Note this is deliberately *not* what `sp_news_doc_get` does — its `photo` is read only by
+    .NET and never diffed against a SQL Server document.
+  - Key order cannot be matched at all: MySQL stores JSON object keys sorted by length then bytes.
+    Nothing reads the document positionally (`AddNews.aspx` pulls every field by name), so this is
+    cosmetic in the downloaded `.json` file. The procedure still *writes* the keys in
+    `fn_news_json`'s declared order, as the order to diff a future change against.
+
+  **An unknown id is now an empty result set** where `SELECT dbo.fn_news_json(?)` returned a `NULL`
+  scalar. Both reach the same 404; the repository handles the shape difference.
+
+  **LIVE 2026-09-17.** The user ran `envfish-db/mysql/ADMIN_WRITE_news_export.sql` in the Winhost
+  control panel (the `1305 … does not exist` warning on its leading `DROP PROCEDURE IF EXISTS` is
+  expected on a first run), and 1.14.0 was deployed to the droplet the same day. Verified on prod
+  from the droplet: `/api/v1/news/export/1ccd8b20-b1f3-11f1-9659-00155d23d30d` — an article
+  published **2026-09-16**, i.e. one that had no SQL Server row and would have 404'd — returns
+  **200, 512,506 bytes**, 24 keys with none missing and none extra, nulls preserved, and its
+  506,340-character `photo0` decodes under strict base64 validation (whitespace rejected) to a
+  379,753-byte PNG. That last check is the `REPLACE(TO_BASE64(…))` proving itself on a real photo.
+  An unknown id returns a clean 404.
+
+  Verified against a real engine (mysql:8.0 in Docker, not a mock): the repo's own
+  `script01_createTable.sql` + `script01_createView.sql` + `script02_Proc.sql` build cleanly with the
+  new procedure, the exported key set diffs field-for-field against `dbo.fn_news_json`'s 24 aliases
+  with none missing and none extra, an unknown id returns zero rows, a draft is still exportable, and
+  a 120-byte blob comes back as 160 unbroken base64 characters that decode to the original bytes.
+  3 new cases in `mysql/UNIT_TESTS/unit_test@NewsMySQL.sql` (23/23 pass, was 20) and 4 new in
+  `MySqlNewsQueryRepositoryTest` (`mvn test` 227/227, was 224).
+
 - 2026-09-14: **1.13.0 — `POST`/`PATCH /api/v1/news/admin/*`, three write endpoints backing
   `Editor/AddNews.aspx`'s move off SQL Server's `dbo.news`.** New `NewsAdminController`
   (`/api/v1/news/admin`), deliberately separate from `NewsController` (a different shape: it mutates
