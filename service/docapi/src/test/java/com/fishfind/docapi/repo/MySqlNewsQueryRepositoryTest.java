@@ -38,9 +38,8 @@ class MySqlNewsQueryRepositoryTest {
 
     private final JdbcTemplate mysqlJdbc = mock(JdbcTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final NewsQueryRepository sqlServerDelegate = mock(NewsQueryRepository.class);
     private final MySqlNewsQueryRepository repository =
-            new MySqlNewsQueryRepository(mysqlJdbc, objectMapper, sqlServerDelegate);
+            new MySqlNewsQueryRepository(mysqlJdbc, objectMapper);
 
     @Test
     void listReadsFromMySqlAndUsesTheStoredProcedure() throws Exception {
@@ -71,7 +70,6 @@ class MySqlNewsQueryRepositoryTest {
                 eq("CALL sp_news_list_json(?, ?, ?)"),
                 any(PreparedStatementSetter.class),
                 any(ResultSetExtractor.class));
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     @Test
@@ -91,7 +89,6 @@ class MySqlNewsQueryRepositoryTest {
 
         assertEquals(1, result.get("items").size());
         assertEquals("n1", result.get("items").get(0).get("news_id").asText());
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     @Test
@@ -108,7 +105,6 @@ class MySqlNewsQueryRepositoryTest {
         // reads every field by name and fn_news_json emitted all of them (INCLUDE_NULL_VALUES).
         assertTrue(node.has("paragraph2"));
         assertTrue(node.get("paragraph2").isNull());
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     @Test
@@ -119,7 +115,6 @@ class MySqlNewsQueryRepositoryTest {
                 .thenReturn(List.of());
 
         assertNull(repository.exportNews("nope"));
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     /**
@@ -146,20 +141,6 @@ class MySqlNewsQueryRepositoryTest {
         PreparedStatement ps = mock(PreparedStatement.class);
         setter.getValue().setValues(ps);
         verify(ps).setString(1, "abc");
-    }
-
-    /**
-     * Import stays on SQL Server deliberately -- {@code POST /news/import} has no caller (the portal
-     * imports inside {@code Editor/AddNews.aspx}, against the MySQL admin procedures), so there is
-     * nothing to port. Pinned so the asymmetry with export above reads as a decision, not a gap.
-     */
-    @Test
-    void importNewsDelegatesToTheSqlServerRepository() {
-        when(sqlServerDelegate.importNews("{}")).thenReturn("new-id");
-
-        assertEquals("new-id", repository.importNews("{}"));
-        verify(sqlServerDelegate).importNews("{}");
-        verifyNoInteractions(mysqlJdbc);
     }
 
     // ---- one water body's news (wfRiverViewer.aspx) ---------------------------------------------
@@ -205,7 +186,6 @@ class MySqlNewsQueryRepositoryTest {
         assertEquals("Ice out on the Grand", page.items().get(0).title());
         assertEquals("2026-05-14", page.items().get(0).stamp());
         assertNull(page.items().get(1).source());
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     /**
@@ -291,7 +271,6 @@ class MySqlNewsQueryRepositoryTest {
         assertEquals("Walleye run peaks", page.items().get(0).title());
         assertEquals("2026-05-14", page.items().get(0).stamp());
         assertNull(page.items().get(1).source());
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     /**
@@ -394,7 +373,6 @@ class MySqlNewsQueryRepositoryTest {
         // de-duplicated and blank-free.
         assertTrue(page.items().get(0).fishes().isEmpty());
         assertEquals(List.of("f1"), page.items().get(0).fishIds());
-        verifyNoInteractions(sqlServerDelegate);
 
         assertTrue(sql[0].startsWith("SELECT COUNT(*) "), sql[0]);
         assertTrue(sql[1].contains("ORDER BY news_stamp DESC, news_id DESC LIMIT ?, ?"), sql[1]);
@@ -515,13 +493,6 @@ class MySqlNewsQueryRepositoryTest {
         verify(ps).setInt(14, 10);
     }
 
-    @Test
-    void exportAndImportStillDelegateToTheSqlServerRepository() {
-        when(sqlServerDelegate.importNews("{}")).thenReturn("new-id");
-        assertEquals("new-id", repository.importNews("{}"));
-        verifyNoInteractions(mysqlJdbc);
-    }
-
     // ---- news photo ----------------------------------------------------------------------------
 
     @Test
@@ -531,7 +502,6 @@ class MySqlNewsQueryRepositoryTest {
                 .thenReturn(List.of(bytes));
 
         assertArrayEquals(bytes, repository.newsPhoto("n1"));
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     @Test

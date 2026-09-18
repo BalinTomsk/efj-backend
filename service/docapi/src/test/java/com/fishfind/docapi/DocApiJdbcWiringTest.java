@@ -86,6 +86,30 @@ class DocApiJdbcWiringTest {
     }
 
     /**
+     * docapi 1.16.0: every bean behind NewsController -- reads and writes alike -- holds the MySQL
+     * news template, and the two SQL Server news beans ({@code sqlServerNewsStore},
+     * {@code sqlServerNewsQueryRepository}) are gone. Before this, POST/PUT /api/v1/news and
+     * /news/import still wrote SQL Server's dbo.news through them. Checked against the real target
+     * object's JdbcTemplate, not a name, so a future re-wiring to the SQL Server pool fails here.
+     */
+    @Test
+    void everyNewsBeanTalksToMySqlOnly() throws Exception {
+        assertThat(context.containsBean("sqlServerNewsStore")).isFalse();
+        assertThat(context.containsBean("sqlServerNewsQueryRepository")).isFalse();
+
+        JdbcTemplate mysql = (JdbcTemplate) context.getBean("mysqlNewsJdbcTemplate");
+        for (String name : List.of("jdbcNewsStore", "jdbcNewsQueryRepository", "newsWriteRepository",
+                "newsAdminCommandRepository")) {
+            Object bean = context.getBean(name);
+            assertThat(AopUtils.isAopProxy(bean)).as("%s must be an AOP proxy", name).isTrue();
+            Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(bean);
+            var field = target.getClass().getDeclaredField("mysqlJdbc");
+            field.setAccessible(true);
+            assertThat(field.get(target)).as("%s must hold the MySQL news template", name).isSameAs(mysql);
+        }
+    }
+
+    /**
      * The DB failure path must finish inside cproxy's read timeout.
      *
      * <p>cproxy fronts this service with a 10s read timeout (and one retry for idempotent GETs), so a

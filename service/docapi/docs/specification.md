@@ -292,13 +292,19 @@ News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use)
   `NULL` scalar. The literal `/export/…` prefix is matched ahead of the templated `/{id}` fetch. **Cached
   since 2026-09-17** — an LRU of 25 documents in `NewsQueryCache`, keyed by lower-cased id; it read
   straight through on every request before, at ~2 s a call through the gateway.
-- `POST /api/v1/news/import` — backed by `dbo.sp_news_import(@json)`: creates a **published** article
-  from an `fn_news_json` body (base64 photos decoded to binary; `lake_id`/`fish1..3` accept a GUID
-  string or null), returns the new id. Blank/malformed body ⇒ 400 `invalid_document`. `news_title` is
-  UNIQUE, so importing an existing title raises the duplicate-key error. Importing evicts the news
-  cache (lists + home page) so the new article shows up immediately.
-- Both run with the default in-memory backing too (export ⇒ 404, import ⇒ a synthetic id), and are
-  guarded by the same Resilience4j retry/breaker as the document reads.
+- `POST /api/v1/news/import` — backed by MySQL `CALL sp_news_doc_insert(...)` since **docapi 1.16.0**
+  (SQL Server's `dbo.sp_news_import(@json)` before): creates a **published** article from an
+  `fn_news_json` body — all three photo slots, base64 decoded to binary — and returns the new id.
+  Parsed and validated by `NewsWriteParser.fromInterchange` **before** any database call: a blank or
+  malformed body, a non-object body, a blank `title`, a field over its MySQL column size, a `country`
+  that is not two letters, or photo data that is not base64 ⇒ 400 `invalid_document`. A `lakeId`/
+  `fishNId` that is not a GUID is dropped (stored NULL) and an unparseable `date` is treated as absent
+  (now), the `TRY_CONVERT` leniency the SQL Server procedure had. **A duplicate title is accepted**: the
+  MySQL `news` table has no unique constraint on it, where SQL Server's `news_title` was UNIQUE.
+  Importing clears both news caches so the new article shows up immediately.
+- Export runs with the default in-memory backing too (⇒ 404); import writes into the in-memory
+  `newsStore` (`InMemoryNewsWriteRepository`). Both database paths carry the same Resilience4j
+  retry/breaker as the document reads.
 
 All non-health responses use the envelope `{ data, error, meta }` where `meta` carries a
 `timestamp`. Exactly one of `data` / `error` is populated.
@@ -322,14 +328,17 @@ src/main/java/com/fishfind/docapi/domain/DocumentType.java
 src/main/java/com/fishfind/docapi/repo/DocumentStore.java
 src/main/java/com/fishfind/docapi/repo/InMemoryDocumentStore.java
 src/main/java/com/fishfind/docapi/repo/JdbcDocumentRepository.java
-src/main/java/com/fishfind/docapi/repo/NewsDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/MySqlNewsDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/WaterbodyDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/FishDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/StationDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryNewsQueryRepository.java
-src/main/java/com/fishfind/docapi/repo/JdbcNewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/NewsWrite.java
+src/main/java/com/fishfind/docapi/repo/NewsWriteRepository.java
+src/main/java/com/fishfind/docapi/repo/InMemoryNewsWriteRepository.java
+src/main/java/com/fishfind/docapi/repo/MySqlNewsWriteRepository.java
+src/main/java/com/fishfind/docapi/repo/NewsCaches.java
 src/main/java/com/fishfind/docapi/repo/MySqlNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/FishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryFishQueryRepository.java
@@ -430,8 +439,10 @@ registered per profile:
   `JdbcTemplateAutoConfiguration`, and disables the actuator `db` health indicator (readiness group =
   `readinessState` only).
 - **`jdbc` profile** — `JdbcStoreConfig` (`@Profile("jdbc")`) registers four `JdbcDocumentRepository`
-  beans under the **same names**, each taking the shared `JdbcTemplate`, one `JdbcNewsQueryRepository`
-  bean, one `JdbcFishQueryRepository` bean, and one `JdbcRiverQueryRepository` bean.
+  beans under the **same names** (three taking the shared SQL Server `JdbcTemplate`; `news` is the
+  MySQL-backed `MySqlNewsDocumentRepository`), the MySQL-backed `MySqlNewsQueryRepository` and
+  `MySqlNewsWriteRepository` beans, one `JdbcFishQueryRepository` bean, and one
+  `JdbcRiverQueryRepository` bean.
   `application-jdbc.yml` clears the auto-configure
   exclusion, configures the datasource, and re-enables the `db` health indicator + readiness `db` group.
 
@@ -517,7 +528,6 @@ component-scanned). Each supplies its three SQL strings as `static final` consta
 
 | Repository | get | add | update |
 |------------|-----|-----|--------|
-| `NewsDocumentRepository` | `SELECT dbo.fn_news_doc(?)` | `EXEC dbo.sp_news_doc_add ?` | `EXEC dbo.sp_news_doc_update ?, ?` |
 | `WaterbodyDocumentRepository` | `SELECT dbo.fn_waterbody_doc(?)` | `EXEC dbo.sp_waterbody_doc_add ?` | `EXEC dbo.sp_waterbody_doc_update ?, ?` |
 | `FishDocumentRepository` | `SELECT dbo.fn_fish_doc(?)` | `EXEC dbo.sp_fish_doc_add ?` | `EXEC dbo.sp_fish_doc_update ?, ?` |
 | `StationDocumentRepository` | `SELECT dbo.fn_station_doc(?)` | `EXEC dbo.sp_station_doc_add ?` | `EXEC dbo.sp_station_doc_update ?, ?` |
@@ -525,10 +535,10 @@ component-scanned). Each supplies its three SQL strings as `static final` consta
 `fn_<entity>_doc(@id)` returns the document JSON (or NULL); `sp_<entity>_doc_add(@json)` inserts and
 returns the new id; `sp_<entity>_doc_update(@id,@json)` updates and returns the id. `waterbody` =
 `dbo.lake`. The `fish` doc objects are distinct from the existing `dbo.fn_fish_document` /
-`dbo.sp_add_fish_document` (a PDF blob). All four objects now exist in `envfish-db`; `news`'s **read**
-(`GET /{id}`) has since moved to MySQL — see "MySQL backing" below. **These writes (`POST`/`PUT`)
-still go through `NewsDocumentRepository`/SQL Server for all four entities**, `NewsDocumentRepository`
-included.
+`dbo.sp_add_fish_document` (a PDF blob). **`news` is no longer in this table**: its read moved to
+MySQL on 2026-08-31 and its writes in docapi 1.16.0, and the SQL Server `NewsDocumentRepository`
+(`dbo.fn_news_doc` / `sp_news_doc_add` / `sp_news_doc_update`) was deleted then — see "MySQL backing"
+below. The other three entities are unchanged.
 
 ### MySQL backing for the news read endpoints (2026-08-31)
 
@@ -537,33 +547,72 @@ included.
 `MySqlNewsHelper`) instead of SQL Server. **`/news/search` joined them in 1.10.0**, and
 **`/news/lake/{guid}` (1.11.0) and `/news/fish/{guid}` (1.12.0) were added on the same backing**
 (see below).
-`POST`/`PUT /api/v1/news/{id}`,
-`/news/export/{id}`, and `/news/import` are **unchanged** — still SQL Server, via the classes
-described elsewhere in this doc — because the MySQL database has no `lake`/`fish` tables to resolve
-`lake_name`/fish names against and no interchange or full-text-search objects. `/news/default` is a
+`/news/export/{id}` followed on 2026-09-17, and **the writes — `POST /api/v1/news`,
+`PUT /api/v1/news/{id}` and `POST /api/v1/news/import` — in docapi 1.16.0** (see "News writes"
+below). Since then **every** `NewsController` endpoint, read or write, is answered by MySQL, and docapi
+has no code path into SQL Server's `dbo.news`; `DocApiJdbcWiringTest.everyNewsBeanTalksToMySqlOnly`
+pins that against the real bean targets. `/news/default` is a
 **pure MySQL read**: it emits the mentioned `lake_id`/`fish1..3_id` as bare guids and the caller
 resolves names itself. (It briefly spanned both databases — docapi 1.8.0–1.8.1 resolved the names
 through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
 
 - **`MySqlNewsDocumentRepository`** (`DocumentStore`) — `getDocument` calls MySQL
-  `CALL sp_news_doc_get(?)`; `addDocument`/`updateDocument` delegate unchanged to the injected
-  SQL-Server-backed `NewsDocumentRepository` instance (composition, not inheritance, so the two
-  backends can differ per method while writes keep their existing Resilience4j-proxied delegate).
+  `CALL sp_news_doc_get(?)`. **Read-only**: `addDocument`/`updateDocument` throw
+  `UnsupportedOperationException`, because `NewsDocumentService` overrides `add`/`update` and sends
+  news writes to `NewsWriteRepository` instead. (Until 1.16.0 they delegated to a SQL Server store.)
 - **`MySqlNewsQueryRepository`** (`NewsQueryRepository`) — `list`/`defaultNews` call MySQL
   `CALL sp_news_list_json(?, ?, ?)` / `CALL sp_news_default()`; `search` (1.10.0), `lakeNews`
   (1.11.0) and `fishNews` (1.12.0) run inlined MySQL statements — `lakeNews` and `fishNews` share one
   `REF_ROW_MAPPER` for their identical five-column row shape; `exportNews` calls MySQL
-  `CALL sp_news_doc_export(?)` (2026-09-17). Only `importNews` still delegates to the injected
-  SQL-Server-backed `JdbcNewsQueryRepository` instance — `POST /news/import` has no caller, so there
-  is nothing to port.
+  `CALL sp_news_doc_export(?)` (2026-09-17). Read-only; it has no SQL Server delegate since 1.16.0
+  (`importNews` left this interface for `NewsWriteRepository`).
   `defaultNews` touches SQL Server not at all — a `resolveRefNames` call that put `lake_name` and
   the `fishes` names on each item existed in 1.8.0–1.8.1 and was removed on 2026-09-03 with the
   database function behind it, so no read here spans both databases any more.
 - Both classes are registered as their own Spring beans (`jdbcNewsStore` / `jdbcNewsQueryRepository`
   bean names, unchanged from before this change) so Resilience4j's `@Retry`/`@CircuitBreaker` AOP
   still applies — same rationale as every other `Jdbc*Repository` bean in `JdbcStoreConfig`. The
-  renamed `sqlServerNewsStore` / `sqlServerNewsQueryRepository` beans hold the SQL-Server-backed
-  instances these two delegate to.
+  `sqlServerNewsStore` / `sqlServerNewsQueryRepository` beans they once delegated to were removed in
+  1.16.0; `newsWriteRepository` (`MySqlNewsWriteRepository`) is the third MySQL news bean.
+
+#### News writes (docapi 1.16.0)
+
+`POST /api/v1/news`, `PUT /api/v1/news/{id}` and `POST /api/v1/news/import` all go through
+`NewsDocumentService` → `NewsWriteParser` → `NewsWriteRepository`:
+
+- **`NewsDocumentService`** overrides `add`/`update` (and adds `importInterchange`), so news writes
+  never touch the `DocumentStore`. After every successful write it clears both news caches
+  (`NewsCaches.evictAll` — the helper `NewsAdminController` uses too), so the change is visible on the
+  next read instead of after the midnight eviction.
+- **`NewsWriteParser`** turns the body into a typed `NewsWrite` — `fromDocument` for the snake_case
+  article document (`POST`/`PUT`: `author_link`, `source_link`, `video_link`, `credit`, `photo_alt`,
+  `lake_id`, one base64 `photo`; species from `fishes:[{id}]` when that key is present, else from
+  `fish1_id`..`fish3_id` — the shape `GET /{id}` returns, so a GET body can be PUT straight back), and
+  `fromInterchange` for the camelCase `/export` document (import, all three photo slots). **Every
+  client error is a 400 here, before any database call** — non-object body, blank `title`, a field
+  longer than its MySQL column (counted in code points, as MySQL counts), a `country` that is not two
+  letters, photo data that is not base64 (whitespace is stripped first, since `TO_BASE64` wraps at 76
+  chars). Under SQL Server a blank title was a `RAISERROR` and bad base64 an XML-cast error — both
+  500s that counted against the shared `sqlBreaker`; over-long values were silently truncated.
+  Deliberately lenient where SQL Server's `TRY_CONVERT` was: a non-GUID `lake_id`/fish id is dropped,
+  an unparseable `date` is treated as absent.
+- **`MySqlNewsWriteRepository`** (`newsWriteRepository` bean, MySQL pool) — typed parameters only,
+  `@Retry`/`@CircuitBreaker` like every repository, reading results by draining every result set as
+  `MySqlNewsAdminCommandRepository` does:
+  - `insert` → `CALL sp_news_doc_insert` (24 parameters): a new id from `UUID()`, always published,
+    a missing date ⇒ now. Used by `POST` (slot 0 only) and import (slots 0–2).
+  - `update` → `CALL sp_news_doc_update` (19): a **full replace** of the text fields — a field
+    absent from the body is cleared, as `dbo.sp_news_doc_update` did — except that a missing date
+    keeps the stored stamp, a missing `photo` keeps the stored bytes, and the publish flag is never
+    touched (a PUT to a draft leaves it a draft). Slots 1–2 are untouched. Returns `found`; **an
+    unknown id is a 404 with nothing written** — it does not upsert the way `sp_news_admin_publish`
+    does. (Under SQL Server the `UPDATE` silently matched nothing and answered 200.)
+- **`InMemoryNewsWriteRepository`** (default profile) writes into the in-memory `newsStore` in the
+  same snake_case shape, so POST→GET→PUT→GET still round-trips with no database.
+- **Title uniqueness is gone.** SQL Server's `news_title` was UNIQUE; the MySQL table has no such
+  constraint (neither does `sp_news_admin_publish` enforce one), so a duplicate title is accepted.
+- **Both procedures are live on Winhost** (applied 2026-09-18; one-off control-panel scripts are deleted once applied; the definitions are in
+  `envfish-db/mysql/script02_Proc.sql`). There is no SQL Server fallback for these writes.
 - **Dedicated datasource, not the primary one**: `JdbcStoreConfig.mysqlNewsJdbcTemplate` builds its
   own `HikariDataSource` from `newsmysql.datasource.url/username/password` (`MYSQL_NEWS_URL` /
   `MYSQL_NEWS_USERNAME` / `MYSQL_NEWS_PASSWORD` in `.env`), but never registers that `DataSource` as
@@ -600,19 +649,11 @@ the document-store pattern, following the repository pattern established in the 
 Implementations:
 
 - **`InMemoryNewsQueryRepository`** (default profile) — returns empty results; no database access.
-- **`JdbcNewsQueryRepository`** (jdbc profile, SQL Server) — calls functions that **exist** in
-  `envfish-db` (`mssql/script02_Funct.sql`, covered by `UNIT_TESTS/unit_test@DefaultNews.sql`),
-  reading through functions only — never base tables. Both methods carry `@Retry("sqlRetry")` +
-  `@CircuitBreaker("sqlBreaker")` with fallbacks. Now used as the SQL-Server delegate inside
-  `MySqlNewsQueryRepository` for `importNews` alone — see "MySQL backing" above for everything else,
-  which now reads from MySQL instead.
-
-| Query | SQL | Returns |
-|-------|-----|---------|
-| latest-news page | `SELECT rn, news_id, title, source, stamp, flag, has_photo, block_ord, total FROM dbo.fn_news_list(?, ?, ?) ORDER BY rn` | one page of rows + windowed `total` |
-| home page | `SELECT dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | one JSON document per home item, in display order |
-| interchange export | `SELECT dbo.fn_news_json(?)` | the full interchange doc (all fields + 3 base64 photos), or `NULL` ⇒ 404 |
-| interchange import | `EXEC dbo.sp_news_import ?` | creates a published article from an `fn_news_json` body, returns the new id |
+- **`MySqlNewsQueryRepository`** (jdbc profile) — every query against MySQL; see "MySQL backing"
+  above. Its SQL Server predecessor, `JdbcNewsQueryRepository` (`dbo.fn_news_list`,
+  `dbo.fn_default_news_json`, `dbo.fn_news_search`, `dbo.fn_news_json`, `dbo.sp_news_import`), was
+  deleted in docapi 1.16.0, when its last remaining use — the `importNews` delegate — went to MySQL.
+  Those SQL Server objects still exist in `envfish-db/mssql`; nothing in docapi calls them.
 
 **Interface:**
 
@@ -626,11 +667,10 @@ Implementations:
 - `JsonNode exportNews(String id)` — the full `fn_news_json` interchange document for one article
   (every field + all 3 base64 photos), or `null` ⇒ 404. Only export/import carry this full shape;
   the other queries keep their existing amount. In-memory profile returns `null`.
-- `String importNews(String json)` — creates a **published** article from an `fn_news_json` body
-  (`dbo.sp_news_import`, base64 photos decoded to binary) and returns the new id. In-memory profile
-  returns a synthetic id. The caching decorator (`NewsQueryCache`) holds the last 25
-  `exportNews` documents (since 2026-09-17; it read straight through before) and **evicts every
-  cached entry on `importNews`**.
+- *(no `importNews`)* — removed from this read interface in docapi 1.16.0; importing is
+  `NewsDocumentService.importInterchange` → `NewsWriteRepository.insert` (see "News writes" above).
+  The caching decorator (`NewsQueryCache`) holds the last 25 `exportNews` documents (since
+  2026-09-17; it read straight through before); every news write clears it via `NewsCaches.evictAll`.
 
 #### The home page comes in two halves — `/featured` and `/more`
 
@@ -746,7 +786,7 @@ assembled during a MySQL blip is served until the next eviction.
 - `dbo.fn_news_search(@q)` — up to 100 published articles, newest first, matching `@q` over one
   concatenation of headline, source, the 3 paragraphs, the 3 photo alts, and the up-to-3 mentioned
   fishes' common/latin/alt names (news `LEFT JOIN fish ×3`). Published-only; matched as
-  `LIKE N'%'+@q+N'%' ESCAPE '\'` with the **caller** escaping `% _ [` (`JdbcNewsQueryRepository.escapeLike`);
+  `LIKE N'%'+@q+N'%' ESCAPE '\'` with the **caller** escaping `% _ [` (`JdbcNewsQueryRepository.escapeLike`, a class deleted in 1.16.0);
   NULL/empty ⇒ latest 100. The repo projects `news_id, news_title, news_source, stamp, country,
   fish1/2/3` into `NewsSearchItem` (fishes de-duped). **Cached since 2026-09-17** —
   `NewsQueryCache.search` holds the last 25 pages, keyed `query|sorted fishIds|country|offset|limit`;
@@ -766,7 +806,7 @@ assembled during a MySQL blip is served until the next eviction.
   return identical rows, and an unknown guid returns none rather than erroring. The plan is a table
   scan + filesort over those narrow columns — no index covers `lake_id` — which is the same shape
   `sp_news_list_for_grid`/`sp_news_count` have run on this host since the migration.
-  The SQL Server counterpart (`JdbcNewsQueryRepository.LAKE_SQL`) is `SELECT TOP (?) … FROM dbo.news
+  The SQL Server counterpart (`JdbcNewsQueryRepository.LAKE_SQL`, deleted with its class in 1.16.0) is `SELECT TOP (?) … FROM dbo.news
   WHERE news_publish = 1 AND lake_id = ? ORDER BY news_stamp DESC, news_id DESC` — deliberately not
   `dbo.fn_river_view_news`, whose `@col` argument returns every other row because it was written to
   be called once per rendered column. That split is layout and belongs to the caller.
@@ -781,7 +821,7 @@ assembled during a MySQL blip is served until the next eviction.
   reported `wfFishViewer.aspx?fishId=` URL (`a85ebf22-4ab9-4a91-a14a-cef6c8e64d97`) returned 10 real
   bass-fishing articles, upper/lower-case matched identically, an unknown id returned none, and
   `EXPLAIN` showed the same table-scan-plus-filesort shape (no index covers `fish1_id`/`fish2_id`/
-  `fish3_id`). The SQL Server counterpart (`JdbcNewsQueryRepository.FISH_SQL`) is not
+  `fish3_id`). The SQL Server counterpart (`JdbcNewsQueryRepository.FISH_SQL`, deleted with its class in 1.16.0) is not
   `dbo.fn_fish_view_news` for the identical reason `LAKE_SQL` is not `dbo.fn_river_view_news` — that
   function's `@col` argument bakes the caller's two-column layout into the query.
 - `dbo.fn_default_news_ids()` — the home-page ids with `with_photo` (1 = lead/photo slot, 2 leads;
@@ -796,6 +836,11 @@ assembled during a MySQL blip is served until the next eviction.
   via `xs:base64Binary`; `lake_id`/`fish1..3` via `TRY_CONVERT`, bad text ⇒ null), `news_publish = 1`,
   absent date ⇒ now, and returns the new `news_id`. Added test-first in `envfish-db`
   (`UNIT_TESTS/unit_test@NewsImport.sql`, 4 tests incl. a fn_news_json export→import round-trip).
+  **No longer called by docapi (1.16.0)** — replaced by MySQL `sp_news_doc_insert`, whose semantics
+  it defines.
+- MySQL `sp_news_doc_insert` / `sp_news_doc_update` (docapi 1.16.0, `envfish-db/mysql/script02_Proc.sql`)
+  — the MySQL replacements for `sp_news_doc_add`/`sp_news_import` and `sp_news_doc_update`; see "News
+  writes" above. Covered by `mysql/UNIT_TESTS/unit_test@NewsAdminWrite.sql` tests 11–17.
 
 ### News-admin write repository (`NewsAdminCommandRepository`, 1.13.0)
 
@@ -831,7 +876,7 @@ pool the read side uses).
   in this codebase) has no `INSERT`/`UPDATE`/`CREATE ROUTINE` grant on `mysql_111487_envfish` —
   confirmed via the same `ERROR 1142` `FIX_missing_v_news_default_doc.sql` hit for `CREATE VIEW` —
   so the procedures were created via the Winhost control panel
-  (`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`); `portos`'s existing blanket `EXECUTE` grant then
+  (a one-off script, deleted once applied; the definitions are in `envfish-db/mysql/script02_Proc.sql`); `portos`'s existing blanket `EXECUTE` grant then
   sufficed to call them, since a MySQL routine runs under its definer's rights by default. Two more
   bugs surfaced before it actually worked — `noAccessToProcedureBodies=true` for the `OUT` parameter
   (Connector/J refuses to introspect a non-definer's procedure metadata) and, the real blocker, a
@@ -981,13 +1026,14 @@ as delegations to the repository:
 - `@GetMapping("/export/{id}")` `export(id)` — `queryRepository.exportNews(id)`; a `null` result ⇒
   `DocumentNotFoundException` → 404, otherwise the full interchange document in the envelope.
 - `@PostMapping(value="/import", consumes=JSON)` `@ResponseStatus(CREATED)` `importNews(body)` —
-  rejects a blank/malformed body with `InvalidDocumentException` → 400 (validated via the injected
-  `ObjectMapper`), then `queryRepository.importNews(body)`, returning `ok({ id })`.
+  delegates to `NewsDocumentService.importInterchange(body)` (parse + validate → 400 on any client
+  error, then MySQL insert, then cache clear), returning `ok({ id })`. The inherited `POST`/`PUT` go
+  through the same service's overridden `add`/`update`.
 
 The literal `/list`, `/default`, `/export/…`, and `/import` paths win over the inherited templated
 `/{id}`. Resilience4j decorators (`@Retry` / `@CircuitBreaker`) live on the repository methods, not the
-controller. `NewsController` stores the `ObjectMapper` (in addition to passing it to `super`) to
-validate the import body and build the `{ id }` node.
+controller. `NewsController` stores the `ObjectMapper` (in addition to passing it to `super`) to build
+the `{ id }` node, and keeps a typed `NewsDocumentService` reference for `importInterchange`.
 
 `FishController` similarly injects `FishQueryRepository` and adds one search query:
 

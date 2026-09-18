@@ -86,12 +86,14 @@ public class NewsController extends AbstractDocumentController {
     private static final Pattern GUID = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
+    private final NewsDocumentService newsService;
     private final NewsQueryRepository queryRepository;
     private final ObjectMapper objectMapper;
 
     public NewsController(NewsDocumentService service, ObjectMapper objectMapper,
                           NewsQueryRepository queryRepository) {
         super(service, objectMapper);
+        this.newsService = service;
         this.objectMapper = objectMapper;
         this.queryRepository = queryRepository;
     }
@@ -118,25 +120,19 @@ public class NewsController extends AbstractDocumentController {
     }
 
     /**
-     * Imports one article from an {@code fn_news_json} interchange document, creating a new published
-     * article (base64 photos decoded to binary). Returns the new id.
+     * Imports one article from an {@code fn_news_json} interchange document -- the shape
+     * {@link #export} produces -- creating a new published article in MySQL, all three paragraph
+     * photos decoded from base64. Returns the new id.
      *
      * @param body the interchange JSON document
      * @return an envelope carrying {@code { "id": <newId> }}
-     * @throws InvalidDocumentException if the body is missing or not well-formed JSON (→ 400)
+     * @throws InvalidDocumentException if the body is missing, not a JSON object, or fails validation
+     *                                  -- blank title, over-long field, bad country, bad base64 (→ 400)
      */
     @PostMapping(value = "/import", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<JsonNode> importNews(@RequestBody(required = false) String body) {
-        if (body == null || body.isBlank()) {
-            throw new InvalidDocumentException("Request body must be a non-empty JSON document");
-        }
-        try {
-            objectMapper.readTree(body);
-        } catch (JsonProcessingException ex) {
-            throw new InvalidDocumentException("Request body is not well-formed JSON: " + ex.getOriginalMessage(), ex);
-        }
-        String newId = queryRepository.importNews(body);
+        String newId = newsService.importInterchange(body);
         ObjectNode idNode = objectMapper.createObjectNode();
         idNode.put("id", newId);
         return ApiResponse.ok(idNode);

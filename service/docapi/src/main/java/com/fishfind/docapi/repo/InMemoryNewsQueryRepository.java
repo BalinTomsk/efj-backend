@@ -9,7 +9,6 @@ import com.fishfind.docapi.web.NewsController.NewsSearchPage;
 import com.fishfind.docapi.web.NewsController.NewsSearchQuery;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * In-memory news query repository (default, no-database profile).
@@ -43,12 +42,6 @@ public class InMemoryNewsQueryRepository implements NewsQueryRepository {
     @Override
     public JsonNode exportNews(String id) {
         return null;
-    }
-
-    /** No database: accept the import and hand back a synthetic id so the endpoint runs end-to-end. */
-    @Override
-    public String importNews(String json) {
-        return UUID.randomUUID().toString();
     }
 
     /** No database: no matches, so the search endpoint runs end-to-end returning an empty result. */

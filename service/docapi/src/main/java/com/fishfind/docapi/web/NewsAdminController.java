@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository;
+import com.fishfind.docapi.repo.NewsCaches;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.NewsAdminPublishRequest;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PhotoUpdateResult;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository.PublishResult;
@@ -108,12 +109,7 @@ public class NewsAdminController {
      * admin write path, and this controller has no way to target just one id in that cache.
      */
     private void evictNewsCaches() {
-        if (queryRepository instanceof NewsQueryCache) {
-            ((NewsQueryCache) queryRepository).clear();
-        }
-        if (newsStore instanceof NewsDocumentCache) {
-            ((NewsDocumentCache) newsStore).clear();
-        }
+        NewsCaches.evictAll(queryRepository, newsStore);
         log.info("News caches evicted after an admin write");
     }
 

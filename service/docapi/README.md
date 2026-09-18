@@ -49,13 +49,16 @@ src/main/java/com/fishfind/docapi/
 │   ├── DocumentStore.java              # storage interface (get / add / update)
 │   ├── InMemoryDocumentStore.java      # default backing, process-local, no DB
 │   ├── JdbcDocumentRepository.java     # abstract SQL backing (jdbc profile)
-│   ├── NewsDocumentRepository.java
+│   ├── MySqlNewsDocumentRepository.java # news GET (MySQL); read-only since 1.16.0
 │   ├── WaterbodyDocumentRepository.java
 │   ├── FishDocumentRepository.java
 │   ├── StationDocumentRepository.java
 │   ├── NewsQueryRepository.java        # interface for news-page queries (list + default)
 │   ├── InMemoryNewsQueryRepository.java
-│   └── JdbcNewsQueryRepository.java
+│   ├── MySqlNewsQueryRepository.java   # every news query (MySQL)
+│   ├── NewsWriteRepository.java        # news POST / PUT / import (1.16.0)
+│   ├── InMemoryNewsWriteRepository.java
+│   └── MySqlNewsWriteRepository.java   # sp_news_doc_insert / sp_news_doc_update
 ├── service/
 │   ├── DocumentService.java            # abstract: validation + not-found handling
 │   ├── NewsDocumentService.java …      # one per entity
@@ -306,10 +309,15 @@ Notes:
   `dbo.fn_fish_document` / `dbo.sp_add_fish_document`, which manage a PDF blob, not the species JSON.
 - **News interchange** (`/export`, `/import`) uses its own objects. Export moved to MySQL on
   2026-09-17 — `sp_news_doc_export` (`envfish-db/mysql/script02_Proc.sql`), a field-for-field port of
-  the `dbo.fn_news_json(@id)` it replaces. Import still runs `dbo.sp_news_import(@json)` in
-  `envfish-db` (added test-first — `unit_test@NewsImport.sql`), and has no caller. These carry the
-  **full** article (all fields + base64 photos); the `fn_<entity>_doc` document reads above keep
-  their existing lighter shapes.
+  the `dbo.fn_news_json(@id)` it replaces. Import followed in 1.16.0 — MySQL `sp_news_doc_insert`,
+  replacing `dbo.sp_news_import(@json)`. These carry the **full** article (all fields + base64
+  photos); the `fn_<entity>_doc` document reads above keep their existing lighter shapes.
+- **News writes** (`POST /api/v1/news`, `PUT /api/v1/news/{id}`, `POST /api/v1/news/import`) → the
+  MySQL `news` table since **1.16.0**, via `sp_news_doc_insert` / `sp_news_doc_update`
+  (`envfish-db/mysql/script02_Proc.sql`, live on Winhost since 2026-09-18). They were SQL Server's
+  `sp_news_doc_add` / `sp_news_doc_update` / `sp_news_import`; docapi now has no path into
+  `dbo.news` at all. `news` is therefore the one entity the generic `fn_<entity>_doc` /
+  `sp_<entity>_doc_*` contract above no longer describes.
 - **News search** (`/api/v1/news/search`) → the MySQL `news` table, via SQL inlined in
   `MySqlNewsQueryRepository` (1.10.0; `dbo.fn_news_search` still backs the SQL-Server profile).
   Inlined rather than a procedure because the application's MySQL account holds no `CREATE ROUTINE`
@@ -333,8 +341,8 @@ Notes:
   `EXEC dbo.sp_lake_description_update @lake, @patch` (new proc, `envfish-db` 2026-08-25,
   `unit_test@LakeDescriptionUpdate.sql`) — the two write procedures this service calls outside the
   generic `sp_<entity>_doc_add`/`_update` pair above. Both invoked via `jdbc.execute` with a manual
-  result-set drain (see `JdbcDocumentRepository.executeReturningScalar` /
-  `JdbcNewsQueryRepository.importNews`), not `jdbc.query`, for the same reason those calls do: a
+  result-set drain (see `JdbcDocumentRepository.executeReturningScalar`), not `jdbc.query`, for
+  the same reason those calls do: a
   proc's DML can interleave update counts with its final `SELECT`.
 - **River source/mouth write** (`PATCH /api/v1/river/source/{guid}` / `PATCH /api/v1/river/mouth/{guid}`)
   → `EXEC dbo.sp_lake_source_update @lake, @patch` / `EXEC dbo.sp_lake_mouth_update @lake, @patch` (new

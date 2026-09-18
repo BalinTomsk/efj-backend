@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * JDBC fish query repository backed by the SQL Server function {@code dbo.SearchFishList}.
  * All DB access for fish-catalogue search goes through here.
- * Guarded by Resilience4j retry + circuit breaker, matching {@link JdbcNewsQueryRepository}.
+ * Guarded by Resilience4j retry + circuit breaker, like every other repository bean here.
  */
 public class JdbcFishQueryRepository implements FishQueryRepository {
 

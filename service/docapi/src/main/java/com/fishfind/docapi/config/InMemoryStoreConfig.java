@@ -8,6 +8,7 @@ import com.fishfind.docapi.repo.InMemoryDocumentStore;
 import com.fishfind.docapi.repo.InMemoryFishQueryRepository;
 import com.fishfind.docapi.repo.InMemoryNewsAdminCommandRepository;
 import com.fishfind.docapi.repo.InMemoryNewsQueryRepository;
+import com.fishfind.docapi.repo.InMemoryNewsWriteRepository;
 import com.fishfind.docapi.repo.InMemoryRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverFishCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverLinkCommandRepository;
@@ -16,12 +17,14 @@ import com.fishfind.docapi.repo.InMemoryRegulationCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRegulationQueryRepository;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsQueryRepository;
+import com.fishfind.docapi.repo.NewsWriteRepository;
 import com.fishfind.docapi.repo.RegulationCommandRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -66,6 +69,13 @@ public class InMemoryStoreConfig {
     @Bean
     public NewsAdminCommandRepository newsAdminCommandRepository() {
         return new InMemoryNewsAdminCommandRepository();
+    }
+
+    /** News writes land in {@link #newsStore}, so a POST/PUT reads back through GET with no database. */
+    @Bean
+    public NewsWriteRepository newsWriteRepository(@Qualifier("newsStore") DocumentStore newsStore,
+                                                   ObjectMapper objectMapper) {
+        return new InMemoryNewsWriteRepository(newsStore, objectMapper);
     }
 
     @Bean

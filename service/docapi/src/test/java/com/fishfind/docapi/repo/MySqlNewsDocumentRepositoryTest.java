@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -20,9 +21,7 @@ import static org.mockito.Mockito.when;
 class MySqlNewsDocumentRepositoryTest {
 
     private final JdbcTemplate mysqlJdbc = mock(JdbcTemplate.class);
-    private final DocumentStore sqlServerDelegate = mock(DocumentStore.class);
-    private final MySqlNewsDocumentRepository repository =
-            new MySqlNewsDocumentRepository(mysqlJdbc, sqlServerDelegate);
+    private final MySqlNewsDocumentRepository repository = new MySqlNewsDocumentRepository(mysqlJdbc);
 
     @Test
     void getDocumentReadsFromMySqlAndUsesTheStoredProcedure() throws Exception {
@@ -42,7 +41,6 @@ class MySqlNewsDocumentRepositoryTest {
                 eq("CALL sp_news_doc_get(?)"),
                 any(PreparedStatementSetter.class),
                 any(RowMapper.class));
-        verifyNoInteractions(sqlServerDelegate);
     }
 
     @Test
@@ -53,21 +51,16 @@ class MySqlNewsDocumentRepositoryTest {
         assertNull(repository.getDocument("missing"));
     }
 
+    /**
+     * The store is read-only since 1.16.0: news writes go through NewsDocumentService to
+     * NewsWriteRepository. Before that these two delegated to SQL Server's dbo.news -- so a caller
+     * that bypasses the service must fail loudly, never write anywhere.
+     */
     @Test
-    void addDocumentDelegatesToTheSqlServerStore() {
-        when(sqlServerDelegate.addDocument("{\"title\":\"x\"}")).thenReturn("new-id");
-
-        assertEquals("new-id", repository.addDocument("{\"title\":\"x\"}"));
-        verify(sqlServerDelegate).addDocument("{\"title\":\"x\"}");
-        verifyNoInteractions(mysqlJdbc);
-    }
-
-    @Test
-    void updateDocumentDelegatesToTheSqlServerStore() {
-        when(sqlServerDelegate.updateDocument("7", "{\"title\":\"x\"}")).thenReturn("7");
-
-        assertEquals("7", repository.updateDocument("7", "{\"title\":\"x\"}"));
-        verify(sqlServerDelegate).updateDocument("7", "{\"title\":\"x\"}");
+    void writesThrowAndNeverTouchTheDatabase() {
+        assertThrows(UnsupportedOperationException.class, () -> repository.addDocument("{\"title\":\"x\"}"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> repository.updateDocument("7", "{\"title\":\"x\"}"));
         verifyNoInteractions(mysqlJdbc);
     }
 }

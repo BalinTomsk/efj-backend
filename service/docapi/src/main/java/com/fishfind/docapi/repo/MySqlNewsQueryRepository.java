@@ -39,13 +39,9 @@ import java.util.List;
  * the one endpoint here that is not a portal page read, and it was the last news query of any kind
  * still answered by SQL Server.
  *
- * <p>{@code importNews} alone still delegates to the SQL-Server-backed repository. That is not an
- * oversight and not symmetry for its own sake: {@code POST /news/import} has no caller. The portal's
- * importing half is {@code Editor/AddNews.aspx}, which parses an uploaded document in the page and
- * writes it through the {@code sp_news_admin_*} procedures directly, never through this endpoint. So
- * the round trip an admin actually performs -- export here, re-import there -- is now entirely
- * MySQL; what is left pointing at {@code dbo.sp_news_import} is an unused endpoint, and porting it
- * would be writing a MySQL import nothing calls.
+ * <p>Read-only. Since docapi 1.16.0 the writes that used to sit on this interface's SQL Server
+ * sibling ({@code importNews}) live in {@link MySqlNewsWriteRepository}, against the same table --
+ * docapi no longer has any path into SQL Server's {@code dbo.news}.
  */
 public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
@@ -108,13 +104,10 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
     private final JdbcTemplate mysqlJdbc;
     private final ObjectMapper objectMapper;
-    private final NewsQueryRepository sqlServerDelegate;
 
-    public MySqlNewsQueryRepository(JdbcTemplate mysqlJdbc, ObjectMapper objectMapper,
-                                    NewsQueryRepository sqlServerDelegate) {
+    public MySqlNewsQueryRepository(JdbcTemplate mysqlJdbc, ObjectMapper objectMapper) {
         this.mysqlJdbc = mysqlJdbc;
         this.objectMapper = objectMapper;
-        this.sqlServerDelegate = sqlServerDelegate;
     }
 
     @Override
@@ -231,15 +224,6 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
         List<String> rows = mysqlJdbc.query(EXPORT_SQL, ps -> ps.setString(1, id), (rs, i) -> rs.getString(1));
         String json = rows.isEmpty() ? null : rows.get(0);
         return (json == null || json.isBlank()) ? null : parseItem(json);
-    }
-
-    /**
-     * Still delegates to the SQL-Server-backed repository -- see the class doc: {@code POST
-     * /news/import} has no caller, so there is nothing here to port.
-     */
-    @Override
-    public String importNews(String json) {
-        return sqlServerDelegate.importNews(json);
     }
 
     /**
@@ -409,7 +393,7 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
     /**
      * Escapes MySQL {@code LIKE} wildcards so a term matches literally. {@code [} is deliberately NOT
-     * escaped, unlike {@code JdbcNewsQueryRepository.escapeLike}: MySQL's {@code LIKE} has no
+     * escaped, unlike T-SQL's {@code LIKE} (the retired SQL Server search did): MySQL's {@code LIKE} has no
      * character-class metacharacter, so a backslash before {@code [} would turn the pattern into
      * "backslash then bracket" and a term containing a bracket would stop matching.
      */

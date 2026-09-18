@@ -2,8 +2,65 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-18: **1.16.0 — news writes go to MySQL; `NewsController` deals with MySQL only.**
+  **DEPLOYED 2026-09-18; procedures applied on Winhost the same day (second control-panel run).**
+  After that, the no-write probe `PUT /api/v1/news/<all-zero id>` answers a clean **404** —
+  `sp_news_doc_update` ran and found nothing. `sp_news_doc_insert` is not probed from here, since any
+  successful call creates a published article; it was created in the same file run. History of the
+  first attempt, kept for the lesson: `/health` reports `1.16.0`,
+  `restarts=0` on two reads, every read endpoint matches the runbook matrix. A no-write probe
+  (`PUT` to the all-zero id) returned **500: `PROCEDURE mysql_111487_envfish.sp_news_doc_update does
+  not exist`** — the control-panel run of `envfish-db/mysql/ADMIN_WRITE_news_doc_writes.sql` did not
+  create it (or not in that schema). Until it does, `POST`/`PUT /api/v1/news` and `/news/import`
+  answer 500 for any *valid* body; invalid bodies still get their 400 (verified live). Nothing in the
+  frontend calls these three. Rollback tag: `1.15.2`.
+
+  `POST /api/v1/news`, `PUT /api/v1/news/{id}` and `POST /api/v1/news/import` were the last docapi
+  paths into SQL Server's `dbo.news` (`sp_news_doc_add`, `sp_news_doc_update`, `sp_news_import`). They
+  now write the MySQL `news` table through two new procedures, `sp_news_doc_insert` and
+  `sp_news_doc_update`, and docapi holds no code that can reach `dbo.news` at all:
+  `JdbcNewsQueryRepository` and `NewsDocumentRepository` are deleted, the `sqlServerNewsStore` /
+  `sqlServerNewsQueryRepository` beans are gone, and `importNews` left the read-only
+  `NewsQueryRepository`. `DocApiJdbcWiringTest.everyNewsBeanTalksToMySqlOnly` reads the `mysqlJdbc`
+  field off each news bean's real target and asserts it is the MySQL template.
+
+  **Shape:** every news write goes `NewsDocumentService` (overrides `add`/`update`, adds
+  `importInterchange`) → `NewsWriteParser` → `NewsWriteRepository` (`MySqlNewsWriteRepository` /
+  `InMemoryNewsWriteRepository`). The parser runs **before** the circuit breaker, so every client
+  error is a 400 that never counts against the shared `sqlBreaker` — under SQL Server a blank title
+  (`RAISERROR`) and bad base64 (XML cast) were 500s that did. The repository takes typed parameters
+  only. After each write both news caches are cleared through `NewsCaches.evictAll`, now shared with
+  `NewsAdminController` (which had the same logic privately).
+
+  **Behaviour — the SQL Server semantics kept field for field, with these differences:**
+  - blank/missing `title`, a field over its MySQL column size, a non-two-letter `country`, non-base64
+    photo data ⇒ **400** (were a 500, a 500, silently truncated, and a 500);
+  - `PUT` to an unknown id ⇒ **404** with nothing written (SQL Server matched nothing and answered 200);
+  - a **duplicate title is accepted** — SQL Server's `news_title` was UNIQUE, the MySQL table is not;
+  - `POST`/`PUT` also accept `fish1_id`..`fish3_id` when there is no `fishes` array, and line-wrapped
+    base64 — both exactly what `GET /{id}` returns, so an edited GET body can be PUT straight back.
+    Without that, a full-replace PUT of a GET body would have nulled its species.
+  Unchanged: POST/import always publish, a missing date ⇒ now (insert) / keep (update), a missing
+  `photo` on PUT keeps the stored bytes, PUT never changes the publish flag, non-GUID tags dropped.
+
+  **Verified:** `mvn test` **264/264** (was 227 at 1.14.0; 1.15.x added its own). New:
+  `NewsWriteParserTest` (15), `MySqlNewsWriteRepositoryTest` (6), `NewsDocumentServiceTest` (6),
+  `everyNewsBeanTalksToMySqlOnly`, plus two `DocumentRoundTripTest` cases — `allFourEntitiesAcceptDocuments`
+  now sends news a `title`, since a title-less news body is a 400 in every profile. The SQL:
+  `envfish-db/mysql/UNIT_TESTS/unit_test@NewsAdminWrite.sql` **17/17** on mysql:8.0 (7 new), shown
+  failing first with the procedures dropped. And the production write/read classes were run against
+  that real MySQL 8 over JDBC: import → export → re-import → export gave **byte-identical documents**
+  (402,525 chars, a 300 KB photo included); a GET body edited and PUT back kept its species, photo,
+  credit and date; PUT without a photo kept the bytes; PUT to an unknown id reported not-found.
+
+  Docs: `docs/specification.md` (new "News writes" section), `CLAUDE.md`, `README.md`,
+  `docs/api-reference.html` — which also had three stale claims fixed while in it: the footer said
+  1.14.0 was deployed (prod runs 1.15.2), and the access card said the gateway is GET-only with
+  `POST /api/v1/news → 405` (its allow-list is `GET,POST,PATCH`; only `PUT` is refused).
+
 - 2026-09-18: **1.15.2 — every news cache size is configuration (`docapi.cache.*`) instead of a
-  compiled-in constant.** `NOT DEPLOYED` at time of writing.
+  compiled-in constant.** **Deployed** — `/health` on the droplet reported `1.15.2` later the same day
+  (this line said `NOT DEPLOYED` until then).
 
   `NewsQueryCache.OTHER_ENTRIES`/`LRU_ENTRIES` and `NewsDocumentCache.MAX_DOCUMENTS`/`MAX_MISSES` are
   gone, replaced by `config/NewsCacheProperties` bound to `docapi.cache.*` and registered with

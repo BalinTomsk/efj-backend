@@ -15,8 +15,7 @@ import java.sql.Statement;
  * Resilience4j retry + circuit breaker, matching {@link JdbcRiverQueryRepository}.
  *
  * <p>Invoked via {@code jdbc.execute} with a manual result-set drain, the same pattern
- * {@code JdbcDocumentRepository.executeReturningScalar} and {@code JdbcNewsQueryRepository.importNews}
- * use for every other {@code EXEC dbo.sp_...} call in this service — a stored procedure's DML
+ * {@code JdbcDocumentRepository.executeReturningScalar} uses for every other {@code EXEC dbo.sp_...} call in this service — a stored procedure's DML
  * statements can interleave update counts with its final {@code SELECT}, which the simpler
  * {@code jdbc.query} row-mapper path is not built to skip over.
  */

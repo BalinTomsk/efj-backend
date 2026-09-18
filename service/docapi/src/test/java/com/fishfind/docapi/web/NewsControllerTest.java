@@ -20,6 +20,8 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -422,17 +424,24 @@ class NewsControllerTest {
 
     @Test
     void importReturns201WithNewId() throws Exception {
-        when(queryRepository.importNews(any())).thenReturn("abc-123");
+        when(service.importInterchange("{\"title\":\"Imported\"}")).thenReturn("abc-123");
 
         mockMvc.perform(post("/api/v1/news/import")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"Imported\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.id").value("abc-123"));
+        // The write goes through the service (-> MySQL), never through the read repository.
+        verify(service).importInterchange("{\"title\":\"Imported\"}");
+        verifyNoInteractions(queryRepository);
     }
 
+    /** Validation lives in NewsDocumentService (see NewsDocumentServiceTest); here, only the 400 mapping. */
     @Test
-    void importInvalidJsonReturns400() throws Exception {
+    void importValidationFailureReturns400() throws Exception {
+        when(service.importInterchange(any()))
+                .thenThrow(new InvalidDocumentException("Request body is not well-formed JSON"));
+
         mockMvc.perform(post("/api/v1/news/import")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{not json"))
@@ -441,7 +450,10 @@ class NewsControllerTest {
     }
 
     @Test
-    void importEmptyBodyReturns400() throws Exception {
+    void importEmptyBodyReachesTheServiceAsNull() throws Exception {
+        when(service.importInterchange(null))
+                .thenThrow(new InvalidDocumentException("Request body must be a non-empty JSON document"));
+
         mockMvc.perform(post("/api/v1/news/import")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(""))
