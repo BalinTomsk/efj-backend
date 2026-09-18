@@ -11,8 +11,8 @@ import java.util.List;
 
 /**
  * JDBC river query repository backed by {@code dbo.fn_river_unfished_json} /
- * {@code dbo.fn_lake_view_json}. Guarded by Resilience4j retry + circuit breaker, matching
- * {@code JdbcNewsQueryRepository}.
+ * {@code dbo.fn_lake_view_json}. Guarded by Resilience4j retry + circuit breaker, like every
+ * other repository bean here.
  */
 public class JdbcRiverQueryRepository implements RiverQueryRepository {
 

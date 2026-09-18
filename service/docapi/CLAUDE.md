@@ -118,9 +118,13 @@ com.fishfind.docapi
 │   ├── DocumentStore              # interface: get/add/update (String id, String json)
 │   ├── InMemoryDocumentStore      # default backing — ConcurrentHashMap, ids like "news-1", no DB
 │   ├── JdbcDocumentRepository     # abstract SQL base: per-entity SQL + Resilience4j (jdbc profile)
-│   ├── NewsDocumentRepository     # SQL Server: dbo.fn_news_doc / sp_news_doc_add / sp_news_doc_update
-│   ├── MySqlNewsDocumentRepository # MySQL backing (2026-08-31) for GET only (sp_news_doc_get);
-│   │                              #   addDocument/updateDocument delegate to NewsDocumentRepository
+│   ├── MySqlNewsDocumentRepository # news GET (sp_news_doc_get, MySQL). READ-ONLY since 1.16.0:
+│   │                              #   addDocument/updateDocument throw -- news writes bypass the store
+│   ├── NewsWriteRepository        # interface: insert/update(NewsWrite) -- POST/PUT /news + /import
+│   ├── InMemoryNewsWriteRepository / MySqlNewsWriteRepository (sp_news_doc_insert /
+│   │                              #   sp_news_doc_update, 1.16.0) -- typed params, validated upstream
+│   ├── NewsWrite                  # record: one parsed + validated news write (3 photo slots)
+│   ├── NewsCaches                 # evictAll(): clears both news caches after any news write
 │   ├── NewsAdminCommandRepository # interface: createDraft/publish/updatePhoto (Editor/AddNews.aspx
 │   │                              #   admin writes, 1.13.0) -- flat `news` row, not a JSON document
 │   ├── InMemoryNewsAdminCommandRepository / MySqlNewsAdminCommandRepository (sp_news_admin_draft_create
@@ -128,16 +132,13 @@ com.fishfind.docapi
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
-│   ├── NewsQueryRepository        # interface: list/defaultNews/newsPhoto/search/lakeNews/export/import
-│   │                              #   (news-page queries)
+│   ├── NewsQueryRepository        # interface: list/defaultNews/newsPhoto/search/lakeNews/fishNews/
+│   │                              #   export -- READ-ONLY (importNews moved out in 1.16.0)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
-│   ├── JdbcNewsQueryRepository    # SQL Server backing — dbo.fn_news_list / dbo.fn_default_news_json
-│   │                              #   / dbo.fn_news_search / dbo.fn_news_json / dbo.sp_news_import
-│   ├── MySqlNewsQueryRepository   # MySQL backing — list/defaultNews/newsPhoto (2026-08-31),
-│   │                              #   search (1.10.0), lakeNews and fishNews (1.11.0/1.12.0),
-│   │                              #   export (2026-09-17), via sp_news_list_json/sp_news_default/
-│   │                              #   sp_news_doc_export and inlined SQL; ONLY import still
-│   │                              #   delegates to a wrapped JdbcNewsQueryRepository (SQL Server)
+│   ├── MySqlNewsQueryRepository   # every news query on MySQL — list/defaultNews/newsPhoto
+│   │                              #   (2026-08-31), search (1.10.0), lakeNews/fishNews (1.11.0/
+│   │                              #   1.12.0), export (2026-09-17). No SQL Server delegate since
+│   │                              #   1.16.0; JdbcNewsQueryRepository + NewsDocumentRepository deleted
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -157,7 +158,9 @@ com.fishfind.docapi
 │                                  #   (sp_lake_source_update / sp_lake_mouth_update)
 ├── service
 │   ├── DocumentService            # abstract base: id/body validation, JSON well-formedness, 404 mapping
-│   ├── NewsDocumentService … (one @Service per entity)
+│   ├── NewsDocumentService … (one @Service per entity) — NewsDocumentService overrides add/update
+│   │                              #   and adds importInterchange: every news write goes through it
+│   ├── NewsWriteParser            # body -> NewsWrite; every client error a 400 before any DB call
 │   ├── DocumentNotFoundException  # → HTTP 404
 │   └── InvalidDocumentException   # → HTTP 400
 └── web
@@ -196,11 +199,11 @@ store configs register beans under the same names, so switching profiles swaps t
   actuator `db` health indicator off.
 - **`jdbc` profile** — `application-jdbc.yml` clears the exclusion and configures the Hikari datasource
   (SQL Server) from `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`; `JdbcStoreConfig` provides four
-  `JdbcDocumentRepository` beans and one `JdbcNewsQueryRepository`; the `db` health indicator +
+  `JdbcDocumentRepository` beans (news's is MySQL-backed) plus the MySQL news query/write repositories; the `db` health indicator +
   readiness `db` group are re-enabled. Run with `--spring.profiles.active=jdbc`. **This same profile
   also builds a second, dedicated MySQL `JdbcTemplate`** (`JdbcStoreConfig.mysqlNewsJdbcTemplate`,
-  from `MYSQL_NEWS_URL`/`MYSQL_NEWS_USERNAME`/`MYSQL_NEWS_PASSWORD`) used only by the news read path
-  — see "MySQL backing for news reads" below. It's deliberately never registered as a `DataSource`
+  from `MYSQL_NEWS_URL`/`MYSQL_NEWS_USERNAME`/`MYSQL_NEWS_PASSWORD`) used by **every** news bean, reads
+  and (since 1.16.0) writes — see "MySQL backing for news reads" below. It's deliberately never registered as a `DataSource`
   bean (only the `JdbcTemplate` it builds is), so it can't collide with the primary SQL Server
   datasource via Spring Boot's `@ConditionalOnMissingBean(DataSource.class)`.
 
@@ -225,31 +228,63 @@ Per-entity SQL objects the JDBC repositories call (`<entity>` ∈ news, waterbod
   `dbo.fn_fish_document` / `dbo.sp_add_fish_document` (a PDF blob).
 - SQL statement strings are `static final` constants in each concrete repository, so the DB pass can
   rename procs in one place.
-- **`news`'s `GET` has moved to MySQL** (`MySqlNewsDocumentRepository`, wraps `NewsDocumentRepository`
-  for the still-SQL-Server `POST`/`PUT`) — see "MySQL backing for news reads" below. The other three
-  entities (`waterbody`, `fish`, `station`) are unaffected — full SQL Server CRUD as documented above.
+- **`news` is not on this contract any more.** Its `GET` moved to MySQL on 2026-08-31 and its
+  `POST`/`PUT` in 1.16.0 (`sp_news_doc_insert`/`sp_news_doc_update`, see "News writes" below); the SQL
+  Server `NewsDocumentRepository` was deleted. The other three entities (`waterbody`, `fish`,
+  `station`) are unaffected — full SQL Server CRUD as documented above.
 
 ### MySQL backing for news reads (2026-08-31, deployed 2026-09-01 as docapi 1.7.1)
 
 `GET /api/v1/news/{id}`, `/news/list`, and `/news/default` read from the **MySQL** `news` table
 (Winhost — the same table `fishfind-frontend/News.aspx` reads via `MySqlNewsHelper`), not SQL Server.
 `/news/search` joined them in **1.10.0** — see "MySQL-backed news search" below — and
-`/news/export/{id}` on **2026-09-17**, against the new `sp_news_doc_export`. What is left on SQL
-Server is `POST`/`PUT /{id}` and `/news/import`, none of which the frontend calls: the portal's own
-importing half is `Editor/AddNews.aspx`, which writes through the `sp_news_admin_*` procedures
-directly. The remaining reason anything here would need SQL Server — no `lake`/`fish` tables to
-resolve names against — does not apply to any of them.
+`/news/export/{id}` on **2026-09-17**, against the new `sp_news_doc_export`, and the three writes —
+`POST /api/v1/news`, `PUT /api/v1/news/{id}`, `POST /api/v1/news/import` — in **1.16.0 (2026-09-18)**.
+**`NewsController` now deals with MySQL only**, reads and writes alike; docapi holds no code that can
+reach SQL Server's `dbo.news`. `DocApiJdbcWiringTest.everyNewsBeanTalksToMySqlOnly` pins that
+against each bean's real target, and asserts the old `sqlServerNews*` beans are gone.
 
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
-| `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`; `addDocument`/`updateDocument` delegate to the wrapped `NewsDocumentRepository` (SQL Server) |
+| `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`. The store is read-only since 1.16.0 — its `addDocument`/`updateDocument` throw |
+| `POST /api/v1/news` | MySQL `CALL sp_news_doc_insert(...)` (1.16.0) | `NewsDocumentService.add` → `NewsWriteParser.fromDocument` → `MySqlNewsWriteRepository.insert`. Was `dbo.sp_news_doc_add`. See "News writes" below |
+| `PUT /api/v1/news/{id}` | MySQL `CALL sp_news_doc_update(...)` (1.16.0) | `NewsDocumentService.update`; unknown id ⇒ **404** (SQL Server answered 200 having changed nothing). Was `dbo.sp_news_doc_update`. Refused at the gateway (`PUT` is not in cproxy's allow-list) |
 | `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list` |
 | `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape), carrying `snippet`. **Pure MySQL read** — the mentioned `lake_id`/`fish1..3_id` come back as bare guids and the caller resolves names if it wants them. A SQL Server lookup for that existed in docapi 1.8.0–1.8.1 (`dbo.fn_news_ref_names_json`) and was **removed 2026-09-03**: it made this read span both databases, which the move to MySQL existed to avoid |
 | `GET /api/v1/news/search` | MySQL, inlined in `MySqlNewsQueryRepository` (1.10.0) | `MySqlNewsQueryRepository.search`; **paged with `offset`/`limit` + `total`**, optional ISO-2 `country`, and species matched from the caller-supplied `?fish=` ids. See "MySQL-backed news search" below |
 | `GET /api/v1/news/lake/{guid}` | MySQL, inlined in `MySqlNewsQueryRepository` (1.11.0) | `MySqlNewsQueryRepository.lakeNews`; one water body’s latest published articles for `Resources/wfRiverViewer.aspx`, replacing that page’s direct read of SQL Server’s `dbo.fn_river_view_news`. Empty `items`, never 404, when the water body has none |
 | `GET /api/v1/news/fish/{guid}` | MySQL, inlined in `MySqlNewsQueryRepository` (1.12.0) | `MySqlNewsQueryRepository.fishNews`; the species counterpart of `lakeNews`, for `Resources/wfFishViewer.aspx`, replacing that page’s direct read of SQL Server’s `dbo.fn_fish_view_news`. Matches any of the article’s three species slots. Empty `items`, never 404, when the species has none |
 | `GET /api/v1/news/export/{id}` | MySQL `CALL sp_news_doc_export(?)` (2026-09-17) | `MySqlNewsQueryRepository.exportNews`; a field-for-field port of `dbo.fn_news_json` — same 24 camelCase keys, nulls included. The last news read of any kind still on SQL Server, and the one that had been silently dead for every article written since `AddNews.aspx` moved to MySQL on 2026-09-14 |
-| `import` | SQL Server (unchanged) | `MySqlNewsQueryRepository.importNews` still delegates to a wrapped `JdbcNewsQueryRepository`. Deliberate, and no longer symmetry with export: `POST /news/import` **has no caller**. `AddNews.aspx` parses an uploaded document in the page and writes it through `sp_news_admin_*`, so porting this would be writing a MySQL import nothing invokes |
+| `POST /api/v1/news/import` | MySQL `CALL sp_news_doc_insert(...)` (1.16.0) | `NewsDocumentService.importInterchange` → `NewsWriteParser.fromInterchange` → `MySqlNewsWriteRepository.insert`, all three photo slots. Was `dbo.sp_news_import` via a SQL Server delegate |
+
+### News writes (1.16.0) — `POST`/`PUT /api/v1/news`, `POST /news/import`
+
+All three go `NewsDocumentService` → `NewsWriteParser` → `NewsWriteRepository` (MySQL). Four rules:
+
+- **Validation happens before the circuit breaker, not inside it.** `NewsWriteParser` turns every
+  client error into a 400 up front — non-object body, blank `title`, a field longer than its MySQL
+  column (code points, as MySQL counts), a `country` that is not two letters, photo data that is not
+  base64. Under SQL Server a blank title was a `RAISERROR` and bad base64 an XML-cast failure: 500s
+  that counted against the **shared** `sqlBreaker`, so a client sending bad bodies could trip it for
+  the whole API. `MySqlNewsWriteRepository` takes typed parameters only; anything it throws is a real
+  database fault. Keep it that way — do not move parsing into the repository.
+- **The SQL Server semantics were kept field for field**, bar two deliberate changes. `PUT` is a full
+  replace (an absent field is cleared) except that a missing `date` keeps the stored stamp, a missing
+  `photo` keeps the stored bytes, and the publish flag never changes. Lenient where `TRY_CONVERT` was:
+  a non-GUID `lake_id`/fish id is dropped, an unparseable date ignored. The two changes: an unknown
+  `PUT` id is now a **404** (SQL Server's `UPDATE` matched nothing and answered 200), and a missing
+  title / bad input is a **400** instead of a 500.
+- **A duplicate title is accepted.** SQL Server's `news_title` was UNIQUE; the MySQL table has no such
+  constraint, and `sp_news_admin_publish` never enforced one either.
+- **A GET body can be PUT straight back.** `GET /{id}` returns `fish1_id`..`fish3_id` (not the
+  `fishes` array the SQL Server contract read) and a `TO_BASE64` photo wrapped every 76 chars. The
+  parser accepts `fishN_id` when there is no `fishes` key, and strips whitespace before decoding —
+  without both, a full-replace PUT of an edited GET body would silently null its species and fail its
+  photo. Verified against a real MySQL 8 through the production classes, not just mocks.
+
+Every successful write clears **both** news caches (`NewsCaches.evictAll`, shared with
+`NewsAdminController`). **Both procedures are live on Winhost (applied 2026-09-18, before 1.16.0 went live)** — there is
+no SQL Server fallback, by design. Their definitions are in `envfish-db/mysql/script02_Proc.sql`.
 
 ### MySQL-backed news search (1.10.0)
 
@@ -306,8 +341,8 @@ touches these columns at scale.
 deliberately a **separate controller** from `NewsController`: these three operations mutate the flat
 `news` row (title, author, paragraphs, photo slots, …), a different shape from both `NewsController`'s
 read queries and the generic JSON-document CRUD `AbstractDocumentController` exposes on the same base
-path (`POST`/`PUT /api/v1/news/{id}`, still SQL-Server-backed — see "Database contract" above; that
-surface is unrelated to this page and untouched by this change).
+path (`POST`/`PUT /api/v1/news/{id}` — MySQL-backed since 1.16.0, see "News writes" above; that
+surface is unrelated to this page).
 
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
@@ -339,7 +374,8 @@ not read as "unknown id"). See `envfish-db/mysql/script02_Proc.sql`'s comments o
 holds no `INSERT`/`UPDATE`/`CREATE ROUTINE` on `mysql_111487_envfish` — the same gap
 `envfish-db/mysql/FIX_missing_v_news_default_doc.sql` documents for the missing home-page view — so
 the three procedures were created by the user via the Winhost control panel from
-`envfish-db/mysql/ADMIN_WRITE_news_procs.sql`. `portos`'s existing blanket `EXECUTE` grant was then
+a one-off control-panel script (deleted once applied; the definitions are in
+`envfish-db/mysql/script02_Proc.sql`). `portos`'s existing blanket `EXECUTE` grant was then
 enough to call them — a MySQL routine runs under its *definer's* rights by default, so the
 `INSERT`/`UPDATE` inside happens under the definer's grants, not `portos`'s.
 
@@ -371,9 +407,10 @@ procedure has no result set at all.
 Separate from the CRUD above, `NewsController` exposes two read endpoints that delegate to
 `NewsQueryRepository` — a separate abstraction for news-page queries. The repository has two
 implementations: `InMemoryNewsQueryRepository` (default, returns empty results; no DB needed) and
-`JdbcNewsQueryRepository` (jdbc profile, calls existing functions tested by `unit_test@DefaultNews.sql`).
-Reads go through functions only (never base tables); both methods carry the same `sqlRetry`/`sqlBreaker`
-Resilience4j guards as the document reads.
+`MySqlNewsQueryRepository` (jdbc profile). The SQL column below names the SQL Server objects each
+endpoint was first built on; the "MySQL backing" table above gives what answers it today (the SQL
+Server `JdbcNewsQueryRepository` was deleted in 1.16.0). Every method carries the same
+`sqlRetry`/`sqlBreaker` Resilience4j guards as the document reads.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
@@ -487,25 +524,21 @@ using the **`fn_news_json` interchange format** — the same self-contained JSON
 "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use. **Only these two endpoints carry
 the FULL document** (every field + all 3 paragraph photos embedded as base64); the endpoints above keep
 their existing lighter shapes / amount. Export is **cached since 2026-09-17** — an LRU of 25 documents in `NewsQueryCache`, keyed by
-lower-cased id (it read through on every request before, at ~2 s a call); import evicts every cached
-entry so a new article shows up immediately.
+lower-cased id (it read through on every request before, at ~2 s a call); import (like every news
+write) clears both news caches so a new article shows up immediately.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
 | `GET /api/v1/news/export/{id}` | MySQL `CALL sp_news_doc_export(?)` | full interchange doc (all fields + 3 base64 photos); no row ⇒ 404. Literal `/export/…` prefix is matched ahead of `/{id}`. Was `SELECT dbo.fn_news_json(?)` until 2026-09-17 |
-| `POST /api/v1/news/import` | `EXEC dbo.sp_news_import ?` | creates a **published** article from an `fn_news_json` body (base64 photos decoded to binary), returns `201 { id }`; blank/malformed body ⇒ 400 |
+| `POST /api/v1/news/import` | MySQL `CALL sp_news_doc_insert(...)` | creates a **published** article from an `fn_news_json` body (all three base64 photos decoded to binary), returns `201 { id }`; any client error ⇒ 400 before a DB call (see "News writes"). Was `EXEC dbo.sp_news_import ?` until 1.16.0 |
 
 Export was ported to MySQL on **2026-09-17** as `sp_news_doc_export`
-(`envfish-db/mysql/script02_Proc.sql`, applied to Winhost via `mysql/ADMIN_WRITE_news_export.sql`);
-`dbo.fn_news_json` remains in `envfish-db/mssql` as the reference the port was diffed against. Import
-still runs `dbo.sp_news_import`, added there test-first (`unit_test@NewsImport.sql`); `news_title` is
-UNIQUE, so importing an existing title raises the duplicate-key error. Both methods carry the same
-`sqlRetry`/`sqlBreaker` guards.
-
-**The two halves now sit on different databases, and that is fine** — the round trip an admin
-actually performs never crosses them. Export (MySQL) produces the document; `AddNews.aspx` consumes
-it in-page and writes to MySQL. `POST /news/import` is the only thing still pointing at SQL Server
-and nothing calls it.
+(`envfish-db/mysql/script02_Proc.sql`, applied to Winhost from the control panel);
+`dbo.fn_news_json` remains in `envfish-db/mssql` as the reference the port was diffed against.
+Import followed in **1.16.0** as `sp_news_doc_insert` (also in `script02_Proc.sql`),
+replacing `dbo.sp_news_import`. Both halves are MySQL now: export → re-import → export was verified to
+give byte-identical documents (402,525 chars, a 300 KB photo included) against a real MySQL 8. A
+duplicate title is accepted — see "News writes".
 
 ---
 
@@ -593,8 +626,9 @@ species ids in that key *are* sorted, because nothing echoes them and the SQL OR
 
 **Invalidation** is `NewsCacheEvictor`: one clear a day at 00:00 UTC, **skipped while SQL Server is
 unreachable** (clearing mid-outage would turn a database outage into a total content outage) and
-retried every 5 minutes until a `SELECT 1` probe succeeds. `POST /news/import` clears the query cache
-so a new article appears at once.
+retried every 5 minutes until a `SELECT 1` probe succeeds. Every news write — `POST`/`PUT
+/api/v1/news`, `/news/import` (via `NewsDocumentService`) and the three `/news/admin/*` writes — clears
+both caches through `NewsCaches.evictAll`, so a change appears at once.
 
 ⚠️ **Consequence worth knowing:** the caches are per-process and hold whatever was loaded, so a page
 assembled during a MySQL blip is served until the next eviction.
@@ -610,6 +644,9 @@ assembled during a MySQL blip is served until the next eviction.
   escaped string). Missing document ⇒ `DocumentNotFoundException` ⇒ HTTP 404.
 - `POST` returns HTTP 201 with `data = { "id": <newId> }`; `PUT` returns 200 with `data = { "id": <id> }`
   (falls back to the supplied id when the update proc returns no scalar).
+- **News is the exception (1.16.0):** its body must be a JSON *object* with a non-blank `title`, fields
+  are validated against the MySQL column sizes (400 otherwise), and a `PUT` to an unknown id is a 404.
+  See "News writes".
 - Every response is an `ApiResponse` envelope `{ data, error, meta }` with a `meta.timestamp`.
   `ApiExceptionHandler` maps: not-found → 404 `not_found`; invalid/unreadable body → 400
   `invalid_document`; anything else → **logged** and 500 `internal_error` (no internal details leak).
@@ -713,16 +750,24 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (241 tests):
+`mvn test` — no DB needed (264 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
-- `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`), SQL Server.
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the
-  mocked MySQL `JdbcTemplate`; `addDocument`/`updateDocument` delegate to a mocked `DocumentStore`
-  (never touching MySQL).
+  mocked MySQL `JdbcTemplate`; `addDocument`/`updateDocument` throw and never touch the database (the
+  store is read-only since 1.16.0). `NewsDocumentRepositoryTest` was deleted with its class.
+- `NewsWriteParserTest` (15, 1.16.0) — both body shapes field by field; `fishes` positional and
+  capped at 3, the `fish1_id`.. fallback, an empty `fishes` clearing all three; line-wrapped base64
+  accepted, garbage base64 a 400; blank title, over-long field (code points — 128 emoji are a legal
+  title), bad country, non-object body all 400; non-GUID tags dropped, unparseable dates ignored.
+- `MySqlNewsWriteRepositoryTest` (6, 1.16.0) — all 24 insert / 19 update parameters bound in order,
+  `NONE` photo slots and a missing stamp bound as typed NULLs, `found=0` ⇒ `false`.
+- `NewsDocumentServiceTest` (6, 1.16.0) — POST/PUT/import go through `NewsWriteRepository` and never
+  the document store, clear both caches, unknown PUT id ⇒ 404 with caches untouched, and every
+  invalid body is a 400 with the repository never called.
 - `MySqlNewsQueryRepositoryTest` (19) — `list`/`defaultNews` read via `CALL sp_news_list_json(?, ?, ?)` /
-  the inlined home-page query against the mocked MySQL `JdbcTemplate`; `exportNews`/`importNews`
-  delegate to a mocked `NewsQueryRepository` (never touching MySQL). **`search` (1.10.0) is covered by
+  the inlined home-page query against the mocked MySQL `JdbcTemplate`; `exportNews` reads
+  `CALL sp_news_doc_export(?)`. There is no SQL Server delegate to assert against any more (1.16.0). **`search` (1.10.0) is covered by
   8 cases that assert the emitted SQL as much as the result**: it never touches the SQL Server
   delegate, filters on the paragraphs but neither selects them nor uses a window function and never
   names a photo BLOB, emits `ESCAPE` as a doubled backslash, adds the country clause only when asked,
@@ -736,7 +781,8 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 - `NewsControllerTest` (43) — `@WebMvcTest` slice: CRUD envelope (404, 201, 400) **plus** the News-page
   queries via mocked `NewsQueryRepository` — empty `/list`+`/default` with a 400 on a bad country,
   successful queries returning paginated items or home-page JSON, **and the interchange
-  `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**. `/search`
+  `/export/{id}` (200 doc / 404) + `/import`** (201 id through `NewsDocumentService.importInterchange`,
+  never the read repository; a service validation failure mapped to 400). `/search`
   (1.10.0) adds 6: the envelope now carries `offset`/`limit`/`fishIds`; the term is trimmed before the
   repository sees it; `?fish=` is split into de-duplicated ids capped at `MAX_SEARCH_FISH_IDS` with
   blanks dropped; an absent `fish` yields an empty list, not null; `offset`/`limit` are clamped and
@@ -759,8 +805,9 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   malformed body, and a non-GUID `{id}` path are each 400 **with the repository never called**; photo
   update decodes base64 and passes `null` through for an omitted `author`/`alt`; an out-of-range slot
   index is 400 before any repository call; an unknown id on the photo route is 404.
-- `NewsCacheTest` (42 tests) — both news caches: what is held, `/import` evicting **every** cached
-  entry, and the three "only on a cold entry" guarantees — deep pages
+- `NewsCacheTest` — both news caches: what is held, `clear()` evicting **every** cached entry
+  (import's own eviction test moved to `NewsDocumentServiceTest` in 1.16.0), and the three "only on a
+  cold entry" guarantees — deep pages
   cached after their first load, cold entries loaded **once** under concurrency (16 threads ⇒ 1
   query, for `/list`, `/default`, a document, `/export`, `/search` and `/photo`), and unknown ids
   remembered, bounded, TTL-expiring, and dropped on update. **Since 2026-09-17** it also pins the five
@@ -779,11 +826,16 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   `DOCAPI_CACHE_WATERBODY`, hyphen removed rather than made an underscore. That last one caught a wrong
   claim in the runbook while it was being written.
 - `DocumentRoundTripTest` — `@SpringBootTest` + MockMvc, default in-memory backing: POST→GET→PUT→GET
-  round-trip, 404, all four entities accept documents, and the News `/list`+`/default` queries return
-  empty payloads (the "it actually works with no DB" proof).
+  round-trip, 404, all four entities accept documents (news with a `title`), a title-less news POST is
+  a 400 and a PUT to an unknown news id a 404 in this profile too, and the News `/list`+`/default`
+  queries return empty payloads (the "it actually works with no DB" proof).
 - `HealthControllerTest`, `DocApiApplicationTest` (mocks `SpringApplication.run`).
 - `DocApiContextTest` — full context boot on the default (in-memory) profile.
 - `DocApiJdbcWiringTest` — boots the `jdbc` profile with an H2 stand-in to keep that wiring verified.
+  **Since 1.16.0** `everyNewsBeanTalksToMySqlOnly` reads the `mysqlJdbc` field off each news bean's real
+  (unproxied) target — `jdbcNewsStore`, `jdbcNewsQueryRepository`, `newsWriteRepository`,
+  `newsAdminCommandRepository` — and asserts it is the MySQL template, and that no `sqlServerNews*`
+  bean exists.
 - `FishControllerTest` — `@WebMvcTest` slice: CRUD envelope (200 doc / 404) **plus** `/fish/search`
   via a mocked `FishQueryRepository` — result mapping, term trimming, empty result, blank/missing
   `q` ⇒ 400.

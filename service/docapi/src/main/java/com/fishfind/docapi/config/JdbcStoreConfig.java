@@ -5,7 +5,6 @@ import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.FishDocumentRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.JdbcFishQueryRepository;
-import com.fishfind.docapi.repo.JdbcNewsQueryRepository;
 import com.fishfind.docapi.repo.JdbcRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverLinkCommandRepository;
@@ -21,9 +20,10 @@ import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
-import com.fishfind.docapi.repo.NewsDocumentRepository;
 import com.fishfind.docapi.repo.MySqlNewsAdminCommandRepository;
 import com.fishfind.docapi.repo.MySqlNewsDocumentRepository;
+import com.fishfind.docapi.repo.MySqlNewsWriteRepository;
+import com.fishfind.docapi.repo.NewsWriteRepository;
 import com.fishfind.docapi.repo.MySqlNewsQueryRepository;
 import com.fishfind.docapi.repo.NewsQueryCache;
 import com.fishfind.docapi.repo.NewsQueryRepository;
@@ -168,28 +168,33 @@ public class JdbcStoreConfig {
     }
 
     /**
-     * The SQL-Server-backed news store, registered as its own bean <strong>on purpose</strong>:
-     * Resilience4j applies {@code @Retry} / {@code @CircuitBreaker} by AOP, which Spring can only do to
-     * beans it manages. Constructing this with {@code new} elsewhere would leave those annotations
-     * silently inert — the SQL calls would lose their retry and breaker with no compile or startup
-     * error. {@code DocApiJdbcWiringTest} asserts this bean really is an advised proxy. Still used
-     * directly for {@code POST}/{@code PUT} (news CRUD writes haven't moved to MySQL).
+     * {@code GET /api/v1/news/{guid}} reads through MySQL ({@code sp_news_doc_get}). Read-only: news
+     * writes go through {@link #newsWriteRepository}, and since docapi 1.16.0 no news bean holds the
+     * SQL Server template at all.
+     *
+     * <p>Registered as its own bean <strong>on purpose</strong>, not constructed inline in
+     * {@link #newsStore}: Resilience4j applies {@code @Retry} / {@code @CircuitBreaker} by AOP, which
+     * Spring can only do to beans it manages. Constructing this with {@code new} elsewhere would leave
+     * those annotations silently inert — the SQL calls would lose their retry and breaker with no
+     * compile or startup error. {@code DocApiJdbcWiringTest} asserts this bean really is an advised
+     * proxy. Every other repository bean here refers back to this note.
      */
     @Bean
-    public DocumentStore sqlServerNewsStore(JdbcTemplate jdbc) {
-        return new NewsDocumentRepository(jdbc);
+    public DocumentStore jdbcNewsStore(@Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
+        return new MySqlNewsDocumentRepository(mysqlJdbc);
     }
 
     /**
-     * {@code GET /api/v1/news/{guid}} reads through MySQL ({@code sp_news_doc_get}); writes delegate to
-     * {@link #sqlServerNewsStore}. Its own bean (not constructed inline in {@link #newsStore}) for the
-     * same AOP-proxying reason as {@link #sqlServerNewsStore}.
+     * {@code POST /api/v1/news}, {@code PUT /api/v1/news/{id}} and {@code POST /api/v1/news/import},
+     * against MySQL's {@code sp_news_doc_insert}/{@code sp_news_doc_update} (docapi 1.16.0). Replaced
+     * SQL Server's {@code sp_news_doc_add}/{@code sp_news_doc_update}/{@code sp_news_import}, which
+     * were docapi's last writes to {@code dbo.news}. Its own bean for the AOP-proxying reason on
+     * {@link #jdbcNewsStore}; not cached (a write path -- {@code NewsDocumentService} clears the read
+     * caches after each write).
      */
     @Bean
-    public DocumentStore jdbcNewsStore(
-            @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc,
-            @Qualifier("sqlServerNewsStore") DocumentStore sqlServerNewsStore) {
-        return new MySqlNewsDocumentRepository(mysqlJdbc, sqlServerNewsStore);
+    public NewsWriteRepository newsWriteRepository(@Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc) {
+        return new MySqlNewsWriteRepository(mysqlJdbc);
     }
 
     /**
@@ -292,27 +297,16 @@ public class JdbcStoreConfig {
     }
 
     /**
-     * The SQL-Server-backed news query repository, a bean in its own right so Resilience4j can proxy
-     * it — see {@link #jdbcNewsStore} for why this matters. Still used directly for {@code /news/search},
-     * {@code /news/export/{id}} and {@code /news/import} (not in the MySQL move).
-     */
-    @Bean
-    public NewsQueryRepository sqlServerNewsQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
-        return new JdbcNewsQueryRepository(jdbc, objectMapper);
-    }
-
-    /**
-     * {@code /news/list} and {@code /news/default} read through MySQL ({@code sp_news_list_json} /
-     * {@code sp_news_default}); {@code search}/{@code exportNews}/{@code importNews} delegate to
-     * {@link #sqlServerNewsQueryRepository}. Its own bean (not constructed inline) for the same
-     * AOP-proxying reason as {@link #jdbcNewsStore}.
+     * Every news query -- list, home page, photo, search, lake/fish panels and the interchange export
+     * -- against MySQL. Its own bean (not constructed inline) for the AOP-proxying reason on
+     * {@link #jdbcNewsStore}. Before docapi 1.16.0 it wrapped a SQL Server delegate for
+     * {@code importNews}; that write now lives in {@link #newsWriteRepository}.
      */
     @Bean
     public NewsQueryRepository jdbcNewsQueryRepository(
             @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc,
-            ObjectMapper objectMapper,
-            @Qualifier("sqlServerNewsQueryRepository") NewsQueryRepository sqlServerNewsQueryRepository) {
-        return new MySqlNewsQueryRepository(mysqlJdbc, objectMapper, sqlServerNewsQueryRepository);
+            ObjectMapper objectMapper) {
+        return new MySqlNewsQueryRepository(mysqlJdbc, objectMapper);
     }
 
     /**

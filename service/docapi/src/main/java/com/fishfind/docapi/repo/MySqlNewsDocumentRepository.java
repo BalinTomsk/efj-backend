@@ -9,21 +9,23 @@ import java.util.List;
 
 /**
  * News document reads backed by the MySQL {@code news} table (Winhost, migrated 2026-08-31; see
- * {@code envfish-db/mysql/script02_Proc.sql} -> {@code sp_news_doc_get}). Writes stay on the
- * SQL-Server-backed delegate: {@code sp_news_doc_add}/{@code sp_news_doc_update} and the admin
- * edit flow haven't moved, and this MySQL database currently backs only reads for News.aspx /
- * docapi's read endpoints.
+ * {@code envfish-db/mysql/script02_Proc.sql} -> {@code sp_news_doc_get}).
+ *
+ * <p><strong>Read-only.</strong> Since docapi 1.16.0 news writes do not go through a
+ * {@link DocumentStore}: {@code NewsDocumentService} overrides {@code add}/{@code update} and sends
+ * them, parsed and validated, to {@link MySqlNewsWriteRepository}. The two write methods below only
+ * exist because the interface requires them; they throw, so a future caller that bypasses the
+ * service fails loudly instead of writing somewhere unexpected. Before 1.16.0 they delegated to a
+ * SQL Server store, which was docapi's last path into {@code dbo.news}.
  */
 public class MySqlNewsDocumentRepository implements DocumentStore {
 
     static final String GET_SQL = "CALL sp_news_doc_get(?)";
 
     private final JdbcTemplate mysqlJdbc;
-    private final DocumentStore sqlServerDelegate;
 
-    public MySqlNewsDocumentRepository(JdbcTemplate mysqlJdbc, DocumentStore sqlServerDelegate) {
+    public MySqlNewsDocumentRepository(JdbcTemplate mysqlJdbc) {
         this.mysqlJdbc = mysqlJdbc;
-        this.sqlServerDelegate = sqlServerDelegate;
     }
 
     @Override
@@ -37,16 +39,18 @@ public class MySqlNewsDocumentRepository implements DocumentStore {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    /** Not in scope for the MySQL move -- delegates to the SQL-Server-backed store unchanged. */
+    /** Never called -- news writes go through {@code NewsDocumentService}; see the class doc. */
     @Override
     public String addDocument(String json) {
-        return sqlServerDelegate.addDocument(json);
+        throw new UnsupportedOperationException(
+                "news writes go through NewsDocumentService -> NewsWriteRepository, not the document store");
     }
 
-    /** Not in scope for the MySQL move -- delegates to the SQL-Server-backed store unchanged. */
+    /** Never called -- news writes go through {@code NewsDocumentService}; see the class doc. */
     @Override
     public String updateDocument(String id, String json) {
-        return sqlServerDelegate.updateDocument(id, json);
+        throw new UnsupportedOperationException(
+                "news writes go through NewsDocumentService -> NewsWriteRepository, not the document store");
     }
 
     /**

@@ -1,5 +1,57 @@
 # docapi Session Memory
 
+## 2026-09-18: 1.16.0 — news writes moved to MySQL (DEPLOYED AND LIVE)
+
+**Resolved later the same day:** the user re-ran the ADMIN_WRITE file; the `PUT` probe then answered
+404 (was 500), `restarts=0`. Lesson: "it worked" from a control-panel run is not proof — probe the
+live path before calling a write migration done.
+
+**Then the user applied every `envfish-db/mysql/*.sql` file.** Checked: no script deletes data, and
+every procedure is byte-identical across the files that define it **except `sp_news_list_json`**,
+where `ADMIN_ROLLBACK_news_list_sort.sql` holds the old date order. The live list shows 17 date
+inversions in 40 rows, i.e. the newest-added order won — which also confirms the 09-16 sort fix
+(left "NOT confirmed live" in `fishfind-frontend/aspnet/memory.md`) is live. The
+`1051 Unknown table v_news_default_doc` warning from that run is `DROP VIEW IF EXISTS` finding
+nothing; the view now exists and nothing uses it.
+
+**Deploy result:** 1.16.0 is live and healthy (`/health` 1.16.0, restarts 0/0, all reads per the
+matrix, port bindings byte-identical to 1.15.2's — the VPC bind address was read off `eth1` on the
+droplet because the IP hook blocks the literal). But `PUT /api/v1/news/<all-zero id>` — a probe that
+writes nothing — returned 500: **`sp_news_doc_update does not exist` in `mysql_111487_envfish`**,
+although the user reported the control-panel run "worked". Next: re-run the ADMIN_WRITE file, check
+it with the file header's `information_schema` query (expect two rows), then repeat the probe — it
+must be a 404. Do NOT test with a real POST: `sp_news_doc_insert` always creates a published article.
+
+**Asked:** "check docapi doesn't read the news table in MSSQL — must be only MySQL", then "writes
+still going to MSSQL must write into MySQL. News controller must deal only with MySQL."
+
+**Found:** every news *read* was already MySQL. Three writes were not — `POST /api/v1/news`,
+`PUT /api/v1/news/{id}` (inherited from `AbstractDocumentController`) and `POST /news/import` — all
+into SQL Server's `dbo.news`. Nothing in the frontend calls them, but the gateway admits the two
+POSTs, so they were a live path.
+
+**Done:** two MySQL procedures (`sp_news_doc_insert`, `sp_news_doc_update`), `NewsWriteParser` +
+`NewsWriteRepository` in docapi, the SQL Server news classes and beans deleted. See the 1.16.0
+CHANGELOG entry for the behaviour changes (400s, the 404, duplicate titles now accepted).
+
+**State — two steps, in this order, neither done:**
+1. User runs `envfish-db/mysql/ADMIN_WRITE_news_doc_writes.sql` in the Winhost control panel
+   (`portos` has no `CREATE ROUTINE`). Harmless early: 1.15.2 never calls these procedures. Its
+   header carries a read-only verification probe.
+2. Deploy docapi **1.16.0** via the `update-docapi` skill. **Rollback tag: `1.15.2`** (running now).
+   After deploy, `restarts` must read 0 twice — the droplet is one core shared with the two pushers.
+
+**Traps met this session:**
+- **`main` moved under a session that started on it.** Yesterday's `news-export-mysql` branch was
+  merged and 1.15.2 (`a2b0fa6`) landed on top while this work began; my first draft said "1.15.0"
+  everywhere. Read the pom and `git log -1` before naming a version — and the CLAUDE.md rule
+  "version numbers come from `pom.xml`" is exactly this.
+- **A MySQL test with only a `SQLSTATE '45000'` handler aborts the whole file** on any other error
+  (here: 1305, procedure missing), silently skipping every later test. Found by running the tests
+  with the procedures dropped — the failing half of test-first is worth doing for this reason alone.
+- **A hook now blocks any command containing a real IP.** Use the SSH aliases (`docapi-droplet`,
+  `cproxy-droplet`), never the address.
+
 ## 2026-09-18: droplet CPU incident — docapi was the victim, not the cause
 
 `debian-jnode` sat at 99% CPU. Resizing it did not help, for two independent reasons:

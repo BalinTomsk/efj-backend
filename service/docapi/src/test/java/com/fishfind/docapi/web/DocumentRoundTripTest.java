@@ -96,14 +96,38 @@ class DocumentRoundTripTest {
                 .andExpect(jsonPath("$.data.query").value("walleye"));
     }
 
+    /**
+     * News is the one entity with a schema: a non-empty {@code title} is required (docapi 1.16.0 makes
+     * that a 400 in every profile -- on the real backend it was always refused, as a SQL Server
+     * RAISERROR). The other three still accept any JSON document.
+     */
     @Test
     void allFourEntitiesAcceptDocuments() throws Exception {
         for (String entity : new String[]{"news", "waterbody", "fish", "station"}) {
+            String field = entity.equals("news") ? "title" : "name";
             mockMvc.perform(post("/api/v1/" + entity)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"name\":\"" + entity + "\"}"))
+                            .content("{\"" + field + "\":\"" + entity + "\"}"))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.id").exists());
         }
+    }
+
+    @Test
+    void newsWithoutATitleIsA400InTheDefaultProfileToo() throws Exception {
+        mockMvc.perform(post("/api/v1/news")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"news\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void putToAnUnknownNewsIdIs404NotASilentCreate() throws Exception {
+        mockMvc.perform(put("/api/v1/news/news-does-not-exist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"x\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
     }
 }

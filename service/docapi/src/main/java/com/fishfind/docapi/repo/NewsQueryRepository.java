@@ -63,14 +63,6 @@ public interface NewsQueryRepository {
      */
     JsonNode exportNews(String id);
 
-    /**
-     * Imports one article from an {@code fn_news_json} interchange document, creating a new published
-     * article (base64 photos decoded to binary).
-     *
-     * @param json the interchange JSON body (validated well-formed upstream)
-     * @return the id assigned to the newly created article
-     */
-    String importNews(String json);
 
     /**
      * Searches published news for a term across the headline, source, paragraphs and photo alts, plus

@@ -69,7 +69,6 @@ class NewsCacheTest {
         final AtomicInteger listCalls = new AtomicInteger();
         final AtomicInteger defaultCalls = new AtomicInteger();
         final AtomicInteger exportCalls = new AtomicInteger();
-        final AtomicInteger importCalls = new AtomicInteger();
         final AtomicInteger searchCalls = new AtomicInteger();
         final AtomicInteger photoCalls = new AtomicInteger();
         final AtomicInteger lakeCalls = new AtomicInteger();
@@ -97,12 +96,6 @@ class NewsCacheTest {
         public JsonNode exportNews(String id) {
             exportCalls.incrementAndGet();
             return new ObjectMapper().createObjectNode().put("id", id);
-        }
-
-        @Override
-        public String importNews(String json) {
-            importCalls.incrementAndGet();
-            return "new-" + importCalls.get();
         }
 
         @Override
@@ -483,23 +476,6 @@ class NewsCacheTest {
         assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
         cache.exportNews("id-1");
         assertThat(repo.exportCalls.get()).isEqualTo(2);
-    }
-
-    @Test
-    void importCreatesViaDelegateAndEvictsTheCache() {
-        CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
-        cache.list("US", 0, 5);
-        cache.list("CA", 0, 5);
-        cache.defaultNews();
-        assertThat(cache.sizes()).containsExactly(100, 100, 0, 1, 0, 0, 0, 0, 0);
-
-        String id = cache.importNews("{\"title\":\"Imported\"}");
-
-        assertThat(id).isEqualTo("new-1");
-        assertThat(repo.importCalls.get()).isEqualTo(1);
-        // a new published article invalidates the cached lists + home page
-        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     // ---- /news/{guid} --------------------------------------------------------------------------

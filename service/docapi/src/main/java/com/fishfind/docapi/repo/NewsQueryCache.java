@@ -284,17 +284,6 @@ public class NewsQueryCache implements NewsQueryRepository {
     }
 
     /**
-     * A write: create the article via the delegate, then drop every cached entry so the new article
-     * shows up on the next read — it can appear in a list, the home page, a search, and both panels.
-     */
-    @Override
-    public String importNews(String json) {
-        String newId = delegate.importNews(json);
-        clear();
-        return newId;
-    }
-
-    /**
      * Drops every cached entry. The next request for each repopulates it from the database.
      */
     public void clear() {
