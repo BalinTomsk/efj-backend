@@ -618,6 +618,14 @@ RULES
     the injected one. That is what makes them testable against recorded provider payloads.
 
 CONVERTERS
+  Every converter is a @Component with TWO public constructors: the real one and a clock-pinning one
+  for tests. Spring selects a constructor implicitly only when a class has exactly ONE, so the real
+  constructor MUST carry @Autowired -- without it Spring falls back to a no-arg constructor that does
+  not exist and the context dies with NoSuchMethodException: <init>(). Image 1.15.1 shipped that way
+  and crash-looped ~800 times in production while every unit test passed, because the tests construct
+  converters directly. ConverterBeanWiringTest now guards this; keep the annotation on any new
+  converter that carries a second constructor.
+
   OpenMeteoConverter (type 2)      already metric; reproduces the reduction the T-SQL performed --
                                    latest hour of each day wins, rainfall splits at 06:00-17:59,
                                    daytime temperature is a mean of the daytime hours.
@@ -773,7 +781,9 @@ RUN MODES
 TESTING
 -------
 Unit tests (JUnit 5 + Mockito + AssertJ, all bundled by spring-boot-starter-test) cover all
-functional classes. No Spring context is started; collaborators are mocked.
+functional classes. Collaborators are mocked and, with ONE deliberate exception, no Spring context
+is started -- ConverterBeanWiringTest refreshes a small real context over the canonical package,
+because constructor selection is a wiring property that no test calling `new` can observe.
 
   WeatherStationPusherApplicationTest  addIfMissing fallback logic (env/sysprop/dotenv branches)
   StationRefTest                       record accessors + value equality
@@ -804,6 +814,12 @@ functional classes. No Spring context is started; collaborators are mocked.
                                        description), crash with no log file (fallback
                                        description), 7-day retention trim, unwritable state dir
                                        does not throw
+  ConverterBeanWiringTest              scans the canonical package into a real Spring context and
+                                       refreshes it, so every @Component converter must be
+                                       instantiable BY SPRING and not merely by `new`. Scans rather
+                                       than naming the classes, so a converter added later is
+                                       covered the day it appears. This is the gap that let 1.15.1
+                                       ship a crash-looping image on a fully green build
 
 Testability seams used by the tests (production behaviour unchanged):
   - OpenMeteoFetcher: weather.worker.open-meteo-base-url

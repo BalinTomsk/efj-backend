@@ -1,5 +1,6 @@
 package com.fishfind.docapi.repo;
 
+import com.fishfind.docapi.config.NewsCacheProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,14 +13,15 @@ import java.util.function.LongSupplier;
  * Caching decorator for the news {@link DocumentStore}, backing
  * {@code GET /api/v1/news/{guid}} (which reads {@code dbo.fn_news_doc}).
  *
- * <p>Keeps the <strong>last {@value #MAX_DOCUMENTS} documents requested</strong> in an access-ordered
- * LRU: a cache hit returns immediately, a miss reads through to the wrapped store and stores the
- * result. Documents can be large (the lead photo is embedded as base64), which is why the bound is
- * small.
+ * <p>Keeps the <strong>last {@code docapi.cache.news.document} documents requested</strong> (default
+ * 25) in an access-ordered LRU: a cache hit returns immediately, a miss reads through to the wrapped
+ * store and stores the result. Documents can be large (the lead photo is embedded as base64), which is
+ * why the bound is small.
  *
  * <h2>Misses are remembered too, but only briefly</h2>
  * A {@code null} result — an unknown or unpublished id, which the controller turns into a 404 — is
- * remembered for {@value #MISS_TTL_MS} ms in a separate bounded map. Without that, every request for
+ * remembered for {@value #MISS_TTL_MS} ms in a separate map, bounded by
+ * {@code docapi.cache.news.miss} (default 500). Without that, every request for
  * an id that does not exist reached the database: a crawler or scanner walking guids could hammer the
  * remote MySQL indefinitely, and no amount of caching of real articles would stop it. The short TTL
  * is the whole point of keeping misses separate from documents: an article published <em>outside</em>
@@ -42,10 +44,6 @@ public class NewsDocumentCache implements DocumentStore {
 
     private static final Logger log = LoggerFactory.getLogger(NewsDocumentCache.class);
 
-    /** How many recently-requested documents to keep. */
-    static final int MAX_DOCUMENTS = 25;
-    /** How many recently-requested unknown ids to remember. Small entries, so a larger bound. */
-    static final int MAX_MISSES = 500;
     /** How long an "unknown id" answer is trusted before the database is asked again. */
     static final long MISS_TTL_MS = 60_000L;
     /** Number of striped load locks, bounded so arbitrary ids cannot grow a lock map. */
@@ -58,33 +56,33 @@ public class NewsDocumentCache implements DocumentStore {
     /** Guards cold reads so each uncached id is loaded by exactly one request. */
     private final Object[] loadLocks = new Object[LOAD_STRIPES];
 
-    private final Map<String, String> documents = Collections.synchronizedMap(
-            new LinkedHashMap<>(16, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-                    return size() > MAX_DOCUMENTS;
-                }
-            });
+    private final Map<String, String> documents;
 
     /** Ids known not to resolve, with the timestamp at which that was established. */
-    private final Map<String, Long> misses = Collections.synchronizedMap(
-            new LinkedHashMap<>(16, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
-                    return size() > MAX_MISSES;
-                }
-            });
+    private final Map<String, Long> misses;
 
-    public NewsDocumentCache(DocumentStore delegate) {
-        this(delegate, System::currentTimeMillis);
+    public NewsDocumentCache(DocumentStore delegate, NewsCacheProperties properties) {
+        this(delegate, properties, System::currentTimeMillis);
     }
 
-    NewsDocumentCache(DocumentStore delegate, LongSupplier clock) {
+    NewsDocumentCache(DocumentStore delegate, NewsCacheProperties properties, LongSupplier clock) {
         this.delegate = delegate;
         this.clock = clock;
+        this.documents = boundedLru(properties.getNews().getDocument());
+        this.misses = boundedLru(properties.getNews().getMiss());
         for (int i = 0; i < LOAD_STRIPES; i++) {
             loadLocks[i] = new Object();
         }
+    }
+
+    /** Access-ordered LRU holding at most {@code maxEntries}, synchronized for concurrent reads. */
+    private static <V> Map<String, V> boundedLru(int maxEntries) {
+        return Collections.synchronizedMap(new LinkedHashMap<String, V>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+                return size() > maxEntries;
+            }
+        });
     }
 
     @Override

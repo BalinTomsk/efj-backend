@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -55,6 +56,8 @@ public class WeatherGovConverter implements ForecastConverter {
     private final ObjectMapper mapper;
     private final Clock clock;
 
+    /** {@code @Autowired} is load-bearing: with two constructors and no no-arg, Spring cannot pick one. */
+    @Autowired
     public WeatherGovConverter(ObjectMapper mapper) {
         this(mapper, Clock.systemUTC());
     }

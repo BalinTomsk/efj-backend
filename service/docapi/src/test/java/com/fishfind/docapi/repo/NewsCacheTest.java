@@ -2,6 +2,7 @@ package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.docapi.config.NewsCacheProperties;
 import com.fishfind.docapi.web.NewsController.NewsFishPage;
 import com.fishfind.docapi.web.NewsController.NewsLakePage;
 import com.fishfind.docapi.web.NewsController.NewsListItem;
@@ -36,6 +37,12 @@ import static org.mockito.Mockito.when;
  */
 class NewsCacheTest {
 
+    /**
+     * Unconfigured properties, i.e. the defaults — so the bounds asserted below are read from the same
+     * place production reads them, not restated as literals that could drift from the yaml.
+     */
+    private static final NewsCacheProperties CACHE_PROPS = new NewsCacheProperties();
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ---- helpers -------------------------------------------------------------------------------
@@ -50,6 +57,11 @@ class NewsCacheTest {
             items.add(item(fromInclusive + i));
         }
         return new NewsListPage(items, total, offset, limit);
+    }
+
+    /** A text-only search for {@code term}, all-countries, first page — the common shape. */
+    private static NewsSearchQuery query(String term) {
+        return new NewsSearchQuery(term, List.of(), null, 0, 25);
     }
 
     /** Counts how many times the delegate is actually consulted. */
@@ -123,7 +135,7 @@ class NewsCacheTest {
     @Test
     void usAndCaAreFetchedOnceAsHundredRowBucketsAndPagesAreSlicedFromThem() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         NewsListPage first = cache.list("US", 0, 5);
         assertThat(first.items()).hasSize(5);
@@ -146,7 +158,7 @@ class NewsCacheTest {
 
     @Test
     void slicedPageCarriesTheCorrectRowsAndEchoesPaging() {
-        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(500));
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(500), CACHE_PROPS);
 
         NewsListPage p = cache.list("US", 10, 3);
 
@@ -159,7 +171,7 @@ class NewsCacheTest {
     @Test
     void deepPagingBeyondTheCachedRowsReadsThroughInsteadOfTruncating() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         cache.list("US", 0, 10);                       // loads the bucket
         assertThat(repo.listCalls.get()).isEqualTo(1);
@@ -179,7 +191,7 @@ class NewsCacheTest {
     @Test
     void whenTheBucketHoldsEveryRowAnOffsetPastTheEndYieldsAnEmptyPageWithoutReadingThrough() {
         CountingRepo repo = new CountingRepo(12);      // fewer rows than the bucket size
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         cache.list("CA", 0, 25);
         assertThat(repo.listCalls.get()).isEqualTo(1);
@@ -193,7 +205,7 @@ class NewsCacheTest {
     @Test
     void otherCountriesAndTheUnfilteredRequestShareABoundedCache() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         cache.list(null, 0, 25);   // all countries
         cache.list(null, 0, 25);   // repeat -> cached
@@ -205,13 +217,13 @@ class NewsCacheTest {
 
     @Test
     void theOtherRequestCacheIsCappedAtOneHundredEntries() {
-        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(5000));
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(5000), CACHE_PROPS);
 
-        for (int i = 0; i < NewsQueryCache.OTHER_ENTRIES + 40; i++) {
+        for (int i = 0; i < CACHE_PROPS.getNews().getList() + 40; i++) {
             cache.list("GB", i, 1);
         }
 
-        assertThat(cache.sizes()[2]).isEqualTo(NewsQueryCache.OTHER_ENTRIES);
+        assertThat(cache.sizes()[2]).isEqualTo(CACHE_PROPS.getNews().getList());
     }
 
     /**
@@ -221,7 +233,7 @@ class NewsCacheTest {
     @Test
     void aColdEntryIsLoadedOnceEvenWhenManyRequestsArriveTogether() throws Exception {
         SlowRepo repo = new SlowRepo();
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         runConcurrently(16, () -> cache.list("GB", 0, 25));
         assertThat(repo.listCalls.get()).isEqualTo(1);
@@ -246,6 +258,24 @@ class NewsCacheTest {
         public JsonNode defaultNews() {
             sleep();
             return super.defaultNews();
+        }
+
+        @Override
+        public JsonNode exportNews(String id) {
+            sleep();
+            return super.exportNews(id);
+        }
+
+        @Override
+        public NewsSearchPage search(NewsSearchQuery request) {
+            sleep();
+            return super.search(request);
+        }
+
+        @Override
+        public byte[] newsPhoto(String id) {
+            sleep();
+            return super.newsPhoto(id);
         }
 
         private static void sleep() {
@@ -285,7 +315,7 @@ class NewsCacheTest {
     @Test
     void countryMatchingIsCaseInsensitiveSoLowercaseStillHitsTheUsBucket() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         cache.list("US", 0, 5);
         cache.list("us", 0, 5);
@@ -298,7 +328,7 @@ class NewsCacheTest {
     @Test
     void defaultPageIsLoadedOnceAndServedFromCacheUntilCleared() {
         CountingRepo repo = new CountingRepo(10);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
         JsonNode a = cache.defaultNews();
         JsonNode b = cache.defaultNews();
@@ -313,16 +343,16 @@ class NewsCacheTest {
     @Test
     void clearEmptiesEveryListCacheSoTheNextRequestRefills() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
         cache.list("US", 0, 5);
         cache.list("CA", 0, 5);
         cache.list("GB", 0, 5);
         cache.defaultNews();
-        assertThat(cache.sizes()).containsExactly(100, 100, 1, 1);
+        assertThat(cache.sizes()).containsExactly(100, 100, 1, 1, 0, 0, 0, 0, 0);
 
         cache.clear();
 
-        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0);
+        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
         int before = repo.listCalls.get();
         cache.list("US", 0, 5);
         assertThat(repo.listCalls.get()).isEqualTo(before + 1);
@@ -331,31 +361,145 @@ class NewsCacheTest {
     // ---- interchange export / import -----------------------------------------------------------
 
     @Test
-    void exportAlwaysReadsThroughAndIsNotCached() {
+    void exportIsReadOnceThenServedFromItsLruCache() {
         CountingRepo repo = new CountingRepo(0);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
-        cache.exportNews("id-1");
-        cache.exportNews("id-1");
+        // ~2s per call through the gateway (base64 of three LONGBLOBs over a cold remote connection),
+        // so the repeat an admin round trip makes must not pay it again.
+        JsonNode first = cache.exportNews("id-1");
+        JsonNode second = cache.exportNews("id-1");
 
+        assertThat(repo.exportCalls.get()).isEqualTo(1);
+        assertThat(second).isSameAs(first);
+        assertThat(cache.sizes()[4]).isEqualTo(1);
+    }
+
+    @Test
+    void exportKeysAreCaseInsensitiveSoOneArticleIsOneEntry() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        // news_id's collation is case-insensitive, so both spellings resolve to the same row.
+        cache.exportNews("598B47D2-B253-11F1-9659-00155D23D30D");
+        cache.exportNews("598b47d2-b253-11f1-9659-00155d23d30d");
+
+        assertThat(repo.exportCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[4]).isEqualTo(1);
+    }
+
+    @Test
+    void exportCacheKeepsOnlyTheLastTwentyFive() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        for (int i = 0; i < CACHE_PROPS.getNews().getExport() + 10; i++) {
+            cache.exportNews("id-" + i);
+        }
+
+        assertThat(cache.sizes()[4]).isEqualTo(CACHE_PROPS.getNews().getExport());
+    }
+
+    /**
+     * The bounds are configuration as of 2026-09-18, and every other test here runs on the defaults —
+     * which would still pass if the properties were ignored and the old constants left in place. This
+     * is the one that fails if the wiring from {@link NewsCacheProperties} to the maps is lost, and it
+     * uses three DIFFERENT values so a cache reading the wrong property is caught too.
+     */
+    @Test
+    void eachConfiguredBoundReachesItsOwnCacheAndNotAnother() {
+        NewsCacheProperties tight = new NewsCacheProperties();
+        tight.getNews().setExport(3);
+        tight.setWaterBody(2);
+        tight.setFish(1);
+
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, tight);
+
+        for (int i = 0; i < 12; i++) {
+            cache.exportNews("export-" + i);
+            cache.lakeNews("lake-" + i, 12);
+            cache.fishNews("fish-" + i, 10);
+        }
+
+        assertThat(cache.sizes()[4]).as("export").isEqualTo(3);
+        assertThat(cache.sizes()[6]).as("water body").isEqualTo(2);
+        assertThat(cache.sizes()[7]).as("fish").isEqualTo(1);
+    }
+
+    /**
+     * An unknown id is passed back but not stored, so a later publish of that id is visible at once.
+     * The crawler hazard {@link NewsDocumentCache} remembers misses for does not apply here: cproxy
+     * day-key-gates {@code /news/export} and {@code /news/photo}, so nothing reaches them unauthenticated.
+     */
+    @Test
+    void anUnknownIdIsNotCachedSoItIsRetriedRatherThanRememberedAsMissing() {
+        NullRepo repo = new NullRepo();
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        assertThat(cache.exportNews("ghost")).isNull();
+        assertThat(cache.exportNews("ghost")).isNull();
+        assertThat(cache.newsPhoto("ghost")).isNull();
+        assertThat(cache.newsPhoto("ghost")).isNull();
+
+        assertThat(repo.exportCalls.get()).isEqualTo(2);
+        assertThat(repo.photoCalls.get()).isEqualTo(2);
+        assertThat(cache.sizes()[4]).isZero();
+        assertThat(cache.sizes()[8]).isZero();
+    }
+
+    /** Delegate whose per-id reads all answer "no such article". */
+    private static final class NullRepo extends CountingRepo {
+        NullRepo() {
+            super(0);
+        }
+
+        @Override
+        public JsonNode exportNews(String id) {
+            exportCalls.incrementAndGet();
+            return null;
+        }
+
+        @Override
+        public byte[] newsPhoto(String id) {
+            photoCalls.incrementAndGet();
+            return null;
+        }
+    }
+
+    @Test
+    void clearEmptiesThePerRequestLrusTooSoTheNextRequestRefills() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+        cache.exportNews("id-1");
+        cache.search(query("walleye"));
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+        cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
+        cache.newsPhoto("id-1");
+        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 1, 1, 1, 1, 1);
+
+        cache.clear();
+
+        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        cache.exportNews("id-1");
         assertThat(repo.exportCalls.get()).isEqualTo(2);
     }
 
     @Test
     void importCreatesViaDelegateAndEvictsTheCache() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
         cache.list("US", 0, 5);
         cache.list("CA", 0, 5);
         cache.defaultNews();
-        assertThat(cache.sizes()).containsExactly(100, 100, 0, 1);
+        assertThat(cache.sizes()).containsExactly(100, 100, 0, 1, 0, 0, 0, 0, 0);
 
         String id = cache.importNews("{\"title\":\"Imported\"}");
 
         assertThat(id).isEqualTo("new-1");
         assertThat(repo.importCalls.get()).isEqualTo(1);
         // a new published article invalidates the cached lists + home page
-        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0);
+        assertThat(cache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     // ---- /news/{guid} --------------------------------------------------------------------------
@@ -364,7 +508,7 @@ class NewsCacheTest {
     void documentIsReadOnceThenServedFromTheLruCache() {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument("g1")).thenReturn("{\"title\":\"one\"}");
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         assertThat(cache.getDocument("g1")).contains("one");
         assertThat(cache.getDocument("g1")).contains("one");
@@ -377,13 +521,13 @@ class NewsCacheTest {
     void documentCacheKeepsOnlyTheLastTwentyFive() {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenAnswer(inv -> "{\"id\":\"" + inv.getArgument(0) + "\"}");
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
-        for (int i = 0; i < NewsDocumentCache.MAX_DOCUMENTS + 10; i++) {
+        for (int i = 0; i < CACHE_PROPS.getNews().getDocument() + 10; i++) {
             cache.getDocument("guid-" + i);
         }
 
-        assertThat(cache.size()).isEqualTo(NewsDocumentCache.MAX_DOCUMENTS);
+        assertThat(cache.size()).isEqualTo(CACHE_PROPS.getNews().getDocument());
     }
 
     /**
@@ -394,7 +538,7 @@ class NewsCacheTest {
     void anUnknownIdIsRememberedSoRepeatedLookupsDoNotReachTheDatabase() {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument("nope")).thenReturn(null);
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         for (int i = 0; i < 20; i++) {
             assertThat(cache.getDocument("nope")).isNull();
@@ -414,7 +558,7 @@ class NewsCacheTest {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument("later")).thenReturn(null, "{\"title\":\"published\"}");
         AtomicLong now = new AtomicLong(0L);
-        NewsDocumentCache cache = new NewsDocumentCache(delegate, now::get);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS, now::get);
 
         assertThat(cache.getDocument("later")).isNull();
 
@@ -435,13 +579,13 @@ class NewsCacheTest {
     void rememberedMissesAreCappedAtTheirBound() {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn(null);
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
-        for (int i = 0; i < NewsDocumentCache.MAX_MISSES + 50; i++) {
+        for (int i = 0; i < CACHE_PROPS.getNews().getMiss() + 50; i++) {
             cache.getDocument("guid-" + i);
         }
 
-        assertThat(cache.missCount()).isEqualTo(NewsDocumentCache.MAX_MISSES);
+        assertThat(cache.missCount()).isEqualTo(CACHE_PROPS.getNews().getMiss());
     }
 
     /** A publish through docapi drops the remembered miss immediately, without waiting out the TTL. */
@@ -450,7 +594,7 @@ class NewsCacheTest {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument("g9")).thenReturn(null, "{\"v\":1}");
         when(delegate.updateDocument(anyString(), anyString())).thenReturn("g9");
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         assertThat(cache.getDocument("g9")).isNull();
         cache.updateDocument("g9", "{\"v\":1}");
@@ -467,7 +611,7 @@ class NewsCacheTest {
             Thread.sleep(60);
             return "{\"title\":\"hot\"}";
         });
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         runConcurrently(16, () -> cache.getDocument("hot"));
 
@@ -479,7 +623,7 @@ class NewsCacheTest {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument("g1")).thenReturn("{\"v\":1}", "{\"v\":2}");
         when(delegate.updateDocument(anyString(), anyString())).thenReturn("g1");
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         assertThat(cache.getDocument("g1")).contains("\"v\":1");
         cache.updateDocument("g1", "{\"v\":2}");
@@ -491,7 +635,7 @@ class NewsCacheTest {
     void documentIdsAreMatchedCaseInsensitivelyBecauseGuidsAre() {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"title\":\"one\"}");
-        NewsDocumentCache cache = new NewsDocumentCache(delegate);
+        NewsDocumentCache cache = new NewsDocumentCache(delegate, CACHE_PROPS);
 
         cache.getDocument("AABBCCDD-0000-1111-2222-333344445555");
         cache.getDocument("aabbccdd-0000-1111-2222-333344445555");
@@ -505,10 +649,10 @@ class NewsCacheTest {
     @Test
     void dailyEvictionClearsBothCachesWhenTheDatabaseIsReachable() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache queryCache = new NewsQueryCache(repo);
+        NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
-        NewsDocumentCache docCache = new NewsDocumentCache(delegate);
+        NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), any(Class.class))).thenReturn(1);
 
@@ -517,17 +661,17 @@ class NewsCacheTest {
 
         new NewsCacheEvictor(queryCache, docCache, jdbc).dailyEviction();
 
-        assertThat(queryCache.sizes()).containsExactly(0, 0, 0, 0);
+        assertThat(queryCache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
         assertThat(docCache.size()).isZero();
     }
 
     @Test
     void evictionIsDeferredWhileSqlIsUnreachableSoStaleEntriesKeepServing() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache queryCache = new NewsQueryCache(repo);
+        NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
-        NewsDocumentCache docCache = new NewsDocumentCache(delegate);
+        NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), any(Class.class)))
                 .thenThrow(new DataAccessResourceFailureException("connection refused"));
@@ -552,10 +696,10 @@ class NewsCacheTest {
     @Test
     void aDeferredEvictionIsAppliedAsSoonAsTheConnectionIsRestored() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache queryCache = new NewsQueryCache(repo);
+        NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
-        NewsDocumentCache docCache = new NewsDocumentCache(delegate);
+        NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject(anyString(), any(Class.class)))
                 .thenThrow(new DataAccessResourceFailureException("down"))
@@ -571,15 +715,15 @@ class NewsCacheTest {
         evictor.retryPendingEviction();        // database is back
 
         assertThat(evictor.isEvictionPending()).isFalse();
-        assertThat(queryCache.sizes()).containsExactly(0, 0, 0, 0);
+        assertThat(queryCache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
         assertThat(docCache.size()).isZero();
     }
 
     @Test
     void theRetryTickDoesNothingWhenNoEvictionIsOwed() {
         CountingRepo repo = new CountingRepo(500);
-        NewsQueryCache queryCache = new NewsQueryCache(repo);
-        NewsDocumentCache docCache = new NewsDocumentCache(mock(DocumentStore.class));
+        NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
+        NewsDocumentCache docCache = new NewsDocumentCache(mock(DocumentStore.class), CACHE_PROPS);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         queryCache.list("US", 0, 5);
 
@@ -593,49 +737,166 @@ class NewsCacheTest {
     // ---- /news/photo ---------------------------------------------------------------------------
 
     @Test
-    void photosAreNeverCachedSoEveryRequestReachesTheDatabase() {
+    void photoIsReadOnceThenServedFromItsLruCache() {
         CountingRepo repo = new CountingRepo(0);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
-        // Lead photos are megabyte-scale blobs whose caller already caches them; holding a second
-        // copy here would cost heap for a hit rate near zero. Pin the pass-through deliberately.
         cache.newsPhoto("abc");
         cache.newsPhoto("abc");
-        cache.newsPhoto("abc");
+        cache.newsPhoto("ABC");   // same article, either spelling
 
-        assertThat(repo.photoCalls.get()).isEqualTo(3);
+        assertThat(repo.photoCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[8]).isEqualTo(1);
+    }
+
+    @Test
+    void photoCacheKeepsOnlyTheLastTwentyFive() {
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(0), CACHE_PROPS);
+
+        // The heaviest entries held here (~0.5 MB apiece live), so the bound is what keeps this
+        // cache's heap cost knowable. Pin it.
+        for (int i = 0; i < CACHE_PROPS.getNews().getPhoto() + 10; i++) {
+            cache.newsPhoto("id-" + i);
+        }
+
+        assertThat(cache.sizes()[8]).isEqualTo(CACHE_PROPS.getNews().getPhoto());
+    }
+
+    // ---- /news/search --------------------------------------------------------------------------
+
+    @Test
+    void searchIsReadOnceThenServedFromItsLruCache() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        cache.search(query("walleye"));
+        cache.search(query("walleye"));
+
+        assertThat(repo.searchCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[5]).isEqualTo(1);
+    }
+
+    @Test
+    void eachPageOfOneSearchIsItsOwnEntryAndTheTermIsNotCaseFolded() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        cache.search(new NewsSearchQuery("walleye", List.of(), null, 0, 25));
+        cache.search(new NewsSearchQuery("walleye", List.of(), null, 25, 25));  // page 2
+        cache.search(new NewsSearchQuery("walleye", List.of(), "CA", 0, 25));   // country filter
+        // NOT folded to the entry above: NewsSearchPage echoes `query` back verbatim, so serving
+        // "Walleye" from the "walleye" entry would change the response body.
+        cache.search(new NewsSearchQuery("Walleye", List.of(), null, 0, 25));
+
+        assertThat(repo.searchCalls.get()).isEqualTo(4);
+        assertThat(cache.sizes()[5]).isEqualTo(4);
+    }
+
+    @Test
+    void speciesIdOrderDoesNotSplitOneSearchAcrossTwoEntries() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        // The SQL ORs the three species slots and nothing echoes the ids back, so the two orderings
+        // are the same result and must share one entry.
+        cache.search(new NewsSearchQuery("pike", List.of("id-a", "id-b"), null, 0, 25));
+        cache.search(new NewsSearchQuery("pike", List.of("id-b", "id-a"), null, 0, 25));
+
+        assertThat(repo.searchCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[5]).isEqualTo(1);
+    }
+
+    @Test
+    void searchCacheKeepsOnlyTheLastTwentyFive() {
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(0), CACHE_PROPS);
+
+        for (int i = 0; i < CACHE_PROPS.getNews().getSearch() + 10; i++) {
+            cache.search(query("term-" + i));
+        }
+
+        assertThat(cache.sizes()[5]).isEqualTo(CACHE_PROPS.getNews().getSearch());
     }
 
     // ---- /news/lake/{guid} ---------------------------------------------------------------------
 
     @Test
-    void lakeNewsIsNeverCachedSoEveryRequestReachesTheDatabase() {
+    void lakeNewsIsReadOnceThenServedFromItsLruCache() {
         CountingRepo repo = new CountingRepo(0);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
-        // One entry per water body across tens of thousands of them: a bounded LRU would mostly
-        // miss and an unbounded one would hold the catalogue. The read itself is a dozen narrow
-        // rows, which is what makes the pass-through affordable. Pin it deliberately.
-        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
         cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
         cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
 
-        assertThat(repo.lakeCalls.get()).isEqualTo(3);
+        assertThat(repo.lakeCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[6]).isEqualTo(1);
+    }
+
+    @Test
+    void aDifferentLimitIsADifferentLakeEntryRatherThanATruncatedHit() {
+        CountingRepo repo = new CountingRepo(0);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 12);
+        cache.lakeNews("fc0d917b-d053-11d8-92e2-080020a0f4c9", 5);
+
+        assertThat(repo.lakeCalls.get()).isEqualTo(2);
+        assertThat(cache.sizes()[6]).isEqualTo(2);
+    }
+
+    @Test
+    void lakeCacheKeepsOnlyTheLastTwentyFive() {
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(0), CACHE_PROPS);
+
+        // Tens of thousands of water bodies exist; the bound is what stops this holding the catalogue.
+        for (int i = 0; i < CACHE_PROPS.getWaterBody() + 10; i++) {
+            cache.lakeNews("lake-" + i, 12);
+        }
+
+        assertThat(cache.sizes()[6]).isEqualTo(CACHE_PROPS.getWaterBody());
     }
 
     // ---- /news/fish/{guid} -----------------------------------------------------------------------
 
     @Test
-    void fishNewsIsNeverCachedSoEveryRequestReachesTheDatabase() {
+    void fishNewsIsReadOnceThenServedFromItsLruCache() {
         CountingRepo repo = new CountingRepo(0);
-        NewsQueryCache cache = new NewsQueryCache(repo);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
 
-        // Same reasoning as lakeNews: a small, cheap, per-entity read that a bounded LRU would
-        // mostly miss anyway. Pin the pass-through deliberately.
-        cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
         cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
         cache.fishNews("a85ebf22-4ab9-4a91-a14a-cef6c8e64d97", 10);
 
-        assertThat(repo.fishCalls.get()).isEqualTo(3);
+        assertThat(repo.fishCalls.get()).isEqualTo(1);
+        assertThat(cache.sizes()[7]).isEqualTo(1);
+    }
+
+    @Test
+    void fishCacheKeepsOnlyTheLastTwentyFive() {
+        NewsQueryCache cache = new NewsQueryCache(new CountingRepo(0), CACHE_PROPS);
+
+        for (int i = 0; i < CACHE_PROPS.getFish() + 10; i++) {
+            cache.fishNews("fish-" + i, 10);
+        }
+
+        assertThat(cache.sizes()[7]).isEqualTo(CACHE_PROPS.getFish());
+    }
+
+    /**
+     * The single-flight rule the list and home-page caches already keep has to hold for the five new
+     * LRUs too — a burst on a cold export entry is precisely the ~2s read that must not be made five
+     * times over.
+     */
+    @Test
+    void aColdPerRequestEntryIsAlsoLoadedOnlyOnceUnderAStampede() throws Exception {
+        SlowRepo repo = new SlowRepo();
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        runConcurrently(16, () -> cache.exportNews("id-1"));
+        assertThat(repo.exportCalls.get()).isEqualTo(1);
+
+        runConcurrently(16, () -> cache.search(query("walleye")));
+        assertThat(repo.searchCalls.get()).isEqualTo(1);
+
+        runConcurrently(16, () -> cache.newsPhoto("id-1"));
+        assertThat(repo.photoCalls.get()).isEqualTo(1);
     }
 }

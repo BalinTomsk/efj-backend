@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,6 +38,8 @@ public class OpenMeteoConverter implements ForecastConverter {
     private final ObjectMapper mapper;
     private final Clock clock;
 
+    /** {@code @Autowired} is load-bearing: with two constructors and no no-arg, Spring cannot pick one. */
+    @Autowired
     public OpenMeteoConverter(ObjectMapper mapper) {
         this(mapper, Clock.systemUTC());
     }

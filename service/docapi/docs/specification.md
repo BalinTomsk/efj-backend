@@ -289,8 +289,9 @@ News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use)
   shapes and amount.
 - `GET /api/v1/news/export/{id}` — backed by MySQL `CALL sp_news_doc_export(?)` since **2026-09-17**
   (`dbo.fn_news_json(@id)` before that); an empty result set ⇒ 404, where SQL Server returned a
-  `NULL` scalar. The literal `/export/…` prefix is matched ahead of the templated `/{id}` fetch. Read
-  straight through the news cache (not cached — large per-id payload).
+  `NULL` scalar. The literal `/export/…` prefix is matched ahead of the templated `/{id}` fetch. **Cached
+  since 2026-09-17** — an LRU of 25 documents in `NewsQueryCache`, keyed by lower-cased id; it read
+  straight through on every request before, at ~2 s a call through the gateway.
 - `POST /api/v1/news/import` — backed by `dbo.sp_news_import(@json)`: creates a **published** article
   from an `fn_news_json` body (base64 photos decoded to binary; `lake_id`/`fish1..3` accept a GUID
   string or null), returns the new id. Blank/malformed body ⇒ 400 `invalid_document`. `news_title` is
@@ -627,8 +628,9 @@ Implementations:
   the other queries keep their existing amount. In-memory profile returns `null`.
 - `String importNews(String json)` — creates a **published** article from an `fn_news_json` body
   (`dbo.sp_news_import`, base64 photos decoded to binary) and returns the new id. In-memory profile
-  returns a synthetic id. The caching decorator (`NewsQueryCache`) reads `exportNews` straight
-  through (not cached) and **evicts the cached lists + home page on `importNews`**.
+  returns a synthetic id. The caching decorator (`NewsQueryCache`) holds the last 25
+  `exportNews` documents (since 2026-09-17; it read straight through before) and **evicts every
+  cached entry on `importNews`**.
 
 #### The home page comes in two halves — `/featured` and `/more`
 
@@ -689,15 +691,48 @@ just a slow one. `NewsDocumentCache` fronts `GET /news/{id}`; `NewsQueryCache` f
 3. **A miss is an answer too.** An unknown or unpublished id reached the database on every request,
    so a crawler walking guids could hammer MySQL no matter how well real articles were cached.
    Unknown ids are remembered for `NewsDocumentCache.MISS_TTL_MS` (60 s) in a separate map bounded at
-   `MAX_MISSES` (500). The TTL is essential, not incidental: `AddNews.aspx` writes straight to the
+   `docapi.cache.news.miss` (default 500). The TTL is essential, not incidental: `AddNews.aspx` writes straight to the
    database and never notifies docapi, so a newly published article has to become visible on its own
    — within a minute rather than at the next daily clear. A publish/update through docapi drops the
    remembered miss at once. This is the only self-expiring entry in either cache.
 
-Deliberately uncached: `/news/search` (unbounded key space), `/news/lake/{guid}` and
-`/news/fish/{guid}` (one entry per water body / species — a bounded LRU would mostly miss, an
-unbounded one would hold the catalogue) and `/news/export/{id}` (large per-id document).
-Invalidation is `NewsCacheEvictor` — see below.
+**Nothing under `/api/v1/news` is uncached any more (2026-09-17).** `/news/search`,
+`/news/lake/{guid}`, `/news/fish/{guid}`, `/news/export/{id}` and `/news/photo/{id}` each read
+through on every request until then — the arguments were an unbounded key space (search), one entry
+per water body / species across a huge catalogue, and large per-id payloads. Each now has its own
+bounded LRU of **25**, the depth `NewsDocumentCache` already used. The
+old reasoning priced the *miss* and ignored its cost here: the MySQL pool keeps no idle connection
+(`minimumIdle=0`, `idleTimeout=15s`), so a read on a quiet minute pays a full TCP connect and auth to
+Winhost before the query starts. Misses (unknown ids) are **not** stored — only `NewsDocumentCache`
+remembers those. Invalidation is `NewsCacheEvictor` — see below.
+
+### Cache sizes are configuration (1.15.2, 2026-09-18)
+
+Every bound above moved out of `static final` constants and into `docapi.cache.*`, bound by
+`config/NewsCacheProperties` and registered with `@EnableConfigurationProperties` on `JdbcStoreConfig`
+(the caches exist only under the `jdbc` profile, so the properties are inert without it).
+
+| Property | Default | Cache |
+|----------|---------|-------|
+| `docapi.cache.news.document` | 25 | `GET /news/{id}` documents |
+| `docapi.cache.news.miss` | 500 | unknown ids, TTL-expiring |
+| `docapi.cache.news.list` | 100 | `/news/list` outside the US/CA buckets |
+| `docapi.cache.news.export` | 25 | `/news/export/{id}` — **heaviest**, ~1–1.5 MB/entry |
+| `docapi.cache.news.search` | 25 | `/news/search` pages |
+| `docapi.cache.news.photo` | 25 | `/news/photo/{id}` — ~0.5 MB/entry |
+| `docapi.cache.fish` | 25 | `/news/fish/{guid}` |
+| `docapi.cache.water-body` | 25 | `/news/lake/{guid}` |
+
+Each is a count of **entries**, not bytes — entry size varies from a few KB to half a megabyte across
+these, which is why they are tunable separately rather than sharing one bound. `0` makes a cache evict
+on write and therefore always miss, a way to switch one off with no code change.
+
+**Why they moved:** heap. `export` and `photo` are ~25–35 MB and ~13 MB when full, the container sets
+no `-Xmx`, and 25 was an agreed number rather than a measured ceiling — so the value most likely to
+need changing under memory pressure was the one that needed a rebuild and a redeploy to change. As
+environment variables (`DOCAPI_CACHE_NEWS_EXPORT`, `DOCAPI_CACHE_WATERBODY`, …) it is a `docker run -e`
+and a restart; `docs/do-update.md` Step 10z is the runbook. Defaults reproduce the previous constants
+exactly, so an unconfigured service behaves as it did before.
 
 Consequence to be aware of: the caches are per-process and hold whatever was loaded, so a page
 assembled during a MySQL blip is served until the next eviction.
@@ -713,7 +748,9 @@ assembled during a MySQL blip is served until the next eviction.
   fishes' common/latin/alt names (news `LEFT JOIN fish ×3`). Published-only; matched as
   `LIKE N'%'+@q+N'%' ESCAPE '\'` with the **caller** escaping `% _ [` (`JdbcNewsQueryRepository.escapeLike`);
   NULL/empty ⇒ latest 100. The repo projects `news_id, news_title, news_source, stamp, country,
-  fish1/2/3` into `NewsSearchItem` (fishes de-duped). Not cached (`NewsQueryCache.search` reads through).
+  fish1/2/3` into `NewsSearchItem` (fishes de-duped). **Cached since 2026-09-17** —
+  `NewsQueryCache.search` holds the last 25 pages, keyed `query|sorted fishIds|country|offset|limit`;
+  the term is not case-folded, since the response echoes `query` back verbatim.
 - **`/news/lake/{guid}` (1.11.0)** — an inlined MySQL statement, not a procedure (`portos` holds no
   `CREATE ROUTINE`, same reason as `DEFAULT_SQL`/`PHOTO_SQL`/the search statements):
   `SELECT news_id, news_title, news_source, DATE_FORMAT(news_stamp,'%Y-%m-%d'), country FROM news
@@ -1046,7 +1083,8 @@ build artifacts. Never bake a real `.env` into the image.
 - `DocumentServiceTest` — mocks `DocumentStore`, real `ObjectMapper`: get/parse, not-found, blank-id,
   add normalization, blank/malformed body rejection, update id fallback.
 - `NewsControllerTest` — `@WebMvcTest(NewsController.class)`, `@MockBean` service and `NewsQueryRepository` (16 tests): the CRUD envelope (GET/404/POST-201/400/PUT); the News-page queries via mocked repository (empty `/list` echoing paging, 400 on a non-2-letter country, empty `/default`, successful queries returning paginated items or home-page JSON), offset/limit clamping, country validation, **and the interchange `/export/{id}` (200 doc / 404) + `/import` (201 id / 400 on empty/malformed body)**.
-- `NewsCacheTest` — both news caches: US/CA bucketing, LRU of other requests, deep pages cached after their first load, clear/eviction, **`/export` read-through (never cached) and `/import` evicting the cached lists + home page**, plus the "only on a cold entry" guarantees — 16 concurrent requests produce one query for `/list`, `/default` and a document, and unknown ids are remembered, bounded, TTL-expiring and dropped on update. All six of those were verified failing first against the pre-2026-09-02 behaviour.
+- `NewsCacheTest` (42 tests) — both news caches: US/CA bucketing, LRU of other requests, deep pages cached after their first load, clear/eviction, `/import` evicting **every** cached entry, plus the "only on a cold entry" guarantees — 16 concurrent requests produce one query for `/list`, `/default`, a document, `/export`, `/search` and `/photo`, and unknown ids are remembered, bounded, TTL-expiring and dropped on update. **Since 2026-09-17** it also pins the five new LRUs: each bounded at its configured size (default 25), export/photo keyed case-insensitively, the search term keyed case-**sensitively** (the response echoes `query` verbatim), species-id order not splitting one search across two entries, `limit` being part of the lake/fish key, and a miss NOT being stored. The four tests that used to pin those endpoints as deliberate read-throughs were replaced by their opposites. **Since 1.15.2** one more test sets three *different* non-default bounds and asserts each reaches its own cache, since every other test here runs on the defaults and would still pass if the properties were ignored.
+- `NewsCachePropertiesTest` (3, 1.15.2) — defaults still equal the constants they replaced; every `docapi.cache.*` key binds to its own field (distinct values, so a field wired to the wrong key fails rather than coincidentally matching); and the environment-variable forms the runbook tells an operator to use actually bind, notably `docapi.cache.water-body` reached as `DOCAPI_CACHE_WATERBODY`.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
 - `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (33 tests): `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
 - `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`

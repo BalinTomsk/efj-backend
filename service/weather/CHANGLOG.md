@@ -2,6 +2,32 @@
 
 All notable changes for this service must be recorded in this file.
 
+> Version drift: image tags ran ahead of this file between 1.8.7 and 1.15.2 — releases shipped to
+> GHCR without an entry here. 1.15.2 resumes the record; the gap is not reconstructed.
+
+## [1.15.2] - 2026-09-18
+
+- **Fixes a startup crash that made 1.15.1 unrunnable.** Every `@Component` converter
+  (`OpenMeteoConverter`, `VisualCrossingConverter`, `WeatherGovConverter`) exposes two public
+  constructors — the real one and a clock-pinning one for tests. Spring selects a constructor
+  implicitly only when a class has exactly one; with two and no no-arg it falls back to a default
+  constructor that does not exist, so the context died with
+  `NoSuchMethodException: OpenMeteoConverter.<init>()`. The real constructor on each now carries
+  `@Autowired`.
+
+  **Impact while it was live:** 1.15.1 never started successfully once. It crash-looped roughly 800
+  times over 4.5 hours, and because Spring got ~13 s in (Tomcat plus context init) before failing —
+  past the 10 s mark at which Docker resets its restart backoff — the backoff never engaged and the
+  container restarted about three times a minute indefinitely. Together with a separately broken
+  `water-station-pusher` it saturated the droplet's single vCPU at 99%.
+
+- **Adds `ConverterBeanWiringTest`, the test class that would have caught it.** Nothing in the suite
+  started a Spring context, and every converter test constructs its subject with `new` — which never
+  exercises Spring's constructor selection, so the build was green throughout. The new test scans the
+  `canonical` package into a real (tiny) context and refreshes it, so a converter must be instantiable
+  *by Spring*. It scans rather than naming the three classes, so a converter added later is covered
+  the day it appears. Verified to fail with the exact production error when the annotation is removed.
+
 ## [1.8.7] - 2026-08-14
 
 - **weather.gov now fetches the GRIDPOINT FORECAST instead of the latest observation**, so it finally

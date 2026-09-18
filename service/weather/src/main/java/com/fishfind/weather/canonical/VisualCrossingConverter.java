@@ -8,6 +8,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -54,6 +55,8 @@ public class VisualCrossingConverter implements ForecastConverter {
     private final ObjectMapper mapper;
     private final Clock clock;
 
+    /** {@code @Autowired} is load-bearing: with two constructors and no no-arg, Spring cannot pick one. */
+    @Autowired
     public VisualCrossingConverter(ObjectMapper mapper) {
         this(mapper, Clock.systemUTC());
     }

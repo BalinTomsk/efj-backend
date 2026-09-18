@@ -2,6 +2,104 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-18: **1.15.2 — every news cache size is configuration (`docapi.cache.*`) instead of a
+  compiled-in constant.** `NOT DEPLOYED` at time of writing.
+
+  `NewsQueryCache.OTHER_ENTRIES`/`LRU_ENTRIES` and `NewsDocumentCache.MAX_DOCUMENTS`/`MAX_MISSES` are
+  gone, replaced by `config/NewsCacheProperties` bound to `docapi.cache.*` and registered with
+  `@EnableConfigurationProperties` on `JdbcStoreConfig`. Both cache classes now take the properties in
+  their constructor and build their maps from it. **Defaults reproduce the old constants exactly**, so
+  an unconfigured service behaves precisely as 1.15.0 did.
+
+  | Property | Default | Cache |
+  |---|---|---|
+  | `docapi.cache.news.document` | 25 | `GET /news/{id}` |
+  | `docapi.cache.news.miss` | 500 | unknown ids (TTL-expiring) |
+  | `docapi.cache.news.list` | 100 | `/news/list` outside the US/CA buckets |
+  | `docapi.cache.news.export` | 25 | `/news/export/{id}` — heaviest, ~1–1.5 MB/entry |
+  | `docapi.cache.news.search` | 25 | `/news/search` |
+  | `docapi.cache.news.photo` | 25 | `/news/photo/{id}` — ~0.5 MB/entry |
+  | `docapi.cache.fish` | 25 | `/news/fish/{guid}` |
+  | `docapi.cache.water-body` | 25 | `/news/lake/{guid}` |
+
+  **Why.** Heap, and only heap. 1.15.0's own changelog and class docs say plainly that 25 is "the
+  agreed size, not a measured ceiling" and "the first number to lower if docapi starts pressuring
+  heap" — and then made that number a constant, so acting on that advice meant editing Java, building
+  an image, pushing it and redeploying. `export` and `photo` are ~25–35 MB and ~13 MB when full, the
+  container sets no `-Xmx`, and this droplet has 2 GB shared with two other services. The knob most
+  likely to be needed in a hurry is now `docker run -e` and a restart; `docs/do-update.md` Step 10z is
+  the runbook. Values are counts of **entries**, not bytes — an entry ranges from a few KB to half a
+  megabyte across these caches, which is why each is separately tunable rather than sharing one bound.
+  `0` switches a cache off (it evicts on write, so every read misses).
+
+  **Tests: 237 → 241.** `NewsCachePropertiesTest` (3) is the new file, and it exists because a property
+  key can be misspelled into silence in a way a constant cannot — bind the wrong name and the field
+  keeps its default while the service looks configured. It pins that the defaults still equal the
+  constants they replaced, that every key binds to its own field (each given a *distinct* value, so a
+  field wired to the wrong key fails rather than coincidentally matching), and that the
+  environment-variable forms quoted in the runbook actually bind — notably `docapi.cache.water-body`
+  reached as `DOCAPI_CACHE_WATERBODY`, hyphen removed rather than turned into an underscore. **That
+  last assertion caught a wrong claim in `do-update.md` while it was being written.** `NewsCacheTest`
+  gains one (41 → 42): three *different* non-default bounds, asserted to reach three different caches —
+  every other test in that file runs on the defaults and would still pass if the properties were
+  ignored and the old constants left in place.
+
+  Version skips 1.15.1 deliberately: `ghcr.io/balintomsk/docapi:1.15.1` already exists (built from the
+  1.15.0 pom, which is why the deployed container reports `1.15.0` under a `1.15.1` tag), and reusing a
+  GHCR tag destroys its rollback point.
+
+- 2026-09-17: **1.15.0 — every news read endpoint is now cached; the last five read-through GETs each
+  got a 25-entry LRU.** **DEPLOYED** — shipped as image tag `ghcr.io/balintomsk/docapi:1.15.1` (the
+  tag was bumped, the pom was not, so the running container reports `"version":"1.15.0"` under a
+  `1.15.1` tag; confirmed live 2026-09-18). This entry said `NOT DEPLOYED` until then, which was
+  correct when written and stale within hours.
+
+  `/news/export/{id}`, `/news/search`, `/news/lake/{guid}`, `/news/fish/{guid}` and
+  `/news/photo/{id}` reached MySQL on **every** request. Each now has its own bounded LRU in
+  `NewsQueryCache`, sized `LRU_ENTRIES` = **25** — the same depth `NewsDocumentCache` already used
+  for `GET /news/{id}`, so every per-id news cache in the service has one depth instead of a
+  different number per endpoint. `OTHER_ENTRIES` (the `/news/list` keyed cache) keeps its existing
+  100: those entries are small list rows and the bound is already proven.
+
+  **What prompted it.** `/news/export/{id}` was measured at **~2 s per call** through the gateway.
+  The class doc had argued each of these five was deliberately uncached, on the grounds that the key
+  space was too large (tens of thousands of water bodies, free-form search terms) or the payload too
+  heavy (base64 photos) for a bounded LRU to earn its heap. That priced the *miss* and ignored what
+  a miss costs on this deployment: the MySQL pool keeps **no idle connection** (`minimumIdle=0`,
+  `idleTimeout=15s`), so a read on a quiet minute pays a full TCP connect plus auth to Winhost over
+  the public internet before the query starts. The alternative to a hit was never "one cheap query".
+
+  **Keys.** Export and photo by lower-cased id (the `news_id` collation is case-insensitive, so both
+  spellings are genuinely the same row). Lake and fish by `guid|limit`. Search by
+  `query|sorted fish ids|country|offset|limit` — the term is **not** case-folded even though the
+  `LIKE` behind it is case-insensitive, because `NewsSearchPage` echoes `query` back verbatim and
+  folding would change the response body; the species ids *are* sorted, since nothing echoes them
+  and the SQL ORs the three slots.
+
+  **Misses are not stored.** A `null` load is returned and nothing is cached, so a 404 from
+  `/news/export/{id}` or `/news/photo/{id}` still costs a round trip every time. The crawler hazard
+  that justifies `NewsDocumentCache`'s 60 s miss TTL does not reach here: export and photo are both
+  in cproxy's `CPROXY_DAYKEY_PATHS`, and search/lake/fish run a narrow-column read rather than a
+  BLOB fetch.
+
+  **Heap.** Three of the five hold a few KB per entry; two do not. A lead photo measured 525,222
+  bytes live (2026-09-12) → ~13 MB for a full LRU. An export document measured 512,506 bytes on the
+  wire (2026-09-17) and is held as a parsed `JsonNode` whose base64 strings cost 2 bytes/char, so
+  ~1–1.5 MB of heap apiece → ~25–35 MB full. The container sets no `-Xmx`, so the JVM takes its
+  default quarter of container memory. **`LRU_ENTRIES` is the first thing to lower** if that gets
+  tight — the number is the agreed size, not a measured ceiling.
+
+  **Mechanics** are the ones the existing caches already used, now factored into one generic
+  `cached(map, key, loader)` helper: striped lock, double-check, single-flight, so a burst on a cold
+  entry produces one database read and N answers. `clear()` (daily at 00:00 UTC, deferred while SQL
+  is unreachable) empties all nine entries; `sizes()` grew from 4 slots to 9.
+
+  **Tests:** `NewsCacheTest` is 41 tests (was 27). The four that pinned the pass-through as
+  deliberate are replaced by their opposites, plus per-cache LRU-bound tests at 25, the
+  case-insensitive id key, the case-*sensitive* search term, species-id order not splitting an
+  entry, `limit` being part of the lake key, misses not being stored, `clear()` emptying the new
+  LRUs, and a stampede test proving single-flight on export/search/photo. Full suite: 237 passing.
+
 - 2026-09-17: **1.14.0 — `GET /api/v1/news/export/{id}` moves to MySQL, restoring the admin
   "Save JSON" round trip.** The last news read of any kind still answered by SQL Server, and the
   only one that was actually broken: when `Editor/AddNews.aspx`'s writes moved to the MySQL `news`

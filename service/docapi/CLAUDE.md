@@ -381,10 +381,10 @@ Resilience4j guards as the document reads.
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document. **One call renders every news section of `fishfind-frontend`'s `Default.aspx`**: both lead articles (headline, byline + `author_link`, `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, and the tag row as `lake_id`/`lake_name` + `fishes`) and all three "More News" items (title, `source` — falling back to `author` when blank — `date`, `snippet`, `source_link`). The only thing on that page that is *not* news-table data is the "Latest Catch" sidebar card (`dbo.fn_default_latest_catch_json`, `catch_memo`), which has no endpoint here |
 | `GET /api/v1/news/featured` | *(projection of `/default`)* | **just the 2 lead articles**, full documents incl. their base64 `photo`. Same cached assembly as `/default` — no extra query |
 | `GET /api/v1/news/more` | *(projection of `/default`)* | **just the "More News" column**, compact: `news_id`, `date`, `title`, `source`, `link`, `snippet`. **~1.6 KB versus `/default`'s ~1.09 MB** (measured on prod) — that size gap is the entire reason the split exists. `source` falls back to `author`, and `snippet` is derived in Java from `paragraph0`/`paragraph1` when the DB does not supply one, so this works **without** the MySQL `snippet` view |
-| `GET /api/v1/news/photo/{id}` | `SELECT news_photo0 FROM news WHERE news_id = ? AND news_publish = 1 LIMIT 1` (MySQL) | **one lead photo as RAW BYTES, not JSON** (1.9.0). Content type sniffed from the file's own magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"` (the length is what makes a replaced photo self-correct — new bytes, same id); `If-None-Match` → 304; missing / unpublished / photo-less → 404. **Single-row by primary key, never widen it**: `news_photo0` is a `LONGBLOB` and the live Winhost host hangs indefinitely on any query that references it while materializing more than one row. Deliberately **not** cached in `NewsQueryCache` — megabyte blobs with a hit rate near zero, since the caller only reaches here after its own cache missed |
-| `GET /api/v1/news/search?q=&fish=&country=&offset=&limit=` | MySQL, inlined in `MySqlNewsQueryRepository.SEARCH_SELECT` + `SEARCH_FROM_WHERE` (1.10.0; was `dbo.fn_news_search`) | up to `NewsQueryRepository.SEARCH_CAP` (100) published matches, newest first, **paged with `offset`/`limit` and carrying `total`** so one call renders a numbered pager. Matches headline/source/the 3 paragraphs/the 3 photo-alts, **plus any article tagged with one of the species ids in `fish`** — see "MySQL-backed news search" below for why species are matched by id here. Optional ISO-2 `country` filter; blank `q` or a bad `country` ⇒ 400; not cached (free-form key) |
-| `GET /api/v1/news/lake/{guid}?limit=` | MySQL, inlined in `MySqlNewsQueryRepository.LAKE_SQL` (1.11.0) | one water body’s latest published articles, newest first; `limit` default **12** (`fn_river_view_news`’s own `TOP 12`), cap 200. **Empty `items`, never 404** — "this lake has no news" is an ordinary answer, not a missing document; a non-GUID path ⇒ 400. **Stricter than what it replaces**: `news_publish = 1` is in the predicate, which `fn_river_view_news` never checked. Five narrow columns, no photo column, no window function — the rule that keeps it safe to run per page view. Not cached (one key per water body across tens of thousands) |
-| `GET /api/v1/news/fish/{guid}?limit=` | MySQL, inlined in `MySqlNewsQueryRepository.FISH_SQL` (1.12.0) | one species’ latest published articles, newest first; `limit` default **10** (`fn_fish_view_news`’s own `TOP 10`), cap 200. Matches `fish1_id OR fish2_id OR fish3_id` — the same three-slot rule `/news/search?fish=` already applies. **Empty `items`, never 404**; a non-GUID path ⇒ 400. Same narrow-column/no-photo/no-window-function/published-only/totally-ordered shape as `/news/lake/{guid}` — shares its row mapper (`REF_ROW_MAPPER`) so the two statements’ columns cannot drift apart. Not cached (one key per species across roughly a thousand) |
+| `GET /api/v1/news/photo/{id}` | `SELECT news_photo0 FROM news WHERE news_id = ? AND news_publish = 1 LIMIT 1` (MySQL) | **one lead photo as RAW BYTES, not JSON** (1.9.0). Content type sniffed from the file's own magic bytes; `Cache-Control: public, max-age=604800`; `ETag` `"<id>-<length>"` (the length is what makes a replaced photo self-correct — new bytes, same id); `If-None-Match` → 304; missing / unpublished / photo-less → 404. **Single-row by primary key, never widen it**: `news_photo0` is a `LONGBLOB` and the live Winhost host hangs indefinitely on any query that references it while materializing more than one row. **Cached since 2026-09-17** in `NewsQueryCache` — LRU of 25 raw blobs keyed by lower-cased id. It was deliberately uncached before, on the grounds that the caller only reaches here after its own cache missed; that is now the argument *for* caching, since it is exactly when the slow path hurts. These are the heaviest entries any news cache holds (525,222 bytes measured live), so they are the first to give up if heap gets tight |
+| `GET /api/v1/news/search?q=&fish=&country=&offset=&limit=` | MySQL, inlined in `MySqlNewsQueryRepository.SEARCH_SELECT` + `SEARCH_FROM_WHERE` (1.10.0; was `dbo.fn_news_search`) | up to `NewsQueryRepository.SEARCH_CAP` (100) published matches, newest first, **paged with `offset`/`limit` and carrying `total`** so one call renders a numbered pager. Matches headline/source/the 3 paragraphs/the 3 photo-alts, **plus any article tagged with one of the species ids in `fish`** — see "MySQL-backed news search" below for why species are matched by id here. Optional ISO-2 `country` filter; blank `q` or a bad `country` ⇒ 400. **Cached since 2026-09-17** — LRU of 25 whole pages keyed `query|sorted fishIds|country|offset|limit`; the term is deliberately NOT case-folded, because the response echoes `query` back verbatim |
+| `GET /api/v1/news/lake/{guid}?limit=` | MySQL, inlined in `MySqlNewsQueryRepository.LAKE_SQL` (1.11.0) | one water body’s latest published articles, newest first; `limit` default **12** (`fn_river_view_news`’s own `TOP 12`), cap 200. **Empty `items`, never 404** — "this lake has no news" is an ordinary answer, not a missing document; a non-GUID path ⇒ 400. **Stricter than what it replaces**: `news_publish = 1` is in the predicate, which `fn_river_view_news` never checked. Five narrow columns, no photo column, no window function — the rule that keeps it safe to run per page view, and it still governs every cache miss. **Cached since 2026-09-17** — LRU of 25 keyed `guid|limit`; one key per water body across tens of thousands, so it holds only a sliver of that space, but repeat/refresh traffic on a public page lands on the same few ids |
+| `GET /api/v1/news/fish/{guid}?limit=` | MySQL, inlined in `MySqlNewsQueryRepository.FISH_SQL` (1.12.0) | one species’ latest published articles, newest first; `limit` default **10** (`fn_fish_view_news`’s own `TOP 10`), cap 200. Matches `fish1_id OR fish2_id OR fish3_id` — the same three-slot rule `/news/search?fish=` already applies. **Empty `items`, never 404**; a non-GUID path ⇒ 400. Same narrow-column/no-photo/no-window-function/published-only/totally-ordered shape as `/news/lake/{guid}` — shares its row mapper (`REF_ROW_MAPPER`) so the two statements’ columns cannot drift apart. **Cached since 2026-09-17** — LRU of 25 keyed `guid|limit`; a better fit than `/news/lake/{guid}`’s, since the species key space is roughly a thousand rather than tens of thousands |
 
 ### Fish-catalogue search query (function that already exists in `envfish-db`)
 
@@ -486,8 +486,9 @@ updated directly for fresh builds.
 using the **`fn_news_json` interchange format** — the same self-contained JSON the portal's News.aspx
 "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use. **Only these two endpoints carry
 the FULL document** (every field + all 3 paragraph photos embedded as base64); the endpoints above keep
-their existing lighter shapes / amount. Export reads through `NewsQueryCache` uncached (large per-id
-payload); import evicts the cached lists + home page so a new article shows up immediately.
+their existing lighter shapes / amount. Export is **cached since 2026-09-17** — an LRU of 25 documents in `NewsQueryCache`, keyed by
+lower-cased id (it read through on every request before, at ~2 s a call); import evicts every cached
+entry so a new article shows up immediately.
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
@@ -516,11 +517,28 @@ Winhost MySQL whose pool is 5 connections and which sits behind cproxy's 10 s re
 that reaches it on every request is a latency and availability problem, not just a slow one. Two
 decorators, both wired in `JdbcStoreConfig` as the bean the controller/service actually injects:
 
+**As of 2026-09-17 that first sentence is literally true — every GET under `/api/v1/news` is cached.**
+The five that used to read through on every request (`/export`, `/search`, `/lake`, `/fish`, `/photo`)
+each got their own bounded LRU of **25**, the same depth `NewsDocumentCache` already used.
+
+**As of 1.15.2 (2026-09-18) every one of those bounds is configuration, not a constant** —
+`docapi.cache.*`, bound by `config/NewsCacheProperties`. They moved for one reason: heap. `export`
+and `photo` dominate it (~25–35 MB and ~13 MB when full), the container sets no `-Xmx`, and 25 was an
+agreed number rather than a measured ceiling — so the value most likely to need changing under memory
+pressure was the one that required a rebuild and a redeploy to change. It is an environment variable
+now (`DOCAPI_CACHE_NEWS_EXPORT`, `DOCAPI_CACHE_WATERBODY`, …; see `docs/do-update.md` Step 10z).
+Defaults reproduce the old constants exactly, so an unconfigured service behaves as it did.
+
 | Endpoint | Cache | Key / unit held |
 |----------|-------|-----------------|
 | `GET /api/v1/news/{id}` | `NewsDocumentCache` | LRU of the last 25 documents, keyed by lower-cased guid, **plus** a bounded set of recently-seen unknown ids (see below) |
 | `GET /api/v1/news/list` | `NewsQueryCache` | US and CA as 100-**row** buckets (one fetch answers every offset/limit inside them); everything else — the unfiltered request, other countries, and US/CA pages past their bucket — as whole responses in an LRU of 100, keyed `country\|offset\|limit` |
-| `GET /api/v1/news/default` | `NewsQueryCache` | the single assembled home page |
+| `GET /api/v1/news/default` | `NewsQueryCache` | the single assembled home page (`/featured` + `/more` are projections of it — no separate entry) |
+| `GET /api/v1/news/export/{id}` | `NewsQueryCache` | LRU of 25 interchange documents, keyed by lower-cased id |
+| `GET /api/v1/news/search` | `NewsQueryCache` | LRU of 25 whole search pages, keyed `query\|sorted-fishIds\|country\|offset\|limit` |
+| `GET /api/v1/news/lake/{guid}` | `NewsQueryCache` | LRU of 25 panels, keyed `guid\|limit` |
+| `GET /api/v1/news/fish/{guid}` | `NewsQueryCache` | LRU of 25 panels, keyed `guid\|limit` |
+| `GET /api/v1/news/photo/{id}` | `NewsQueryCache` | LRU of 25 raw blobs, keyed by lower-cased id |
 
 Three rules keep the "only on a cold entry" promise honest — **do not regress them**:
 
@@ -540,15 +558,38 @@ Three rules keep the "only on a cold entry" promise honest — **do not regress 
    minute, not at the next daily clear. A publish/update *through* docapi drops the remembered miss
    immediately. This is the only entry in either cache that expires by itself.
 
-**Deliberately not cached:** `/news/search` (open-ended term, unbounded key space),
-`/news/lake/{guid}` and `/news/fish/{guid}` (one entry per water body/species — a bounded LRU would
-mostly miss and an unbounded one would hold the catalogue; the read it passes through is a dozen
-short rows with no photo column, which is what makes that affordable),
-`/news/export/{id}` (large per-id document with base64 photos, rarely re-requested), and
-`/news/photo/{id}` (1.9.0 — megabyte-scale blobs that a caller only asks for after its OWN cache has
-missed, so a copy here would cost real heap for a hit rate near zero; `NewsQueryCache.newsPhoto`
-passes straight through and a test pins that). `/news/default`, `/news/featured` and `/news/more`
-need no separate entry — all three are projections of the one cached assembly.
+**Why the five read-through endpoints were cached (2026-09-17).** Each one used to be documented here
+as deliberately uncached, on the grounds that its key space is too large (tens of thousands of water
+bodies, free-form search terms) or its payload too heavy (base64 photos) for a bounded LRU to earn
+its heap. That argument priced the *miss* and ignored what a miss costs on this deployment: the MySQL
+pool keeps **no idle connection** (`minimumIdle=0`, `idleTimeout=15s` — see `JdbcStoreConfig`), so a
+read on a quiet minute pays a full TCP connect plus auth to Winhost over the public internet before
+the query starts. `/news/export/{id}` measured **~2 s per call** through the gateway. The alternative
+to a cache hit was never "one cheap query".
+
+⚠️ **The heap cost is real and is the first thing to turn down.** Three of the five hold a few KB per
+entry. The other two do not — do the arithmetic rather than guessing:
+
+| LRU | One entry, measured live | Full (25) |
+|-----|--------------------------|-----------|
+| `photos` | 525,222 bytes (2026-09-12) | ~13 MB |
+| `exportDocs` | 512,506 bytes on the wire (2026-09-17); held as a parsed `JsonNode`, whose base64 photo strings cost 2 bytes/char, so ~1–1.5 MB of heap | ~25–35 MB |
+
+**25 is the agreed size, not a measured ceiling**, and the container sets no `-Xmx` (`JAVA_OPTS=""`),
+so the JVM takes its default ¼-of-container heap. If docapi starts pressuring memory, lower
+`docapi.cache.news.export` and `docapi.cache.news.photo` before touching anything else — since 1.15.2
+that is a `docker run -e` and a restart, not a new image.
+
+**Misses are not remembered in `NewsQueryCache`** (only `NewsDocumentCache` does that, rule 3 below).
+A `null` load is returned to the caller and nothing is stored. The crawler hazard that justifies the
+miss TTL on `GET /news/{id}` does not reach here: `/news/export` and `/news/photo` are both in
+cproxy's `CPROXY_DAYKEY_PATHS`, so an id-guessing scanner needs a credential first, and
+search/lake/fish answer a narrow-column read rather than a BLOB fetch.
+
+One key-shaping rule worth not regressing: **the search term is not case-folded into its cache key**,
+even though the `LIKE` behind it is case-insensitive. `NewsSearchPage` echoes `query` back verbatim,
+so serving `"Walleye"` out of the entry loaded for `"walleye"` would change the response body. The
+species ids in that key *are* sorted, because nothing echoes them and the SQL ORs the three slots.
 
 **Invalidation** is `NewsCacheEvictor`: one clear a day at 00:00 UTC, **skipped while SQL Server is
 unreachable** (clearing mid-outage would turn a database outage into a total content outage) and
@@ -672,7 +713,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (221 tests):
+`mvn test` — no DB needed (241 tests):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `NewsDocumentRepositoryTest` — get mapping + SQL string (mocks `JdbcTemplate`), SQL Server.
@@ -718,12 +759,25 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   malformed body, and a non-GUID `{id}` path are each 400 **with the repository never called**; photo
   update decodes base64 and passes `null` through for an omitted `author`/`alt`; an out-of-range slot
   index is 400 before any repository call; an unknown id on the photo route is 404.
-- `NewsCacheTest` — both news caches: what is held, `/export` read-through (never cached), `/import`
-  evicting the cached lists + home page, and the three "only on a cold entry" guarantees — deep pages
+- `NewsCacheTest` (42 tests) — both news caches: what is held, `/import` evicting **every** cached
+  entry, and the three "only on a cold entry" guarantees — deep pages
   cached after their first load, cold entries loaded **once** under concurrency (16 threads ⇒ 1
-  query, for both `/list` and `/default`, and for a document), and unknown ids remembered, bounded,
-  TTL-expiring, and dropped on update. **All six verified failing first** against the pre-2026-09-02
-  behaviour.
+  query, for `/list`, `/default`, a document, `/export`, `/search` and `/photo`), and unknown ids
+  remembered, bounded, TTL-expiring, and dropped on update. **Since 2026-09-17** it also pins the five
+  new LRUs: each bounded at its configured size (default 25), export/photo keyed case-insensitively, the search term
+  keyed case-**sensitively**, species-id order not splitting one search, `limit` being part of the
+  lake/fish key, and a miss NOT being stored. The four tests that pinned those endpoints as deliberate
+  read-throughs were replaced by their opposites. **All six verified failing first** against the pre-2026-09-02
+  behaviour. **Since 1.15.2** one more test sets three *different* non-default bounds and asserts each
+  reaches its own cache — every other test here runs on the defaults and would still pass if the
+  properties were ignored and the old constants left in place.
+- `NewsCachePropertiesTest` (3, 1.15.2) — the cache bounds are `docapi.cache.*` now, and a property key
+  can be misspelled into silence in a way a constant cannot: defaults still equal the constants they
+  replaced; every key binds to its own field (distinct values, so a field wired to the wrong key fails
+  rather than coincidentally matching); and the **environment-variable** forms `docs/do-update.md`
+  Step 10z tells an operator to use actually bind — notably `docapi.cache.water-body` reached as
+  `DOCAPI_CACHE_WATERBODY`, hyphen removed rather than made an underscore. That last one caught a wrong
+  claim in the runbook while it was being written.
 - `DocumentRoundTripTest` — `@SpringBootTest` + MockMvc, default in-memory backing: POST→GET→PUT→GET
   round-trip, 404, all four entities accept documents, and the News `/list`+`/default` queries return
   empty payloads (the "it actually works with no DB" proof).

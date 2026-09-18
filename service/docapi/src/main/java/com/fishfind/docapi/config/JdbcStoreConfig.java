@@ -32,6 +32,7 @@ import com.fishfind.docapi.repo.WaterbodyDocumentRepository;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -53,6 +54,7 @@ import javax.sql.DataSource;
 @Configuration
 @Profile("jdbc")
 @EnableScheduling
+@EnableConfigurationProperties(NewsCacheProperties.class)
 public class JdbcStoreConfig {
 
     /**
@@ -197,8 +199,9 @@ public class JdbcStoreConfig {
      * bean).
      */
     @Bean
-    public DocumentStore newsStore(@Qualifier("jdbcNewsStore") DocumentStore jdbcNewsStore) {
-        return new NewsDocumentCache(jdbcNewsStore);
+    public DocumentStore newsStore(
+            @Qualifier("jdbcNewsStore") DocumentStore jdbcNewsStore, NewsCacheProperties cacheProperties) {
+        return new NewsDocumentCache(jdbcNewsStore, cacheProperties);
     }
 
     @Bean
@@ -321,8 +324,9 @@ public class JdbcStoreConfig {
     @Bean
     @Primary
     public NewsQueryRepository newsQueryRepository(
-            @Qualifier("jdbcNewsQueryRepository") NewsQueryRepository jdbcNewsQueryRepository) {
-        return new NewsQueryCache(jdbcNewsQueryRepository);
+            @Qualifier("jdbcNewsQueryRepository") NewsQueryRepository jdbcNewsQueryRepository,
+            NewsCacheProperties cacheProperties) {
+        return new NewsQueryCache(jdbcNewsQueryRepository, cacheProperties);
     }
 
     /**

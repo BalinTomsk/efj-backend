@@ -11,6 +11,27 @@ spring:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
       - org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration
 
+# Entry bounds for the news caches (NewsCacheProperties). Counts of ENTRIES, not bytes — an entry's
+# size varies enormously between these, which is why each is tunable separately rather than sharing
+# one bound. The caches themselves only exist under the `jdbc` profile; these values are inert without
+# it. 0 makes a cache evict on write and therefore always miss — a way to switch one off with no code
+# change. Every value below is the default, repeated here so the knobs are discoverable.
+#
+# HEAP: `export` and `photo` are the expensive ones — roughly 1–1.5 MB and 0.5 MB per entry measured
+# live, so ~25–35 MB and ~13 MB when full. The container sets no -Xmx, so the JVM takes its default
+# quarter of container memory. Lower these two first if docapi starts pressuring heap.
+docapi:
+  cache:
+    news:
+      document: 25    # GET /news/{id}
+      miss: 500       # unknown ids, held for NewsDocumentCache.MISS_TTL_MS (60s)
+      list: 100       # GET /news/list, outside the US/CA row buckets
+      export: 25      # GET /news/export/{id}   — heaviest
+      search: 25      # GET /news/search
+      photo: 25       # GET /news/photo/{id}    — second heaviest
+    fish: 25          # GET /news/fish/{guid}
+    water-body: 25    # GET /news/lake/{guid}
+
 resilience4j:
   retry:
     # Lower order than the circuit breaker so the breaker is the OUTERMOST aspect: an open breaker
