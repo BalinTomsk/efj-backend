@@ -406,7 +406,7 @@
       <div>
         <h3>A representative response</h3>
         <pre class="json"><span class="p">{</span>
-  <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.9.0"</span><span class="p">},</span>
+  <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.1"</span><span class="p">},</span>
   <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span>
   <span class="k">"meta"</span><span class="p">:</span> <span class="p">{</span><span class="k">"timestamp"</span><span class="p">:</span> <span class="s">"2026-08-18T18:16:00Z"</span><span class="p">}</span>
 <span class="p">}</span></pre>
@@ -442,7 +442,7 @@
             <div class="example-head"><span class="caption">no parameters</span><span class="status-code status-200">200</span></div>
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">GET</span>/health</div>
-              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.9.0"</span><span class="p">,</span> <span class="k">"uptime"</span><span class="p">:</span> <span class="n">57</span><span class="p">}</span></pre>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.1"</span><span class="p">,</span> <span class="k">"uptime"</span><span class="p">:</span> <span class="n">57</span><span class="p">}</span></pre>
             </div>
           </div>
         </div>
@@ -495,7 +495,7 @@
       <table class="ref-tbl">
         <thead><tr><th>GET endpoint</th><th>Cached</th><th>What one entry holds</th></tr></thead>
         <tbody>
-          <tr><td class="qpath">/news/list</td><td>yes</td><td>US and CA as 100-<strong>row</strong> buckets, so one fetch answers every <code>offset</code>/<code>limit</code> inside them; every other request (all-countries, another country, a US/CA page past its bucket) as a whole response in an LRU of <strong>100</strong>, keyed <code>country|offset|limit</code></td></tr>
+          <tr><td class="qpath">/news/list</td><td>yes</td><td>US and CA as 100-<strong>row</strong> buckets in the <strong>date</strong> order, so one fetch answers every <code>offset</code>/<code>limit</code> inside them; every other request (all-countries, another country, a US/CA page past its bucket, <strong>and every admin request, which is in the edited order</strong>) as a whole response in an LRU of <strong>100</strong>, keyed <code>country|offset|limit</code> (<code>edited|</code>-prefixed for the admin order)</td></tr>
           <tr><td class="qpath">/news/default</td><td>yes</td><td>the single assembled home page</td></tr>
           <tr><td class="qpath">/news/featured</td><td>yes</td><td>no entry of its own &mdash; a projection of the cached <code>/news/default</code> assembly</td></tr>
           <tr><td class="qpath">/news/more</td><td>yes</td><td>same &mdash; the other projection of that one assembly</td></tr>
@@ -514,7 +514,7 @@
     <div class="endpoint">
       <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/list<span class="param">?country=&amp;offset=&amp;limit=</span></span></div>
-        <span class="specimen-label">paged latest news</span>
+        <span class="specimen-label">paged latest news &middot; order by role</span>
       </div>
       <div class="endpoint-body">
         <table class="params">
@@ -523,8 +523,10 @@
             <tr><td class="pname">country</td><td><span class="opt">Optional</span></td><td>ISO-2 code. Blank/absent = all countries. A thin non-CA country (&lt; 100 items) is padded with CA news up to 100. Malformed → 400.</td></tr>
             <tr><td class="pname">offset</td><td><span class="opt">Optional</span></td><td>Rows to skip; negative/absent → 0.</td></tr>
             <tr><td class="pname">limit</td><td><span class="opt">Optional</span></td><td>Page size; default 25, capped at 200.</td></tr>
+            <tr><td class="pname">X-Fish-Role <span class="opt">(header)</span></td><td><span class="opt">Set by cproxy</span></td><td><code>guest</code> / <code>user</code> / <code>admin</code>, stamped by cproxy 0.17.1 from the verified credential. <strong>Not a parameter you send</strong> &mdash; cproxy overwrites any copy a caller supplies. Missing or unrecognised &rarr; <code>guest</code> (fails closed).</td></tr>
           </tbody>
         </table>
+        <p class="prose" style="margin:14px 0 18px;"><strong>Order and window depend on the caller's role (docapi 1.18.1).</strong> <code>admin</code> &mdash; most recently <em>edited</em> article first (whole list, paged). <code>user</code> &mdash; newest article <em>date</em> first (whole list, paged). <code>guest</code> &mdash; newest article date first, and <strong>only the first 100 rows are ever reachable</strong>: <code>offset+limit</code> is clamped to 100 and <code>total</code> never exceeds 100, so a pager built from it never offers an empty page; a window starting at or past row 100 answers an empty <code>items</code>. Ties break on the row id, so a pager never repeats or skips a row. <em>Country</em> is still the caller's: docapi never sees the visitor's address, so the IP&rarr;country lookup stays in <code>News.aspx</code> and docapi enforces only the window. An article an admin has just saved is on top of the next admin list, because every write stamps <code>edit_stamp</code> and clears the news caches.</p>
         <p class="prose" style="margin:14px 0 18px;"><strong>Cached</strong>, and not as whole responses for the two big countries: <strong>US and CA are held as 100-row buckets</strong>, so one fetch answers every <code>offset</code>/<code>limit</code> window inside them &mdash; which is the natural unit, since <code>fn_news_list</code> already works in hundreds (it pads a thin non-CA country with CA news up to 100). Every other request &mdash; all-countries, another country, or a US/CA page reaching <em>past</em> its bucket &mdash; is cached as a whole response in a separate LRU of <strong>100</strong>, keyed <code>country|offset|limit</code>. That last case was a genuine hole until 2026&#8209;09&#8209;02: a deep page re-queried on every request, so anything walking the pager hit the database each time.</p>
         <div class="example-grid">
           <div class="example">
@@ -1521,7 +1523,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
   <footer>
     <span>docapi — <code>com.fishfind.docapi</code> · 7 controllers: Health, News, Fish, River, Regulation, Waterbody, Station</span>
-    <span class="fver">previously <strong>1.15.2</strong> &middot; <strong>1.16.0 deployed 2026&#8209;09&#8209;18</strong> (news writes on MySQL) &mdash; reads and the update path verified live &middot; full 7-controller sweep 2026&#8209;09&#8209;09</span>
+    <span class="fver"><strong>1.18.1 deployed 2026&#8209;09&#8209;19</strong> (<code>/news/list</code> ordered by role, guest capped at 100; needs <code>sp_news_list_json(&hellip;, p_sort)</code>) &middot; previously <strong>1.16.0</strong> (news writes on MySQL) &middot; full 7-controller sweep 2026&#8209;09&#8209;09</span>
   </footer>
 
 </div>

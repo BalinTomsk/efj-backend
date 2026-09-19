@@ -147,7 +147,9 @@ curl -X POST http://localhost:8080/api/v1/news/import \
      -H 'Content-Type: application/json' -d '{"title":"Imported","author":"Jane Roe"}'
 ```
 
-The News page adds extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` and
+The News page adds extra endpoints on top of the generic CRUD: `GET /api/v1/news/list` (ordered by the
+caller's role — admin: last edited first; everyone else: article date first; a guest never past row 100 —
+from the `X-Fish-Role` header cproxy stamps, 1.18.1) and
 `GET /api/v1/news/default` (latest-news list + assembled home page — one call carries every field the
 portal's `Default.aspx` renders for its 2 lead articles and 3 "More News" items, including each
 article's `snippet`, and the `lake_id` / `fish1..3_id` it mentions), its two halves

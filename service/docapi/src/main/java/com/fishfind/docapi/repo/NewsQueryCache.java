@@ -31,7 +31,9 @@ import java.util.function.Supplier;
  *   <li><strong>everything else</strong> — a bounded LRU of whole responses
  *       ({@code docapi.cache.news.list}, default 100), keyed by {@code country|offset|limit}. This
  *       covers the unfiltered all-countries request ({@code country} absent) and any other specific
- *       country.</li>
+ *       country. <strong>Every request in {@link NewsListOrder#EDITED} order (admins) lives here too</strong>,
+ *       under an {@code edited|} key prefix — the two US/CA buckets hold the {@link NewsListOrder#DATE}
+ *       order only, so an admin's page can never be answered from a bucket sorted the other way.</li>
  *   <li><strong>default</strong> — the single assembled home page;</li>
  *   <li><strong>export, search, lake, fish, photo</strong> — one bounded LRU each of whole responses,
  *       added 2026-09-17, default 25 apiece and each separately configurable under
@@ -153,10 +155,12 @@ public class NewsQueryCache implements NewsQueryRepository {
     }
 
     @Override
-    public NewsListPage list(String country, int offset, int limit) {
+    public NewsListPage list(String country, int offset, int limit, NewsListOrder order) {
         String key = country == null ? null : country.toUpperCase(Locale.ROOT);
 
-        if (US.equals(key) || CA.equals(key)) {
+        // The US/CA row buckets hold the DATE order only. The EDITED order (admins) goes straight to
+        // the keyed cache, under its own key prefix, so the two orders can never answer each other.
+        if (order == NewsListOrder.DATE && (US.equals(key) || CA.equals(key))) {
             NewsListPage sliced = sliceFromBucket(key, offset, limit);
             if (sliced != null) {
                 return sliced;
@@ -164,7 +168,7 @@ public class NewsQueryCache implements NewsQueryRepository {
             // Window reaches past the cached rows while more exist in the database — deep paging.
             // Fall through to the keyed cache so the second request for that page is a cache hit.
         }
-        return cachedPage(key, offset, limit);
+        return cachedPage(key, offset, limit, order);
     }
 
     @Override
@@ -198,7 +202,7 @@ public class NewsQueryCache implements NewsQueryRepository {
             synchronized (lockFor(key)) {
                 rows = bucket.get();
                 if (rows == null) {
-                    NewsListPage loaded = delegate.list(key, 0, BUCKET_ROWS);
+                    NewsListPage loaded = delegate.list(key, 0, BUCKET_ROWS, NewsListOrder.DATE);
                     rows = new CachedRows(List.copyOf(loaded.items()), loaded.total());
                     bucket.set(rows);
                 }
@@ -212,9 +216,9 @@ public class NewsQueryCache implements NewsQueryRepository {
      * the unfiltered all-countries request, any country without its own bucket, and US/CA pages that
      * reach past their bucket.
      */
-    private NewsListPage cachedPage(String key, int offset, int limit) {
-        String cacheKey = (key == null ? "*" : key) + "|" + offset + "|" + limit;
-        return cached(otherPages, cacheKey, () -> delegate.list(key, offset, limit));
+    private NewsListPage cachedPage(String key, int offset, int limit, NewsListOrder order) {
+        String cacheKey = order.cacheKeyPrefix() + (key == null ? "*" : key) + "|" + offset + "|" + limit;
+        return cached(otherPages, cacheKey, () -> delegate.list(key, offset, limit, order));
     }
 
     /**

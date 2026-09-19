@@ -73,6 +73,8 @@ class NewsCacheTest {
         final AtomicInteger photoCalls = new AtomicInteger();
         final AtomicInteger lakeCalls = new AtomicInteger();
         final AtomicInteger fishCalls = new AtomicInteger();
+        /** The order each {@code list} call was made with, in call order. */
+        final List<NewsListOrder> listOrders = java.util.Collections.synchronizedList(new ArrayList<>());
         private final long total;
 
         CountingRepo(long total) {
@@ -80,8 +82,9 @@ class NewsCacheTest {
         }
 
         @Override
-        public NewsListPage list(String country, int offset, int limit) {
+        public NewsListPage list(String country, int offset, int limit, NewsListOrder order) {
             listCalls.incrementAndGet();
+            listOrders.add(order);
             int available = (int) Math.max(0, Math.min(limit, total - offset));
             return page(offset + 1, available, total, offset, limit);
         }
@@ -147,6 +150,36 @@ class NewsCacheTest {
         int[] sizes = cache.sizes();
         assertThat(sizes[0]).isEqualTo(NewsQueryCache.BUCKET_ROWS); // us rows
         assertThat(sizes[1]).isEqualTo(NewsQueryCache.BUCKET_ROWS); // ca rows
+    }
+
+    @Test
+    void anEditedOrderRequestIsNeverAnsweredFromTheDateBucketAndIsCachedUnderItsOwnKey() {
+        CountingRepo repo = new CountingRepo(500);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        cache.list("US", 0, 5, NewsListOrder.DATE);      // loads the US date bucket
+        cache.list("US", 0, 5, NewsListOrder.EDITED);    // must NOT be sliced from that bucket
+        assertThat(repo.listCalls.get()).isEqualTo(2);
+        assertThat(repo.listOrders).containsExactly(NewsListOrder.DATE, NewsListOrder.EDITED);
+
+        cache.list("US", 0, 5, NewsListOrder.EDITED);    // repeat: served from the keyed cache
+        cache.list("US", 5, 5, NewsListOrder.DATE);      // still inside the date bucket
+        assertThat(repo.listCalls.get()).isEqualTo(2);
+
+        cache.list(null, 0, 25, NewsListOrder.DATE);     // same country + offset + limit, other order
+        cache.list(null, 0, 25, NewsListOrder.EDITED);   // -> two entries, not one shared
+        assertThat(repo.listCalls.get()).isEqualTo(4);
+        assertThat(repo.listOrders.subList(2, 4)).containsExactly(NewsListOrder.DATE, NewsListOrder.EDITED);
+    }
+
+    @Test
+    void theThreeArgListDefaultsToTheDateOrder() {
+        CountingRepo repo = new CountingRepo(500);
+        NewsQueryCache cache = new NewsQueryCache(repo, CACHE_PROPS);
+
+        cache.list("GB", 0, 5);
+
+        assertThat(repo.listOrders).containsExactly(NewsListOrder.DATE);
     }
 
     @Test
@@ -242,9 +275,9 @@ class NewsCacheTest {
         }
 
         @Override
-        public NewsListPage list(String country, int offset, int limit) {
+        public NewsListPage list(String country, int offset, int limit, NewsListOrder order) {
             sleep();
-            return super.list(country, offset, limit);
+            return super.list(country, offset, limit, order);
         }
 
         @Override

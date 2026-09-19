@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.NewsListOrder;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
@@ -65,6 +66,8 @@ public class NewsController extends AbstractDocumentController {
     static final int DEFAULT_LIMIT = 25;
     /** Upper bound on page size. */
     static final int MAX_LIMIT = 200;
+    /** How many rows of {@code /list} a guest can ever reach — the first 100 of their country's news. */
+    static final int GUEST_MAX_ROWS = 100;
     /** How long a browser may reuse a lead photo without revalidating. */
     static final int PHOTO_CACHE_DAYS = 7;
     /** Hard cap on the species ids {@code /search?fish=} accepts — see {@link #parseFishIds}. */
@@ -139,12 +142,32 @@ public class NewsController extends AbstractDocumentController {
     }
 
     /**
-     * One page of the latest news with optional country filter and pagination.
+     * One page of the news list with optional country filter and pagination. <strong>What the caller
+     * gets depends on their role</strong>, which is not a parameter: cproxy verifies the caller and
+     * stamps {@value ViewerRole#HEADER}, and docapi trusts it (see {@link ViewerRole}).
+     *
+     * <table>
+     *   <caption>Behaviour by role</caption>
+     *   <tr><th>role</th><th>order</th><th>window</th></tr>
+     *   <tr><td>{@code admin}</td><td>most recently <em>edited</em> first</td><td>whole list, paged</td></tr>
+     *   <tr><td>{@code user}</td><td>newest article <em>date</em> first</td><td>whole list, paged</td></tr>
+     *   <tr><td>{@code guest} (also: header missing/unknown)</td><td>newest article date first</td>
+     *       <td><strong>the first {@value #GUEST_MAX_ROWS} rows only</strong> — {@code offset+limit} is clamped
+     *           to it and {@code total} never exceeds it</td></tr>
+     * </table>
+     *
+     * <p>The guest cap is enforced <em>here</em>, not just by the caller, so a guest's traffic is bounded
+     * whatever {@code offset}/{@code limit} are asked for: {@code News.aspx} already asks for exactly the
+     * first 100 rows of the visitor's country, and this makes that a rule of the API instead of a habit
+     * of one client. The <em>country</em> is still the caller's to pass — docapi never sees the visitor's
+     * address (the request arrives from the web server), so the IP-to-country lookup stays in the
+     * frontend.
      *
      * @param country ISO-2 code to filter by, or omitted/blank for all countries (a thin non-CA country
      *                is padded with Canadian news up to 100)
      * @param offset rows to skip (null/negative → 0)
      * @param limit page size (null/&lt;1 → {@value #DEFAULT_LIMIT}; capped at {@value #MAX_LIMIT})
+     * @param role the caller's role as stamped by cproxy; absent → guest
      * @return the page rows plus the grand total, in the response envelope
      * @throws InvalidDocumentException if {@code country} is present but not a 2-letter code (→ 400)
      */
@@ -152,12 +175,36 @@ public class NewsController extends AbstractDocumentController {
     public ApiResponse<NewsListPage> list(
             @RequestParam(required = false) String country,
             @RequestParam(required = false) Integer offset,
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) Integer limit,
+            @RequestHeader(value = ViewerRole.HEADER, required = false) String role) {
         String normalizedCountry = normalizeCountry(country);
         int safeOffset = (offset == null || offset < 0) ? 0 : offset;
         int safeLimit = (limit == null || limit < 1) ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
 
-        return ApiResponse.ok(queryRepository.list(normalizedCountry, safeOffset, safeLimit));
+        switch (ViewerRole.fromHeader(role)) {
+            case ADMIN:
+                return ApiResponse.ok(queryRepository.list(normalizedCountry, safeOffset, safeLimit, NewsListOrder.EDITED));
+            case USER:
+                return ApiResponse.ok(queryRepository.list(normalizedCountry, safeOffset, safeLimit, NewsListOrder.DATE));
+            default:
+                return ApiResponse.ok(guestPage(normalizedCountry, safeOffset, safeLimit));
+        }
+    }
+
+    /**
+     * A guest's page: the requested window clipped to the first {@value #GUEST_MAX_ROWS} rows, with
+     * {@code total} clipped to match so a pager built from it never offers a page that would be empty.
+     * A window that starts at or past the cap still asks the repository for one row, only to learn the
+     * total — the answer is served from the same cache entry the first page uses.
+     */
+    private NewsListPage guestPage(String country, int offset, int limit) {
+        if (offset >= GUEST_MAX_ROWS) {
+            NewsListPage first = queryRepository.list(country, 0, 1, NewsListOrder.DATE);
+            return new NewsListPage(List.of(), Math.min(first.total(), GUEST_MAX_ROWS), offset, limit);
+        }
+        int window = Math.min(limit, GUEST_MAX_ROWS - offset);
+        NewsListPage page = queryRepository.list(country, offset, window, NewsListOrder.DATE);
+        return new NewsListPage(page.items(), Math.min(page.total(), GUEST_MAX_ROWS), offset, limit);
     }
 
     /**
