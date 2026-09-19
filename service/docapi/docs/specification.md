@@ -49,7 +49,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
-| `GET` | `/api/v1/news/list?country=&offset=&limit=` | 200 | `{ items:[{ rn, newsId, title, source, stamp, flag, hasPhoto, blockOrd }], total, offset, limit }` |
+| `GET` | `/api/v1/news/list?country=&offset=&limit=` | 200 | `{ items:[{ rn, newsId, title, source, stamp, flag, hasPhoto, blockOrd }], total, offset, limit }` — order and window depend on the caller's role (`X-Fish-Role`, stamped by cproxy; see "News list: order by role") |
 | `GET` | `/api/v1/news/default` | 200 | `{ items:[ <news JSON>, … ] }` (the whole assembled home page; each item carries `snippet` and the `lake_id`/`fish1..3_id` it mentions) |
 | `GET` | `/api/v1/news/featured` | 200 | `{ items:[ <news JSON>, … ] }` — just the 2 lead articles, full documents incl. their base64 `photo` |
 | `GET` | `/api/v1/news/more` | 200 | `{ items:[{ news_id, date, title, source, link, snippet }, … ] }` — just the "More News" column, compact (no photos, no paragraphs) |
@@ -251,7 +251,10 @@ catalogue in half. Blank entries are dropped; a batch over 100 entries ⇒ 400 `
   country with fewer than 100 items is padded with the latest Canadian news up to 100, marked
   `blockOrd = 1`). `offset` defaults to 0 (clamped ≥ 0); `limit` defaults to **25** (capped at 200).
   `total` is the full filtered+padded row count (windowed `COUNT(*) OVER()`), so a numbered pager
-  needs no second query. A non-2-letter `country` ⇒ 400 `invalid_document`.
+  needs no second query. A non-2-letter `country` ⇒ 400 `invalid_document`. **Since 1.18.1 the order
+  and the window depend on the caller's role** — admin: most recently edited first; registered user:
+  newest article date first; guest (or no/unknown `X-Fish-Role`): newest article date first and never
+  past row 100, with `total` clipped to 100. See "News list: order by role, and the guest window" below.
 - `GET /api/v1/news/default` — the home page, backed by `dbo.fn_default_news_ids()` +
   `dbo.fn_default_news_json(@news_id, @with_photo)`: the ids/slot-flag/order come from the first
   function, each item's JSON document from the second, in display order (two lead articles first,
@@ -540,6 +543,51 @@ MySQL on 2026-08-31 and its writes in docapi 1.16.0, and the SQL Server `NewsDoc
 (`dbo.fn_news_doc` / `sp_news_doc_add` / `sp_news_doc_update`) was deleted then — see "MySQL backing"
 below. The other three entities are unchanged.
 
+### News list: order by role, and the guest window (1.18.1, 2026-09-18)
+
+`GET /api/v1/news/list` stopped having a single order. docapi is told **who is asking** by the
+`X-Fish-Role` header that cproxy (0.17.0+) stamps on every request — `guest`, `user` or `admin`, derived
+from the verified credential and cproxy's own account mirror — and answers accordingly:
+
+| role | order | window |
+|------|-------|--------|
+| `admin` | most recently **edited** first — `news.edit_stamp`, falling back to the row's `stamp` for an article never edited since that column existed | the whole list, paged |
+| `user` (registered) | newest article **date** first — `news_stamp` | the whole list, paged |
+| `guest`, or the header missing / unrecognised | newest article date first | **the first 100 rows only** |
+
+Both orders break ties on the row id, so the order is total and a pager never repeats or skips a row.
+This replaces the insertion-order (`id DESC`) sort applied earlier the same day, which ordered by when a
+row was *created* and so ignored both the article's own date and any later edit.
+
+Rules worth not regressing:
+
+- **The role is a header, never a parameter or a body field**, and it **fails closed**: `ViewerRole.fromHeader`
+  maps null, blank and any unknown value to `guest`. A request that did not come through cproxy — a
+  hand-run `curl` on the box, a cproxy older than 0.17.0 — therefore gets the guest window, not the full
+  list. The trust model is that docapi is reachable **only** through cproxy (it listens on localhost and the
+  VPC address); cproxy strips any inbound `X-Fish-Role` before setting its own. Do not add a second way in.
+- **The guest cap is enforced twice.** cproxy (0.17.1) rewrites a guest's `/news/list` request to
+  `offset=0&limit=100` before docapi sees it; docapi applies the cap again, below, as a second layer.
+- **The guest cap is docapi's, not the caller's.** `NewsController.guestPage` clamps `offset + limit` to
+  `GUEST_MAX_ROWS` (100) and clips `total` to `min(total, 100)` so a pager built from it never offers an
+  empty page. A window starting at or past the cap answers an empty `items` — it still asks the repository
+  for one row, only to learn the total, and that is served from the entry the first page already filled.
+  The point is bounded traffic: whatever a guest asks for, at most 100 rows of one country's list leave.
+- **Country is still the caller's.** docapi never sees the visitor's address (the request arrives from
+  the web server, not the visitor), so the IP-to-country lookup stays in `News.aspx`
+  (`GetGuestCountryFilter`); docapi enforces the *window*, not the country.
+- **The order is part of the cache key.** `NewsQueryCache` holds the US and CA 100-row buckets in
+  `NewsListOrder.DATE` only; every `EDITED` request bypasses them and lives in the keyed LRU under an
+  `edited|` prefix, so an admin's page can never be answered from a bucket sorted the other way and the
+  two orders can never share an entry. `DATE` keys are exactly what they were.
+- **An admin sees their own save at once.** Every write through docapi (`/news/admin/*`, `POST`/`PUT
+  /news`, `/import`) stamps `edit_stamp` in its procedure and clears both news caches
+  (`NewsCaches.evictAll`), so the edited article is on top of the very next admin list.
+- **Database:** `sp_news_list_json` gained a fourth parameter, `p_sort` (`'edited'`, anything else ⇒ date), and
+  `v_news_list_rows` a `last_edit` column; five write procedures stamp `news.edit_stamp`. **MySQL has no
+  overloading, so the signature change is not compatible in either direction** — see `docs/do-update.md`
+  for the order to deploy in (SQL script → docapi 1.18.1 → cproxy 0.17.1).
+
 ### MySQL backing for the news read endpoints (2026-08-31)
 
 `GET /api/v1/news/{id}`, `GET /api/v1/news/list`, and `GET /api/v1/news/default` read from the
@@ -717,8 +765,9 @@ Every news read endpoint is served by an in-process cache and reaches the databa
 entry answering it is empty**. The `news` table is on a remote Winhost MySQL with a 5-connection pool
 behind cproxy's 10 s read timeout, so a per-request database read is an availability problem, not
 just a slow one. `NewsDocumentCache` fronts `GET /news/{id}`; `NewsQueryCache` fronts `/news/list`
-(US and CA as 100-row buckets, everything else as whole responses in an LRU of 100 keyed
-`country|offset|limit`) and `/news/default` (one entry). Three rules make the guarantee real:
+(US and CA as 100-row buckets in the date order, everything else — including every admin request in the
+edited order — as whole responses in an LRU of 100 keyed `country|offset|limit`, `edited|`-prefixed for
+the admin order) and `/news/default` (one entry). Three rules make the guarantee real:
 
 1. **No path reads through repeatedly.** Everything that reaches the database stores what it loaded.
    The deep-paging branch of `/news/list` was the exception until 2026-09-02 — a window past the
@@ -852,7 +901,7 @@ created/published id is "found" for a later photo update, everything else is not
 pool the read side uses).
 
 - `sp_news_admin_draft_create(OUT news_id)` — `DELETE FROM news WHERE news_publish <> 1`, then
-  `INSERT` one fresh row (`news_title='title'`, `news_author='Lepsik'`, `news_publish=0`) under a
+  `INSERT` one fresh row (`news_title='title'`, `news_author='Vantus'`, `news_publish=0`) under a
   server-generated `UUID()`. Called via a `CallableStatement` with a registered `OUT` parameter
   (`Types.CHAR`) — the only one of the three procedures with no result set.
 - `sp_news_admin_publish(...)` — `INSERT ... ON DUPLICATE KEY UPDATE` across every editable column,

@@ -23,7 +23,7 @@ public class InMemoryNewsQueryRepository implements NewsQueryRepository {
     }
 
     @Override
-    public NewsListPage list(String country, int offset, int limit) {
+    public NewsListPage list(String country, int offset, int limit, NewsListOrder order) {
         return new NewsListPage(List.of(), 0L, offset, limit);
     }
 

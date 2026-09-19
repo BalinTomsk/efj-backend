@@ -133,7 +133,10 @@ com.fishfind.docapi
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
 │   ├── NewsQueryRepository        # interface: list/defaultNews/newsPhoto/search/lakeNews/fishNews/
-│   │                              #   export -- READ-ONLY (importNews moved out in 1.16.0)
+│   │                              #   export -- READ-ONLY (importNews moved out in 1.16.0).
+│   │                              #   list(country, offset, limit, NewsListOrder) since 1.18.1
+│   ├── NewsListOrder              # enum DATE / EDITED -- the /news/list order, chosen by the controller
+│   │                              #   from the caller's role, never by the caller (1.18.1)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
 │   ├── MySqlNewsQueryRepository   # every news query on MySQL — list/defaultNews/newsPhoto
 │   │                              #   (2026-08-31), search (1.10.0), lakeNews/fishNews (1.11.0/
@@ -180,6 +183,8 @@ com.fishfind.docapi
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
+    ├── ViewerRole                 # enum GUEST / USER / ADMIN from cproxy's X-Fish-Role header;
+    │                              #   fails closed to GUEST (1.18.1)
     ├── ApiResponse                # { data, error, meta } envelope (record)
     └── ApiExceptionHandler        # @RestControllerAdvice mapping exceptions → envelope
 ```
@@ -249,7 +254,7 @@ against each bean's real target, and asserts the old `sqlServerNews*` beans are 
 | `GET /api/v1/news/{id}` | MySQL `CALL sp_news_doc_get(?)` | `MySqlNewsDocumentRepository.getDocument`. The store is read-only since 1.16.0 — its `addDocument`/`updateDocument` throw |
 | `POST /api/v1/news` | MySQL `CALL sp_news_doc_insert(...)` (1.16.0) | `NewsDocumentService.add` → `NewsWriteParser.fromDocument` → `MySqlNewsWriteRepository.insert`. Was `dbo.sp_news_doc_add`. See "News writes" below |
 | `PUT /api/v1/news/{id}` | MySQL `CALL sp_news_doc_update(...)` (1.16.0) | `NewsDocumentService.update`; unknown id ⇒ **404** (SQL Server answered 200 having changed nothing). Was `dbo.sp_news_doc_update`. Refused at the gateway (`PUT` is not in cproxy's allow-list) |
-| `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list` |
+| `GET /api/v1/news/list` | MySQL `CALL sp_news_list_json(?, ?, ?, ?)` | `MySqlNewsQueryRepository.list`; same CA-padding contract as `dbo.fn_news_list`. **Order and window depend on the caller's role (1.18.1)**: admin — last edited first; user — article date first; guest — article date first, first 100 rows only. See "News list: order by role" below |
 | `GET /api/v1/news/default` | MySQL `CALL sp_news_default()` | `MySqlNewsQueryRepository.defaultNews`; one shared JSON shape per item (no separate lead/compact shape), carrying `snippet`. **Pure MySQL read** — the mentioned `lake_id`/`fish1..3_id` come back as bare guids and the caller resolves names if it wants them. A SQL Server lookup for that existed in docapi 1.8.0–1.8.1 (`dbo.fn_news_ref_names_json`) and was **removed 2026-09-03**: it made this read span both databases, which the move to MySQL existed to avoid |
 | `GET /api/v1/news/search` | MySQL, inlined in `MySqlNewsQueryRepository` (1.10.0) | `MySqlNewsQueryRepository.search`; **paged with `offset`/`limit` + `total`**, optional ISO-2 `country`, and species matched from the caller-supplied `?fish=` ids. See "MySQL-backed news search" below |
 | `GET /api/v1/news/lake/{guid}` | MySQL, inlined in `MySqlNewsQueryRepository` (1.11.0) | `MySqlNewsQueryRepository.lakeNews`; one water body’s latest published articles for `Resources/wfRiverViewer.aspx`, replacing that page’s direct read of SQL Server’s `dbo.fn_river_view_news`. Empty `items`, never 404, when the water body has none |
@@ -334,6 +339,51 @@ found live, post-deploy, and fixed the same day — see `envfish-db/CLAUDE.md` �
 `news`" and the `⚠️` warning above it before changing either procedure or adding a new one that
 touches these columns at scale.
 
+### News list: order by role, and the guest window (1.18.1, 2026-09-18)
+
+`GET /api/v1/news/list` stopped having a single order. docapi is told **who is asking** by the
+`X-Fish-Role` header that cproxy (0.17.0+) stamps on every request — `guest`, `user` or `admin`, derived
+from the verified credential and cproxy's own account mirror — and answers accordingly:
+
+| role | order | window |
+|------|-------|--------|
+| `admin` | most recently **edited** first — `news.edit_stamp`, falling back to the row's `stamp` for an article never edited since that column existed | the whole list, paged |
+| `user` (registered) | newest article **date** first — `news_stamp` | the whole list, paged |
+| `guest`, or the header missing / unrecognised | newest article date first | **the first 100 rows only** |
+
+Both orders break ties on the row id, so the order is total and a pager never repeats or skips a row.
+This replaces the insertion-order (`id DESC`) sort applied earlier the same day, which ordered by when a
+row was *created* and so ignored both the article's own date and any later edit.
+
+Rules worth not regressing:
+
+- **The role is a header, never a parameter or a body field**, and it **fails closed**: `ViewerRole.fromHeader`
+  maps null, blank and any unknown value to `guest`. A request that did not come through cproxy — a
+  hand-run `curl` on the box, a cproxy older than 0.17.0 — therefore gets the guest window, not the full
+  list. The trust model is that docapi is reachable **only** through cproxy (it listens on localhost and the
+  VPC address); cproxy strips any inbound `X-Fish-Role` before setting its own. Do not add a second way in.
+- **The guest cap is enforced twice.** cproxy (0.17.1) rewrites a guest's `/news/list` request to
+  `offset=0&limit=100` before docapi sees it; docapi applies the cap again, below, as a second layer.
+- **The guest cap is docapi's, not the caller's.** `NewsController.guestPage` clamps `offset + limit` to
+  `GUEST_MAX_ROWS` (100) and clips `total` to `min(total, 100)` so a pager built from it never offers an
+  empty page. A window starting at or past the cap answers an empty `items` — it still asks the repository
+  for one row, only to learn the total, and that is served from the entry the first page already filled.
+  The point is bounded traffic: whatever a guest asks for, at most 100 rows of one country's list leave.
+- **Country is still the caller's.** docapi never sees the visitor's address (the request arrives from
+  the web server, not the visitor), so the IP-to-country lookup stays in `News.aspx`
+  (`GetGuestCountryFilter`); docapi enforces the *window*, not the country.
+- **The order is part of the cache key.** `NewsQueryCache` holds the US and CA 100-row buckets in
+  `NewsListOrder.DATE` only; every `EDITED` request bypasses them and lives in the keyed LRU under an
+  `edited|` prefix, so an admin's page can never be answered from a bucket sorted the other way and the
+  two orders can never share an entry. `DATE` keys are exactly what they were.
+- **An admin sees their own save at once.** Every write through docapi (`/news/admin/*`, `POST`/`PUT
+  /news`, `/import`) stamps `edit_stamp` in its procedure and clears both news caches
+  (`NewsCaches.evictAll`), so the edited article is on top of the very next admin list.
+- **Database:** `sp_news_list_json` gained a fourth parameter, `p_sort` (`'edited'`, anything else ⇒ date), and
+  `v_news_list_rows` a `last_edit` column; five write procedures stamp `news.edit_stamp`. **MySQL has no
+  overloading, so the signature change is not compatible in either direction** — see `docs/do-update.md`
+  for the order to deploy in (SQL script → docapi 1.18.1 → cproxy 0.17.1).
+
 ### News-admin writes (1.13.0) — `POST`/`PATCH /api/v1/news/admin/*`
 
 `NewsAdminController` (`/api/v1/news/admin`) is what let `fishfind-frontend`'s `Editor/AddNews.aspx`
@@ -346,7 +396,7 @@ surface is unrelated to this page).
 
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
-| `POST /api/v1/news/admin/draft` | MySQL `{call sp_news_admin_draft_create(?)}` | Purges every unpublished draft, then inserts one fresh draft (`news_title='title'`, `news_author='Lepsik'`, `news_publish=0`) and returns its id — the gateway equivalent of the page's old `Page_Load`, same placeholder values, not new behaviour. `201 {id}` |
+| `POST /api/v1/news/admin/draft` | MySQL `{call sp_news_admin_draft_create(?)}` | Purges every unpublished draft, then inserts one fresh draft (`news_title='title'`, `news_author='Vantus'`, `news_publish=0`) and returns its id — the gateway equivalent of the page's old `Page_Load`, same placeholder values, not new behaviour. `201 {id}` |
 | `PATCH /api/v1/news/admin/{id}` | MySQL `CALL sp_news_admin_publish(...)` | Upserts every editable field and sets `news_publish=1`. An unknown id **inserts** rather than 404ing — mirrors `ButtonSubmitAddNews_Click`'s original update-or-recover-by-insert (the draft can be gone if a second `AddNews` tab's `Page_Load` purged it first). `title` is the only required field (blank ⇒ 400); everything else defaults sensibly (`stamp` missing/unparseable/in-the-future/over-a-year-old ⇒ now, mirroring the page's own clamp; a `lakeId`/`fish1Id`/`fish2Id`/`fish3Id` that isn't a canonical GUID is dropped, not stored). `200 {id, action}` where `action` is `inserted`/`updated` |
 | `PATCH /api/v1/news/admin/{id}/photo/{index}` | MySQL `CALL sp_news_admin_photo_update(...)` | Replaces one paragraph-photo slot (`index` 0/1/2, validated before any DB call ⇒ 400 otherwise). Body carries `photoBase64` (required) plus optional `author`/`alt` — omitted/`null` leaves that column's current value in place, matching `GetPicture`/`ImportPhoto` (bytes only) vs. `btnBriefUpload_Click` (bytes+author+alt) writing the same columns with different completeness in the original page. Unknown id ⇒ 404. `200 {id, index, updated:true}` |
 
@@ -414,7 +464,7 @@ Server `JdbcNewsQueryRepository` was deleted in 1.16.0). Every method carries th
 
 | Endpoint | SQL | Notes |
 |----------|-----|-------|
-| `GET /api/v1/news/list?country=&offset=&limit=` | `dbo.fn_news_list(?, ?, ?)` | latest news; ISO-2 country filter (a non-CA country < 100 items is padded with CA news to 100); `OFFSET/FETCH` paging + windowed `total`; limit default 25 / cap 200; bad country ⇒ 400 |
+| `GET /api/v1/news/list?country=&offset=&limit=` | `dbo.fn_news_list(?, ?, ?)` *(historical; MySQL `sp_news_list_json` since 2026-08-31)* | latest news; ISO-2 country filter (a non-CA country < 100 items is padded with CA news to 100); `OFFSET/FETCH` paging + windowed `total`; limit default 25 / cap 200; bad country ⇒ 400. **Since 1.18.1 the order and window follow the caller's role (`X-Fish-Role`): admin — last edited first; user — article date first; guest — article date first and never past row 100** |
 | `GET /api/v1/news/default` | `dbo.fn_default_news_json(news_id, with_photo) FROM dbo.fn_default_news_ids() ORDER BY ord` | assembled home page — 2 lead items then 3 right-column, each the per-item JSON document. **One call renders every news section of `fishfind-frontend`'s `Default.aspx`**: both lead articles (headline, byline + `author_link`, `flag`, `source`/`source_link`, photo `credit`/`photo_alt`, base64 `photo`, both paragraphs, and the tag row as `lake_id`/`lake_name` + `fishes`) and all three "More News" items (title, `source` — falling back to `author` when blank — `date`, `snippet`, `source_link`). The only thing on that page that is *not* news-table data is the "Latest Catch" sidebar card (`dbo.fn_default_latest_catch_json`, `catch_memo`), which has no endpoint here |
 | `GET /api/v1/news/featured` | *(projection of `/default`)* | **just the 2 lead articles**, full documents incl. their base64 `photo`. Same cached assembly as `/default` — no extra query |
 | `GET /api/v1/news/more` | *(projection of `/default`)* | **just the "More News" column**, compact: `news_id`, `date`, `title`, `source`, `link`, `snippet`. **~1.6 KB versus `/default`'s ~1.09 MB** (measured on prod) — that size gap is the entire reason the split exists. `source` falls back to `author`, and `snippet` is derived in Java from `paragraph0`/`paragraph1` when the DB does not supply one, so this works **without** the MySQL `snippet` view |
@@ -565,7 +615,7 @@ Defaults reproduce the old constants exactly, so an unconfigured service behaves
 | Endpoint | Cache | Key / unit held |
 |----------|-------|-----------------|
 | `GET /api/v1/news/{id}` | `NewsDocumentCache` | LRU of the last 25 documents, keyed by lower-cased guid, **plus** a bounded set of recently-seen unknown ids (see below) |
-| `GET /api/v1/news/list` | `NewsQueryCache` | US and CA as 100-**row** buckets (one fetch answers every offset/limit inside them); everything else — the unfiltered request, other countries, and US/CA pages past their bucket — as whole responses in an LRU of 100, keyed `country\|offset\|limit` |
+| `GET /api/v1/news/list` | `NewsQueryCache` | US and CA as 100-**row** buckets holding the **date** order only (one fetch answers every offset/limit inside them); everything else — the unfiltered request, other countries, US/CA pages past their bucket, **and every admin (`EDITED`-order) request** — as whole responses in an LRU of 100, keyed `country\|offset\|limit`, prefixed `edited\|` for the admin order |
 | `GET /api/v1/news/default` | `NewsQueryCache` | the single assembled home page (`/featured` + `/more` are projections of it — no separate entry) |
 | `GET /api/v1/news/export/{id}` | `NewsQueryCache` | LRU of 25 interchange documents, keyed by lower-cased id |
 | `GET /api/v1/news/search` | `NewsQueryCache` | LRU of 25 whole search pages, keyed `query\|sorted-fishIds\|country\|offset\|limit` |
@@ -750,7 +800,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (264 tests):
+`mvn test` — no DB needed (278 tests as of 1.18.1):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the
@@ -805,6 +855,14 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   malformed body, and a non-GUID `{id}` path are each 400 **with the repository never called**; photo
   update decodes base64 and passes `null` through for an omitted `author`/`alt`; an out-of-range slot
   index is 400 before any repository call; an unknown id on the photo route is 404.
+- `NewsControllerTest` — since 1.18.1, nine more for `/list` by role: an admin gets `EDITED` and the whole
+  list paged; a registered user gets `DATE` and the whole list; a guest is clamped to the first 100 rows
+  with `total` clamped alongside; a window straddling the cap is clipped to it; a window at or past the
+  cap is empty and never leaves the first hundred; a guest with fewer than 100 keeps the real total; a
+  missing or unknown role fails closed to guest (and **never** reaches `EDITED`); the header is matched
+  case-insensitively and trimmed.
+- `ViewerRoleTest` (3, 1.18.1) — the three roles case-insensitively and trimmed; everything else
+  (null, blank, `root`, `admin,user`) is `GUEST`; the header name is the one cproxy stamps.
 - `NewsCacheTest` — both news caches: what is held, `clear()` evicting **every** cached entry
   (import's own eviction test moved to `NewsDocumentServiceTest` in 1.16.0), and the three "only on a
   cold entry" guarantees — deep pages

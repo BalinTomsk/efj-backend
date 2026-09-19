@@ -17,7 +17,7 @@ public interface NewsAdminCommandRepository {
 
     /**
      * Purges every unpublished draft, then inserts one fresh draft row with the placeholder values
-     * the page has always written on load ({@code title}/{@code Lepsik}), and returns its id.
+     * the page has always written on load ({@code title}/{@code Vantus}), and returns its id.
      *
      * @return the new draft's {@code news_id}
      */

@@ -45,7 +45,8 @@ import java.util.List;
  */
 public class MySqlNewsQueryRepository implements NewsQueryRepository {
 
-    static final String LIST_SQL = "CALL sp_news_list_json(?, ?, ?)";
+    /** The fourth argument is {@link NewsListOrder#sqlValue()} -- {@code p_sort}, added 2026-09-18. */
+    static final String LIST_SQL = "CALL sp_news_list_json(?, ?, ?, ?)";
 
     /**
      * The home-page document set. This is the body of the {@code v_news_default_doc} view inlined
@@ -113,7 +114,7 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "listFallback")
-    public NewsListPage list(String country, int offset, int limit) {
+    public NewsListPage list(String country, int offset, int limit, NewsListOrder order) {
         ResultSetExtractor<NewsListPage> extractor = rs -> {
             List<NewsListItem> items = new ArrayList<>();
             long total = 0L;
@@ -142,6 +143,7 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
             }
             ps.setInt(2, offset);
             ps.setInt(3, limit);
+            ps.setString(4, order.sqlValue());
         }, extractor);
     }
 
@@ -520,7 +522,7 @@ public class MySqlNewsQueryRepository implements NewsQueryRepository {
      * Circuit-breaker fallback for {@link #list}.
      */
     @SuppressWarnings("unused")
-    public NewsListPage listFallback(String country, int offset, int limit, Throwable ex) {
+    public NewsListPage listFallback(String country, int offset, int limit, NewsListOrder order, Throwable ex) {
         throw new RuntimeException("MySQL news-list query failed", ex);
     }
 

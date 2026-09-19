@@ -67,9 +67,34 @@ class MySqlNewsQueryRepositoryTest {
         assertEquals(1L, page.total());
         assertEquals("n1", page.items().get(0).newsId());
         verify(mysqlJdbc).query(
-                eq("CALL sp_news_list_json(?, ?, ?)"),
+                eq("CALL sp_news_list_json(?, ?, ?, ?)"),
                 any(PreparedStatementSetter.class),
                 any(ResultSetExtractor.class));
+    }
+
+    @Test
+    void listBindsCountryOffsetLimitAndTheSortInThatOrder() throws Exception {
+        when(mysqlJdbc.query(any(String.class), any(PreparedStatementSetter.class), any(ResultSetExtractor.class)))
+                .thenReturn(new NewsListPage(List.of(), 0L, 7, 30));
+
+        repository.list("CA", 7, 30, NewsListOrder.EDITED);
+        repository.list(null, 0, 25, NewsListOrder.DATE);
+
+        ArgumentCaptor<PreparedStatementSetter> setters = ArgumentCaptor.forClass(PreparedStatementSetter.class);
+        verify(mysqlJdbc, org.mockito.Mockito.times(2)).query(eq(MySqlNewsQueryRepository.LIST_SQL),
+                setters.capture(), any(ResultSetExtractor.class));
+
+        PreparedStatement edited = mock(PreparedStatement.class);
+        setters.getAllValues().get(0).setValues(edited);
+        verify(edited).setString(1, "CA");
+        verify(edited).setInt(2, 7);
+        verify(edited).setInt(3, 30);
+        verify(edited).setString(4, "edited");
+
+        PreparedStatement byDate = mock(PreparedStatement.class);
+        setters.getAllValues().get(1).setValues(byDate);
+        verify(byDate).setNull(1, java.sql.Types.CHAR);
+        verify(byDate).setString(4, "date");
     }
 
     @Test

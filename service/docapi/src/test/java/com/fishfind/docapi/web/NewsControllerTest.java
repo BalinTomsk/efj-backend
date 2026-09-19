@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.NewsListOrder;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
@@ -18,7 +19,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
@@ -106,7 +109,7 @@ class NewsControllerTest {
 
     @Test
     void listWithEmptyRepositoryReturnsEmptyPageEchoingPaging() throws Exception {
-        when(queryRepository.list(null, 5, 10))
+        when(queryRepository.list(null, 5, 10, NewsListOrder.DATE))
                 .thenReturn(new NewsController.NewsListPage(List.of(), 0L, 5, 10));
 
         mockMvc.perform(get("/api/v1/news/list").param("offset", "5").param("limit", "10"))
@@ -140,7 +143,7 @@ class NewsControllerTest {
     void listMapsRepositoryResultsIntoTheEnvelope() throws Exception {
         NewsController.NewsListItem item = new NewsController.NewsListItem(1L, "n-id", "Title", "Source", "2026-07-27", "CA", true, 0);
         NewsController.NewsListPage page = new NewsController.NewsListPage(List.of(item), 8L, 0, 25);
-        when(queryRepository.list(null, 0, 25)).thenReturn(page);
+        when(queryRepository.list(null, 0, 25, NewsListOrder.DATE)).thenReturn(page);
 
         mockMvc.perform(get("/api/v1/news/list"))
                 .andExpect(status().isOk())
@@ -148,6 +151,111 @@ class NewsControllerTest {
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].title").value("Title"))
                 .andExpect(jsonPath("$.data.total").value(8));
+    }
+
+    // ---- /news/list by role: order, and the guest window --------------------------------------------
+
+    private static NewsController.NewsListPage pageOf(long total, int offset, int limit) {
+        return new NewsController.NewsListPage(List.of(), total, offset, limit);
+    }
+
+    @Test
+    void anAdminGetsTheEditedOrderAndTheWholeListPaged() throws Exception {
+        when(queryRepository.list(null, 150, 50, NewsListOrder.EDITED)).thenReturn(pageOf(4824, 150, 50));
+
+        mockMvc.perform(get("/api/v1/news/list").param("offset", "150").param("limit", "50")
+                        .header("X-Fish-Role", "admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(4824))
+                .andExpect(jsonPath("$.data.offset").value(150));
+
+        verify(queryRepository).list(null, 150, 50, NewsListOrder.EDITED);
+    }
+
+    @Test
+    void aRegisteredUserGetsTheDateOrderAndTheWholeListPaged() throws Exception {
+        when(queryRepository.list("CA", 150, 50, NewsListOrder.DATE)).thenReturn(pageOf(4824, 150, 50));
+
+        mockMvc.perform(get("/api/v1/news/list").param("country", "CA").param("offset", "150").param("limit", "50")
+                        .header("X-Fish-Role", "user"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(4824));
+
+        verify(queryRepository).list("CA", 150, 50, NewsListOrder.DATE);
+    }
+
+    @Test
+    void aGuestIsCappedToTheFirstHundredRowsAndTheTotalIsCappedWithIt() throws Exception {
+        when(queryRepository.list("CA", 0, 100, NewsListOrder.DATE)).thenReturn(pageOf(4824, 0, 100));
+
+        mockMvc.perform(get("/api/v1/news/list").param("country", "CA").param("limit", "200")
+                        .header("X-Fish-Role", "guest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(100))
+                .andExpect(jsonPath("$.data.limit").value(200));
+
+        // 200 rows were asked for; only the first 100 were ever requested from the repository.
+        verify(queryRepository).list("CA", 0, 100, NewsListOrder.DATE);
+    }
+
+    @Test
+    void aGuestWindowThatStraddlesTheCapIsClippedToIt() throws Exception {
+        when(queryRepository.list(null, 90, 10, NewsListOrder.DATE)).thenReturn(pageOf(4824, 90, 10));
+
+        mockMvc.perform(get("/api/v1/news/list").param("offset", "90").param("limit", "50")
+                        .header("X-Fish-Role", "guest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.offset").value(90))
+                .andExpect(jsonPath("$.data.limit").value(50));
+
+        verify(queryRepository).list(null, 90, 10, NewsListOrder.DATE);
+    }
+
+    @Test
+    void aGuestWindowStartingAtOrPastTheCapIsEmptyAndNeverLeavesTheFirstHundred() throws Exception {
+        when(queryRepository.list(null, 0, 1, NewsListOrder.DATE)).thenReturn(pageOf(4824, 0, 1));
+
+        mockMvc.perform(get("/api/v1/news/list").param("offset", "100").param("limit", "25")
+                        .header("X-Fish-Role", "guest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(100))
+                .andExpect(jsonPath("$.data.offset").value(100));
+
+        verify(queryRepository).list(null, 0, 1, NewsListOrder.DATE);
+        verify(queryRepository, never()).list(any(), eq(100), anyInt(), any());
+    }
+
+    @Test
+    void aGuestWithFewerThanAHundredRowsKeepsTheRealTotal() throws Exception {
+        when(queryRepository.list("GB", 0, 25, NewsListOrder.DATE)).thenReturn(pageOf(37, 0, 25));
+
+        mockMvc.perform(get("/api/v1/news/list").param("country", "GB").header("X-Fish-Role", "guest"))
+                .andExpect(jsonPath("$.data.total").value(37));
+    }
+
+    @Test
+    void aMissingOrUnknownRoleFailsClosedToGuest() throws Exception {
+        when(queryRepository.list(null, 0, 100, NewsListOrder.DATE)).thenReturn(pageOf(4824, 0, 100));
+
+        // no header at all: a request that did not come through cproxy
+        mockMvc.perform(get("/api/v1/news/list").param("limit", "200"))
+                .andExpect(jsonPath("$.data.total").value(100));
+        // a value cproxy never sends
+        mockMvc.perform(get("/api/v1/news/list").param("limit", "200").header("X-Fish-Role", "superuser"))
+                .andExpect(jsonPath("$.data.total").value(100));
+
+        verify(queryRepository, never()).list(any(), anyInt(), anyInt(), eq(NewsListOrder.EDITED));
+    }
+
+    @Test
+    void theRoleHeaderIsMatchedCaseInsensitively() throws Exception {
+        when(queryRepository.list(null, 0, 25, NewsListOrder.EDITED)).thenReturn(pageOf(10, 0, 25));
+
+        mockMvc.perform(get("/api/v1/news/list").header("X-Fish-Role", " ADMIN "))
+                .andExpect(status().isOk());
+
+        verify(queryRepository).list(null, 0, 25, NewsListOrder.EDITED);
     }
 
     @Test

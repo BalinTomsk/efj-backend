@@ -2,6 +2,39 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-19: **1.18.1 — `/news/list` is ordered by the caller's role, and a guest is capped at 100 rows.
+  DEPLOYED 2026-09-19** (278 tests green; live `/health` reports `1.18.1`, `restarts=0`, clean startup
+  window). Deployed in this order on 2026-09-19: the SQL script (by the user, control panel, ~03:22 UTC), cproxy 0.17.0 (harmless first: docapi 1.16.0 ignores the header), docapi 1.18.1, then cproxy 0.17.1. **The gap is real:** between the script and the 1.18.1 image, live 1.16.0 answered 500 on every list page it had not cached (`expected 4, got 3`) — cached CA/US pages kept working, which hid it. The two must go out back to back. Verified live on the droplet with the role header: guest `limit=200`
+  → 100 items, `total=100`; guest `offset=100` → empty, `total=100`; user → 200 items of 4838, article-date
+  order; admin → a different (last-edited) order; **no header → 100, fail-closed**. (1.16.0 was the rollback
+  tag; the number `1.17.0` was already taken in GHCR by an unrelated image and was skipped.) Not verified
+  live through the gateway with a signed-in token: the stored `jwt.txt` expired 2026-09-11 and a fresh one is
+  a portal download — that path is covered by the unit tests and the direct-header check above.
+  The order the list came back in was wrong for everyone: it had been newest-article-date, then (earlier
+  the same day) insertion order, and neither is what an admin needs (the article they just saved on top) or
+  what a reader wants (newest news first). Now: **admin** — most recently *edited* first; **registered
+  user** — newest article date first; **guest** — newest article date first and the **first 100 rows only**,
+  enforced here so a guest's traffic is bounded whatever `offset`/`limit` they ask for.
+
+  **How docapi knows who is asking:** cproxy 0.17.1 stamps `X-Fish-Role` (`guest`/`user`/`admin`) from the
+  credential it verified and its own account mirror, and strips any inbound copy. New `ViewerRole` reads it
+  and **fails closed** — a missing or unknown value is `guest`, so a request that did not come through
+  cproxy gets the capped list. The role is never a query parameter or body field.
+
+  **Code:** `NewsQueryRepository.list` takes a `NewsListOrder` (`DATE`/`EDITED`); the three-argument form
+  stays as a `DATE` default. `NewsController.list` picks the order from the role and, for a guest, clips
+  `offset + limit` to 100 and `total` to `min(total, 100)` (`guestPage`). `MySqlNewsQueryRepository` calls
+  `sp_news_list_json(?, ?, ?, ?)` with `p_sort` as the fourth argument. `NewsQueryCache` keeps the US/CA
+  100-row buckets in the date order only and sends every `EDITED` request to the keyed LRU under an
+  `edited|` prefix, so the two orders cannot answer each other; `DATE` keys are unchanged.
+
+  **Tests** (264 → 278): nine `/list`-by-role cases in `NewsControllerTest` (each role's order, the clamp,
+  the straddling and past-the-cap windows, fail-closed on a missing/unknown header), `ViewerRoleTest` (3),
+  two `NewsCacheTest` cases (an `EDITED` request never sliced from a date bucket, cached under its own
+  key), and one `MySqlNewsQueryRepositoryTest` case pinning the four bound parameters in order. Verified
+  beyond the mocks: the production `CALL` was run through Connector/J against a real MySQL 8.0.46 in both
+  orders (`date` → B, C, A; `edited` → C, A, B).
+
 - 2026-09-18: **1.16.0 — news writes go to MySQL; `NewsController` deals with MySQL only.**
   **DEPLOYED 2026-09-18; procedures applied on Winhost the same day (second control-panel run).**
   After that, the no-write probe `PUT /api/v1/news/<all-zero id>` answers a clean **404** —

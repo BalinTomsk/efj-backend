@@ -27,9 +27,15 @@ public interface NewsQueryRepository {
      * @param country ISO-2 code (null/blank = all countries; a thin non-CA country is padded with CA news to 100)
      * @param offset rows to skip (non-negative)
      * @param limit page size (already clamped)
+     * @param order the row order — chosen by the controller from the caller's role, never by the caller
      * @return paginated news list + grand total
      */
-    NewsListPage list(String country, int offset, int limit);
+    NewsListPage list(String country, int offset, int limit, NewsListOrder order);
+
+    /** {@link #list(String, int, int, NewsListOrder)} in the default order, newest article date first. */
+    default NewsListPage list(String country, int offset, int limit) {
+        return list(country, offset, limit, NewsListOrder.DATE);
+    }
 
     /**
      * The assembled home page: lead articles then right-column items, in display order.

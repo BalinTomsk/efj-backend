@@ -1,5 +1,30 @@
 # docapi Session Memory
 
+## 2026-09-19: 1.18.1 — `/news/list` ordered by caller role, guest capped at 100 (DEPLOYED AND LIVE)
+
+Deployed in this order on 2026-09-19: the SQL script (by the user, control panel, ~03:22 UTC), cproxy 0.17.0 (harmless first: docapi 1.16.0 ignores the header), docapi 1.18.1, then cproxy 0.17.1. **The gap is real:** between the script and the 1.18.1 image, live 1.16.0 answered 500 on every list page it had not cached (`expected 4, got 3`) — cached CA/US pages kept working, which hid it. The two must go out back to back.
+Rollback: the previous definitions from git (`envfish-db` `89ac50e`; the control-panel scripts were deleted once applied) **plus** the `1.16.0` image, together.
+
+(Original notes from the build follow.)
+
+Admin: last edited first. Registered user: article date first. Guest: article date first, first 100 rows
+only, `total` clipped to 100. The role is `X-Fish-Role`, stamped by cproxy 0.17.1 — **not** a parameter — and
+`ViewerRole` fails closed to guest, so a request that did not come through cproxy gets the capped list. The
+guest cap is docapi's (`NewsController.guestPage`), because the user's point was bounded traffic and the
+frontend's own 100 protects nothing against a caller that is not the frontend. 278 tests. Country is still
+the caller's — docapi never sees the visitor's address.
+
+**Deploy order, and why it is strict:** control-panel script → this image → cproxy 0.17.1. `sp_news_list_json`
+went 3 → 4 parameters and MySQL has no overloading, so 1.16.0 fails against the new procedure and 1.18.1
+against the old; run the script and deploy back to back. If cproxy is late, everyone is a guest (safe,
+wrong). Full text in `docs/do-update.md` Step 0. Not deployed: needs the user's go-ahead per step.
+
+**Traps for next time:** (1) an `EDITED` request must never be served from a US/CA bucket — the buckets are
+date-order only and the order is in the cache key; `NewsCacheTest` pins it. (2) `list(country, offset,
+limit)` still exists as a `DATE` default method on the interface — a caller that forgets the order silently
+gets the date order, so pass it explicitly. (3) `health` examples in `api-reference.html` said `1.9.0`; fixed
+to the pom version in this pass, per the rule that versions come from `pom.xml`.
+
 ## 2026-09-18: 1.16.0 — news writes moved to MySQL (DEPLOYED AND LIVE)
 
 **Resolved later the same day:** the user re-ran the ADMIN_WRITE file; the `PUT` probe then answered
