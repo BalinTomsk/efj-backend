@@ -397,7 +397,7 @@ surface is unrelated to this page).
 | Endpoint | Backing | Notes |
 |----------|---------|-------|
 | `POST /api/v1/news/admin/draft` | MySQL `{call sp_news_admin_draft_create(?)}` | Purges every unpublished draft, then inserts one fresh draft (`news_title='title'`, `news_author='Vantus'`, `news_publish=0`) and returns its id — the gateway equivalent of the page's old `Page_Load`, same placeholder values, not new behaviour. `201 {id}` |
-| `PATCH /api/v1/news/admin/{id}` | MySQL `CALL sp_news_admin_publish(...)` | Upserts every editable field and sets `news_publish=1`. An unknown id **inserts** rather than 404ing — mirrors `ButtonSubmitAddNews_Click`'s original update-or-recover-by-insert (the draft can be gone if a second `AddNews` tab's `Page_Load` purged it first). `title` is the only required field (blank ⇒ 400); everything else defaults sensibly (`stamp` missing/unparseable/in-the-future/over-a-year-old ⇒ now, mirroring the page's own clamp; a `lakeId`/`fish1Id`/`fish2Id`/`fish3Id` that isn't a canonical GUID is dropped, not stored). `200 {id, action}` where `action` is `inserted`/`updated` |
+| `PATCH /api/v1/news/admin/{id}` | MySQL `CALL sp_news_admin_publish(...)` | Upserts every editable field and sets `news_publish=1`. An unknown id **inserts** rather than 404ing — mirrors `ButtonSubmitAddNews_Click`'s original update-or-recover-by-insert (the draft can be gone if a second `AddNews` tab's `Page_Load` purged it first). `title` is the only required field (blank ⇒ 400); everything else defaults sensibly (`stamp` missing/unparseable/in-the-future/over-a-year-old ⇒ now, mirroring the page's own clamp; a non-blank `lakeId`/`fish1Id`/`fish2Id`/`fish3Id` that isn't a canonical GUID is a **400 naming the field** since 1.18.2 — it used to be dropped silently, which saved the Clove Lake article with no lake and no message; blank/omitted still means no tag). `200 {id, action}` where `action` is `inserted`/`updated` |
 | `PATCH /api/v1/news/admin/{id}/photo/{index}` | MySQL `CALL sp_news_admin_photo_update(...)` | Replaces one paragraph-photo slot (`index` 0/1/2, validated before any DB call ⇒ 400 otherwise). Body carries `photoBase64` (required) plus optional `author`/`alt` — omitted/`null` leaves that column's current value in place, matching `GetPicture`/`ImportPhoto` (bytes only) vs. `btnBriefUpload_Click` (bytes+author+alt) writing the same columns with different completeness in the original page. Unknown id ⇒ 404. `200 {id, index, updated:true}` |
 
 **No admin check happens in docapi.** Same trust model as every other write endpoint here (river-fish
@@ -800,7 +800,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (278 tests as of 1.18.1):
+`mvn test` — no DB needed (281 tests as of 1.18.2):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the
@@ -850,7 +850,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   (`fish1_id`/`fish2_id`/`fish3_id`) appear in the `WHERE` and that the fish id binds to all three
   slots before the limit.
 - `NewsAdminControllerTest` (16, 1.13.0) — `@WebMvcTest` slice, `@MockBean NewsAdminCommandRepository`:
-  draft creation 201; publish maps every field via an `ArgumentCaptor` (incl. dropping a non-GUID
+  draft creation 201; publish maps every field via an `ArgumentCaptor` (incl. trimming and lower-casing a padded upper-case GUID; since 1.18.2 a non-blank non-GUID `lakeId`/`fishNId` is a 400 naming the field with the repository never called, and blank/null tags are still no tag — was: dropping a non-GUID
   species tag, clamping a missing or future `stamp` to now); missing/blank `title`, a missing/
   malformed body, and a non-GUID `{id}` path are each 400 **with the repository never called**; photo
   update decodes base64 and passes `null` through for an omitted `author`/`alt`; an out-of-range slot

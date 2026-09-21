@@ -2,6 +2,27 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-21: **1.18.2 — `PATCH /news/admin/{id}` refuses a tag that is not a GUID instead of dropping it.**
+  **DEPLOYED 2026-09-21** (281 tests green, 3 new; image digest `sha256:8222e7e1…`; live `/health` reports `1.18.2`, `restarts=0`, clean startup window; verified on the droplet: `PATCH /news/admin/<id>` with `lakeId:"Clove Lake"` ⇒ 400 naming the field before any DB call, `/news/lake/<clove>` lists the article, list/default/unknown-id probes 200/200/404; rollback tag `1.18.1`). The Clove Lake article
+  (`1f48e261-b3ce-11f1-9659-00155d23d30d`, 2026-09-16) was saved with its fish tags but with `lake_id` NULL, so
+  neither `News.aspx` (no lake chip) nor the lake page ("Last news" empty) showed the connection. The write path
+  was correct end to end — `lakeId` reaches `sp_news_admin_publish` as parameter 13 — and the gateway confirmed
+  no published article carried that lake id, so the value never arrived as a valid GUID: `guidOrNull` dropped
+  anything that was not a canonical GUID, with no error, exactly as the 1.13.0 note says ("an invalid tag is
+  dropped, not stored"). That leniency is right for a bulk importer and wrong for a person typing an id into a
+  box. Now `tagGuid` returns the trimmed, lower-cased GUID, `null` for missing/`null`/blank, and otherwise
+  throws `InvalidDocumentException` (**400 `invalid_document`**, message names the field) before the repository
+  is touched. `NewsWriteParser` (`POST`/`PUT /news`, `/import`) is deliberately unchanged: it is a machine
+  interchange path that mirrors `TRY_CONVERT`, and a GET body must round-trip. **Tests** (`NewsAdminControllerTest`
+  19 → 22): non-GUID `lakeId` ⇒ 400 naming the field and the repository never called; each of `fish1Id`,
+  `fish2Id`, `fish3Id` likewise; blank/`null`/whitespace tags still accepted as no tag; the mapping test now
+  asserts a padded upper-case GUID is stored trimmed and lower-cased (the case it used to assert was the drop).
+  The failing-first run showed all three new/changed cases red (500/assert) before the fix. **Frontend:**
+  `Editor/AddNews.aspx.cs` checks the same four boxes with `Guid.TryParseExact(..., "D")` and alerts by field
+  name before sending, so the editor is told at the page as well. The stale-cache half of the same report
+  needed no code: a direct SQL `UPDATE` does not evict docapi's caches, so both pages kept the old answer until
+  the 1.18.1 container restart emptied them (verified afterwards: `/news/lake/<guid>?limit=12` lists the article).
+
 - 2026-09-19: **1.18.1 — `/news/list` is ordered by the caller's role, and a guest is capped at 100 rows.
   DEPLOYED 2026-09-19** (278 tests green; live `/health` reports `1.18.1`, `restarts=0`, clean startup
   window). Deployed in this order on 2026-09-19: the SQL script (by the user, control panel, ~03:22 UTC), cproxy 0.17.0 (harmless first: docapi 1.16.0 ignores the header), docapi 1.18.1, then cproxy 0.17.1. **The gap is real:** between the script and the 1.18.1 image, live 1.16.0 answered 500 on every list page it had not cached (`expected 4, got 3`) — cached CA/US pages kept working, which hid it. The two must go out back to back. Verified live on the droplet with the role header: guest `limit=200`

@@ -73,7 +73,7 @@ class NewsAdminControllerTest {
                 + "\"paragraph0\":\"P0\",\"paragraph1\":\"P1\",\"paragraph2\":\"P2\",\"country\":\"CA\","
                 + "\"lakeId\":\"b0000000-0000-0000-0000-00000000000b\","
                 + "\"fish1Id\":\"f1000000-0000-0000-0000-0000000000f1\","
-                + "\"fish2Id\":\"not-a-guid\"}";
+                + "\"fish2Id\":\"  F2000000-0000-0000-0000-0000000000F2  \"}";
 
         mockMvc.perform(patch("/api/v1/news/admin/" + ID)
                         .contentType("application/json").content(body))
@@ -100,9 +100,53 @@ class NewsAdminControllerTest {
         assertThat(r.country()).isEqualTo("CA");
         assertThat(r.lakeId()).isEqualTo("b0000000-0000-0000-0000-00000000000b");
         assertThat(r.fish1Id()).isEqualTo("f1000000-0000-0000-0000-0000000000f1");
-        // "not-a-guid" is not a canonical GUID, so it is dropped rather than stored verbatim.
-        assertThat(r.fish2Id()).isNull();
+        // A padded, upper-case GUID is accepted and stored trimmed and lower-cased.
+        assertThat(r.fish2Id()).isEqualTo("f2000000-0000-0000-0000-0000000000f2");
         assertThat(r.fish3Id()).isNull();
+    }
+
+    // A tag the editor filled in but that is not a GUID used to be dropped without a word, so the
+    // article was saved with no lake and nobody knew (Clove Lake, 2026-09-16). It is a 400 now.
+
+    @Test
+    void publishNonGuidLakeIdIs400NamingTheFieldAndRepositoryIsNeverCalled() throws Exception {
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"A Title\",\"lakeId\":\"Clove Lake\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"))
+                .andExpect(jsonPath("$.error.message").value(org.hamcrest.Matchers.containsString("lakeId")));
+        verify(commandRepository, never()).publish(any());
+    }
+
+    @Test
+    void publishNonGuidFishIdIs400NamingTheField() throws Exception {
+        for (String field : new String[] {"fish1Id", "fish2Id", "fish3Id"}) {
+            mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                            .contentType("application/json")
+                            .content("{\"title\":\"A Title\",\"" + field + "\":\"not-a-guid\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.message").value(org.hamcrest.Matchers.containsString(field)));
+        }
+        verify(commandRepository, never()).publish(any());
+    }
+
+    @Test
+    void publishBlankOrMissingTagsAreStillAcceptedAsNoTag() throws Exception {
+        when(commandRepository.publish(any())).thenReturn(new PublishResult(ID, "updated"));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"A Title\",\"lakeId\":\"   \",\"fish1Id\":\"\",\"fish2Id\":null}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<NewsAdminPublishRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(NewsAdminPublishRequest.class);
+        verify(commandRepository).publish(captor.capture());
+        assertThat(captor.getValue().lakeId()).isNull();
+        assertThat(captor.getValue().fish1Id()).isNull();
+        assertThat(captor.getValue().fish2Id()).isNull();
+        assertThat(captor.getValue().fish3Id()).isNull();
     }
 
     @Test
