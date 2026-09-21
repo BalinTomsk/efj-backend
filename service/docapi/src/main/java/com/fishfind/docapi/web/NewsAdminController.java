@@ -140,7 +140,7 @@ public class NewsAdminController {
      *             ({@code yyyy-MM-ddTHH:mm:ss}, defaulting to now and clamped to the last year — the
      *             same rule {@code ButtonSubmitAddNews_Click} applied), {@code videoLink},
      *             {@code paragraph0/1/2}, {@code country}, {@code lakeId}, {@code fish1Id/2Id/3Id}
-     *             (each a bare GUID or omitted)
+     *             (each a bare GUID, or blank/omitted for no tag; anything else is a 400)
      * @return {@code {id, action}} in the response envelope
      * @throws InvalidDocumentException if the body is missing/malformed or {@code title} is blank (→ 400)
      */
@@ -167,10 +167,10 @@ public class NewsAdminController {
                 text(fields, "paragraph1"),
                 text(fields, "paragraph2"),
                 text(fields, "country"),
-                guidOrNull(text(fields, "lakeId")),
-                guidOrNull(text(fields, "fish1Id")),
-                guidOrNull(text(fields, "fish2Id")),
-                guidOrNull(text(fields, "fish3Id")));
+                tagGuid(fields, "lakeId"),
+                tagGuid(fields, "fish1Id"),
+                tagGuid(fields, "fish2Id"),
+                tagGuid(fields, "fish3Id"));
 
         PublishResult result = commandRepository.publish(request);
         evictNewsCaches();
@@ -244,9 +244,23 @@ public class NewsAdminController {
         return trimmed.toLowerCase(Locale.ROOT);
     }
 
-    /** {@code null} unless {@code value} is itself a canonical GUID -- an invalid tag is dropped, not stored. */
-    private static String guidOrNull(String value) {
-        return (value != null && GUID.matcher(value).matches()) ? value.toLowerCase(Locale.ROOT) : null;
+    /**
+     * An optional GUID tag ({@code lakeId}, {@code fish1Id}..): {@code null} when the field is missing,
+     * JSON null or blank; the trimmed, lower-cased GUID when it is one; a 400 naming the field when it
+     * is anything else. It used to be dropped silently, so a mistyped or pasted-wrong id saved the
+     * article with no tag at all and the editor was never told (the Clove Lake article, 2026-09-16,
+     * kept fish tags but lost its lake this way).
+     */
+    private static String tagGuid(JsonNode fields, String field) {
+        String value = text(fields, field);
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!GUID.matcher(trimmed).matches()) {
+            throw new InvalidDocumentException(field + " must be a GUID (8-4-4-4-12 hex) or blank");
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     /**

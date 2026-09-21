@@ -1,5 +1,19 @@
 # docapi Session Memory
 
+## 2026-09-21: 1.18.2 — admin news publish rejects a non-GUID tag (DEPLOYED AND LIVE)
+
+Trigger: the Clove Lake article (`1f48e261-b3ce-11f1-9659-00155d23d30d`) had `lake_id` NULL with its fish tags stored, so
+`News.aspx` showed no lake chip and the lake page's "Last news" was empty. The write path was correct; `guidOrNull`
+silently dropped a value that was not a canonical GUID. Fix: `NewsAdminController.tagGuid` ⇒ 400 naming the field
+(blank still = no tag); `NewsWriteParser` (POST/PUT/import) unchanged on purpose. 281 tests; deployed by a straight
+image swap (no DB change), rollback `1.18.1`.
+
+**Two things that cost time and will recur:** (1) a direct SQL `UPDATE` on `news` does **not** evict docapi's caches — the
+repaired article only showed after the container restart; probe with a fresh `?limit=` value to see the database
+rather than the cache. (2) Deploy access: the droplet has SSH host aliases `docapi-droplet` / `cproxy-droplet`, and
+the `block-ip-publish` hook rejects any command containing the literal IP — use the alias. The VM's GHCR login lapses
+(`unauthorized` on push, and `docker manifest inspect` then falsely reports a tag free); re-login inside the VM first.
+
 ## 2026-09-19: 1.18.1 — `/news/list` ordered by caller role, guest capped at 100 (DEPLOYED AND LIVE)
 
 Deployed in this order on 2026-09-19: the SQL script (by the user, control panel, ~03:22 UTC), cproxy 0.17.0 (harmless first: docapi 1.16.0 ignores the header), docapi 1.18.1, then cproxy 0.17.1. **The gap is real:** between the script and the 1.18.1 image, live 1.16.0 answered 500 on every list page it had not cached (`expected 4, got 3`) — cached CA/US pages kept working, which hid it. The two must go out back to back.
