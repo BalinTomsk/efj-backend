@@ -233,6 +233,37 @@ class NewsAdminControllerTest {
         assertThat(stamp).isCloseTo(Instant.now(), within(30, ChronoUnit.SECONDS));
     }
 
+    @Test
+    void publishStampSeveralYearsOldIsKept() throws Exception {
+        when(commandRepository.publish(any())).thenReturn(new PublishResult(ID, "inserted"));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"A Title\",\"stamp\":\"2022-03-15T00:00:00\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<NewsAdminPublishRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(NewsAdminPublishRequest.class);
+        verify(commandRepository).publish(captor.capture());
+        assertThat(captor.getValue().stamp()).isEqualTo(Timestamp.valueOf("2022-03-15 00:00:00"));
+    }
+
+    @Test
+    void publishStampBefore2000IsClampedToNow() throws Exception {
+        when(commandRepository.publish(any())).thenReturn(new PublishResult(ID, "inserted"));
+
+        mockMvc.perform(patch("/api/v1/news/admin/" + ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"A Title\",\"stamp\":\"1999-12-31T23:59:59\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<NewsAdminPublishRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(NewsAdminPublishRequest.class);
+        verify(commandRepository).publish(captor.capture());
+        Instant stamp = captor.getValue().stamp().toInstant();
+        assertThat(stamp).isCloseTo(Instant.now(), within(30, ChronoUnit.SECONDS));
+    }
+
     // ---- PATCH /{id}/photo/{index} ----
 
     @Test

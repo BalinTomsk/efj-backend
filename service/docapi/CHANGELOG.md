@@ -2,6 +2,15 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-23: **1.18.3 — `PATCH /news/admin/{id}` keeps an article date older than a year.** **NOT DEPLOYED**
+  (283 tests green, 2 new; rollback tag `1.18.2`). Reported from `Editor/AddNews.aspx`: picking a date such as
+  2022 saved the article dated today. `parseStamp` replaced any `stamp` more than one year old with now, a rule
+  copied from the page's own date box (which did the same thing first, so fixing either alone changes nothing).
+  The floor is now a fixed `MIN_STAMP` of 2000-01-01; future, missing and unparseable stamps still become now.
+  **Tests** (`NewsAdminControllerTest` 22 → 24): a 2022 stamp is stored as sent; a 1999 stamp becomes now.
+  **Frontend:** `AddNews.aspx.cs` keeps the picked date and alerts on a date that is unparseable, in the
+  future or before 2000, where it used to swap in today without saying so.
+
 - 2026-09-21: **1.18.2 — `PATCH /news/admin/{id}` refuses a tag that is not a GUID instead of dropping it.**
   **DEPLOYED 2026-09-21** (281 tests green, 3 new; image digest `sha256:8222e7e1…`; live `/health` reports `1.18.2`, `restarts=0`, clean startup window; verified on the droplet: `PATCH /news/admin/<id>` with `lakeId:"Clove Lake"` ⇒ 400 naming the field before any DB call, `/news/lake/<clove>` lists the article, list/default/unknown-id probes 200/200/404; rollback tag `1.18.1`). The Clove Lake article
   (`1f48e261-b3ce-11f1-9659-00155d23d30d`, 2026-09-16) was saved with its fish tags but with `lake_id` NULL, so

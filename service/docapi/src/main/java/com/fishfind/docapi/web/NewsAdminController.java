@@ -73,6 +73,9 @@ public class NewsAdminController {
 
     private static final DateTimeFormatter STAMP_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
+    /** Oldest accepted article date; the portal's AddNews.aspx refuses anything earlier with a message. */
+    private static final LocalDateTime MIN_STAMP = LocalDateTime.of(2000, 1, 1, 0, 0);
+
     private static final Logger log = LoggerFactory.getLogger(NewsAdminController.class);
 
     private final NewsAdminCommandRepository commandRepository;
@@ -265,8 +268,8 @@ public class NewsAdminController {
 
     /**
      * Parses {@code yyyy-MM-ddTHH:mm:ss[.fff]}, defaulting to now on a missing/blank/unparseable
-     * value and clamping to now when the result is in the future or more than a year in the past --
-     * the exact rule {@code ButtonSubmitAddNews_Click} applied to its date textbox.
+     * value and clamping to now when the result is in the future or before {@link #MIN_STAMP}.
+     * Until 1.18.3 the floor was "a year ago", which replaced every older article date with today.
      */
     private static Timestamp parseStamp(String value) {
         LocalDateTime now = LocalDateTime.now();
@@ -279,7 +282,7 @@ public class NewsAdminController {
                 parsed = now;
             }
         }
-        if (parsed.isAfter(now) || parsed.isBefore(now.minusYears(1))) {
+        if (parsed.isAfter(now) || parsed.isBefore(MIN_STAMP)) {
             parsed = now;
         }
         return Timestamp.valueOf(parsed);
