@@ -2,8 +2,10 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
-- 2026-09-23: **1.18.3 — `PATCH /news/admin/{id}` keeps an article date older than a year.** **NOT DEPLOYED**
-  (283 tests green, 2 new; rollback tag `1.18.2`). Reported from `Editor/AddNews.aspx`: picking a date such as
+- 2026-09-23: **1.18.3 — `PATCH /news/admin/{id}` keeps an article date older than a year.** **DEPLOYED 2026-09-23**
+  (283 tests green, 2 new; image digest `sha256:445a1b9a…`; live `/health` reports `1.18.3`, `restarts=0`, clean
+  startup window; list/default/unknown-id 200/200/404 on the droplet, `/news/list` 200 through the gateway; the
+  stamp path itself not exercised live — it is a write; rollback tag `1.18.2`). Reported from `Editor/AddNews.aspx`: picking a date such as
   2022 saved the article dated today. `parseStamp` replaced any `stamp` more than one year old with now, a rule
   copied from the page's own date box (which did the same thing first, so fixing either alone changes nothing).
   The floor is now a fixed `MIN_STAMP` of 2000-01-01; future, missing and unparseable stamps still become now.
