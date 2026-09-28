@@ -43,6 +43,12 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     /** Mouth-tab document ({@code side = 32}), same shape as {@link #SOURCE_SQL}. */
     static final String MOUTH_SQL = "SELECT dbo.fn_lake_mouth_json(?)";
 
+    /**
+     * Water-body search by name part / either GUID / either CGNDB code / station MLI, as one JSON
+     * array. The function picks the most selective supplied key to drive the lookup.
+     */
+    static final String SEARCH_SQL = "SELECT dbo.fn_river_search_json(?, ?, ?, ?, ?)";
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -131,6 +137,30 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode mouthFallback(String lakeId, Throwable ex) {
         throw new RuntimeException("SQL river-mouth query failed for id " + lakeId, ex);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")
+    public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
+        List<String> rows = jdbc.query(
+                SEARCH_SQL,
+                ps -> {
+                    ps.setString(1, name);
+                    ps.setString(2, guid);
+                    ps.setString(3, cgndb);
+                    ps.setString(4, mli);
+                    ps.setInt(5, limit);
+                },
+                (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? objectMapper.createArrayNode() : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #search}. */
+    @SuppressWarnings("unused")
+    public JsonNode searchFallback(String name, String guid, String cgndb, String mli, int limit, Throwable ex) {
+        throw new RuntimeException("SQL river-search query failed", ex);
     }
 
     private JsonNode parse(String json) {

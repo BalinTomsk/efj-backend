@@ -2,6 +2,25 @@
 
 Split out of `CLAUDE.md` for readability. Newest entries first.
 
+- 2026-09-28: **1.19.0 — `GET /api/v1/river/search`.** **DEPLOYED 2026-09-28** (image digest `sha256:4a834df2…`;
+  `/health` reports `1.19.0`, `restarts=0`, clean startup window; news/unfished probes 200/200/200/404 as before;
+  rollback tag `1.18.3`). **Search verified live 2026-09-28** once `dbo.fn_river_search_json` reached docapi's
+  own database: `name=Humber` 200 (Humber Canal / Creek / Ponds), `CGNDB=abgnp` and both GUID spellings → Humber
+  Canal, `MLI=02HC025` → Humber River (FGBSB) with its 5 stations, name + CGNDB ANDed, no match → empty `items`;
+  also 200 through cproxy. Timing on docapi: keyed lookups (guid/CGNDB/MLI) ~0.08–0.16 s, name-only ~0.5 s (the
+  `lake` scan), `name=er&limit=200` ~0.96 s; ~2.8 s through the gateway for a name search. **Lesson:** the
+  function was first created on a server/database docapi does not use, then left uncommitted — until then every
+  search was SQL 4121, and 4 failed probes opened the SHARED `sqlBreaker` for ~30 s, 500-ing every SQL Server
+  endpoint. A missing DB object behind a new route is an outage risk for the whole service, not just that route:
+  verify the object from a fresh connection with docapi's own `DB_URL` target before deploying the route. Finds water bodies by
+  `name` (2–64 chars, substring of `lake_name`/`alt_name`/`french_name`), `guid` (matches `lake_id` or
+  `secondary_id`; 36-char, 32-hex or braced), `cgndb` (matches `CGNDB` or `CGNDM`; 1–5 letters/digits) or `mli`
+  (the water body a `WaterStation` with that MLI is linked to). Criteria are ANDed; parameter names are
+  case-insensitive; `limit` 50 by default, capped at 200. `{items, total, limit, query}`; no match is an empty
+  `items`, no criterion or a malformed one is 400 before any SQL runs. **DB:** new `dbo.fn_river_search_json`
+  (`envfish-db/mssql/script02_Funct.sql`), `unit_test@RiverSearch.sql` 7/7 PASS. **Tests** (`RiverControllerTest`
+  33 → 37, 287 total green). Rollback: `1.18.3` (the function can stay; nothing else calls it).
+
 - 2026-09-23: **1.18.3 — `PATCH /news/admin/{id}` keeps an article date older than a year.** **DEPLOYED 2026-09-23**
   (283 tests green, 2 new; image digest `sha256:445a1b9a…`; live `/health` reports `1.18.3`, `restarts=0`, clean
   startup window; list/default/unknown-id 200/200/404 on the droplet, `/news/list` 200 through the gateway; the

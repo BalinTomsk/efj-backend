@@ -20,7 +20,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * River / water-body endpoints under {@code /api/v1/river}.
@@ -73,6 +75,11 @@ import java.util.Set;
  * body's own {@code lakeName}/{@code guid}, and the linked point's {@code pointName}/{@code pointId} —
  * reporting them back as {@code protectedFields} rather than silently dropping or applying them, same
  * as {@code description}.
+ *
+ * <p>{@code GET /api/v1/river/search?name=&guid=&cgndb=&mli=&limit=} finds water bodies by part of a
+ * name, either GUID ({@code lake_id} / {@code secondary_id}), either CGNDB code ({@code CGNDB} /
+ * {@code CGNDM}) or the MLI of a linked water station, via {@code dbo.fn_river_search_json}. Every
+ * supplied criterion must match; parameter names are case-insensitive ({@code CGNDB=}, {@code MLI=}).
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -91,6 +98,21 @@ public class RiverController {
 
     /** Refuses a patch this large; a single water body's editable fields never come close. */
     static final int MAX_PATCH_FIELDS = 100;
+
+    static final int SEARCH_DEFAULT_LIMIT = 50;
+    static final int SEARCH_MAX_LIMIT = 200;
+
+    /** A name part shorter than this would match a large share of ~196k water bodies. */
+    static final int SEARCH_MIN_NAME = 2;
+
+    /** {@code lake_name} is {@code nvarchar(64)}; so is {@code WaterStation.MLI}'s {@code varchar(64)}. */
+    static final int SEARCH_MAX_TERM = 64;
+
+    /** CGNDB / CGNDM are {@code char(5)} alphanumeric codes. */
+    private static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,5}");
+
+    /** A GUID in 32-hex form once braces, dashes and whitespace are stripped. */
+    private static final Pattern HEX32_PATTERN = Pattern.compile("[0-9a-f]{32}");
 
     private final RiverQueryRepository queryRepository;
     private final RiverFishCommandRepository fishCommandRepository;
@@ -127,6 +149,105 @@ public class RiverController {
         String cleanState = cleanCode(state, DEFAULT_STATE);
         int cleanRiver = parseRiver(river);
         return ApiResponse.ok(queryRepository.unfished(cleanCountry, cleanState, cleanRiver));
+    }
+
+    /**
+     * Finds water bodies by any combination of: part of a name, either GUID, either CGNDB code, or the
+     * MLI of a linked water station. Every supplied criterion must match (AND).
+     *
+     * <p>Parameter names are matched case-insensitively, so {@code ?CGNDB=FEFUL} and {@code ?MLI=02HC024}
+     * work as well as the lower-case forms.
+     *
+     * @param params {@code name} (≥ {@value #SEARCH_MIN_NAME} chars, substring of the primary/alt/French
+     *               name), {@code guid} (36-char, 32-hex or braced; matches {@code lake_id} or
+     *               {@code secondary_id}), {@code cgndb} (1–5 letters/digits; matches {@code CGNDB} or
+     *               {@code CGNDM}), {@code mli} (station id), {@code limit} (null/&lt;1 →
+     *               {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT})
+     * @return {@code {items, total, limit, query}} — {@code items} is empty (never 404) when nothing matches
+     * @throws InvalidDocumentException if no criterion is given or one is malformed (→ 400)
+     */
+    @GetMapping("/search")
+    public ApiResponse<RiverSearchPage> search(@RequestParam Map<String, String> params) {
+        String name = trimToNull(param(params, "name"));
+        String guid = trimToNull(param(params, "guid"));
+        String cgndb = trimToNull(param(params, "cgndb"));
+        String mli = trimToNull(param(params, "mli"));
+        if (name == null && guid == null && cgndb == null && mli == null) {
+            throw new InvalidDocumentException("At least one of name, guid, cgndb, mli is required");
+        }
+        if (name != null && (name.length() < SEARCH_MIN_NAME || name.length() > SEARCH_MAX_TERM)) {
+            throw new InvalidDocumentException(
+                    "name must be " + SEARCH_MIN_NAME + " to " + SEARCH_MAX_TERM + " characters");
+        }
+        if (guid != null) {
+            guid = normalizeGuid(guid);
+        }
+        if (cgndb != null) {
+            cgndb = cgndb.toUpperCase(Locale.ROOT);
+            if (!CGNDB_PATTERN.matcher(cgndb).matches()) {
+                throw new InvalidDocumentException("cgndb must be 1 to 5 letters or digits");
+            }
+        }
+        if (mli != null && mli.length() > SEARCH_MAX_TERM) {
+            throw new InvalidDocumentException("mli must not exceed " + SEARCH_MAX_TERM + " characters");
+        }
+        int limit = parseLimit(param(params, "limit"));
+
+        JsonNode items = queryRepository.search(name, guid, cgndb, mli, limit);
+        return ApiResponse.ok(new RiverSearchPage(items, items.size(), limit,
+                new RiverSearchQuery(name, guid, cgndb, mli)));
+    }
+
+    /** The echoed, normalized criteria of a search ({@code null} for any not supplied). */
+    public record RiverSearchQuery(String name, String guid, String cgndb, String mli) {
+    }
+
+    /**
+     * The result of a river search.
+     *
+     * @param items the matches as returned by {@code dbo.fn_river_search_json}, best name match first
+     * @param total how many items were returned (not a count beyond {@code limit})
+     * @param limit the effective limit
+     * @param query the normalized criteria that were searched
+     */
+    public record RiverSearchPage(JsonNode items, int total, int limit, RiverSearchQuery query) {
+    }
+
+    /** Case-insensitive lookup of a query parameter. */
+    private static String param(Map<String, String> params, String key) {
+        for (Map.Entry<String, String> e : params.entrySet()) {
+            if (e.getKey().equalsIgnoreCase(key)) {
+                return e.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) return null;
+        String v = value.trim();
+        return v.isEmpty() ? null : v;
+    }
+
+    /** Accepts 36-char, 32-hex and braced forms; returns the canonical lower-case 36-char GUID. */
+    private static String normalizeGuid(String value) {
+        String hex = value.replaceAll("[{}\\s-]", "").toLowerCase(Locale.ROOT);
+        if (!HEX32_PATTERN.matcher(hex).matches()) {
+            throw new InvalidDocumentException("guid is not a valid GUID");
+        }
+        return hex.substring(0, 8) + "-" + hex.substring(8, 12) + "-" + hex.substring(12, 16) + "-"
+                + hex.substring(16, 20) + "-" + hex.substring(20);
+    }
+
+    /** A missing, non-numeric or &lt;1 limit becomes the default; anything larger is capped. */
+    private static int parseLimit(String value) {
+        if (value == null) return SEARCH_DEFAULT_LIMIT;
+        try {
+            int n = Integer.parseInt(value.trim());
+            return n < 1 ? SEARCH_DEFAULT_LIMIT : Math.min(n, SEARCH_MAX_LIMIT);
+        } catch (NumberFormatException ex) {
+            return SEARCH_DEFAULT_LIMIT;
+        }
     }
 
     /**

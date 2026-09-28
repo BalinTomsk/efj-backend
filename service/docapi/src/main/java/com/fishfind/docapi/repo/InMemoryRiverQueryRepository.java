@@ -49,4 +49,10 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
     public JsonNode mouth(String lakeId) {
         return null;
     }
+
+    /** No database: nothing to find, so every search is an empty list. */
+    @Override
+    public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
+        return objectMapper.createArrayNode();
+    }
 }

@@ -406,7 +406,7 @@
       <div>
         <h3>A representative response</h3>
         <pre class="json"><span class="p">{</span>
-  <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.2"</span><span class="p">},</span>
+  <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.3"</span><span class="p">},</span>
   <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span>
   <span class="k">"meta"</span><span class="p">:</span> <span class="p">{</span><span class="k">"timestamp"</span><span class="p">:</span> <span class="s">"2026-08-18T18:16:00Z"</span><span class="p">}</span>
 <span class="p">}</span></pre>
@@ -442,7 +442,7 @@
             <div class="example-head"><span class="caption">no parameters</span><span class="status-code status-200">200</span></div>
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">GET</span>/health</div>
-              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.2"</span><span class="p">,</span> <span class="k">"uptime"</span><span class="p">:</span> <span class="n">57</span><span class="p">}</span></pre>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"status"</span><span class="p">:</span> <span class="s">"UP"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.18.3"</span><span class="p">,</span> <span class="k">"uptime"</span><span class="p">:</span> <span class="n">57</span><span class="p">}</span></pre>
             </div>
           </div>
         </div>
@@ -1032,7 +1032,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">Five native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, its assigned-species document, and its Source/Mouth link documents (all four backing the admin "Save JSON" export — View, Fishing, Source and Mouth tabs respectively) — plus the writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>, and a JSON merge patch of the Source/Mouth tabs' editable fields duplicating <code>EditLakeLink.aspx</code> (one shared PATCH mechanism, two paths — <code>side=16</code> vs <code>side=32</code> of the same <code>Tributaries</code> row). The five GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; every PATCH is gated by cproxy's <strong>Bearer token</strong> credential — an HS512 JWT carrying the rotating day-key in its <code>server</code> claim, plus a <code>user</code> claim that must resolve to a live account (see the cproxy API guide) — a wrong, missing or unresolvable one answers a generic <code>500</code>.</p>
+    <p class="prose" style="margin-bottom:22px;">A water-body search (by name part, either GUID, either CGNDB code or station MLI), five native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, its assigned-species document, and its Source/Mouth link documents (all four backing the admin "Save JSON" export — View, Fishing, Source and Mouth tabs respectively) — plus the writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>, and a JSON merge patch of the Source/Mouth tabs' editable fields duplicating <code>EditLakeLink.aspx</code> (one shared PATCH mechanism, two paths — <code>side=16</code> vs <code>side=32</code> of the same <code>Tributaries</code> row). The five GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; every PATCH is gated by cproxy's <strong>Bearer token</strong> credential — an HS512 JWT carrying the rotating day-key in its <code>server</code> claim, plus a <code>user</code> claim that must resolve to a live account (see the cproxy API guide) — a wrong, missing or unresolvable one answers a generic <code>500</code>.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -1057,6 +1057,45 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"found"</span><span class="p">:</span> <span class="z">true</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"NL"</span><span class="p">,</span> <span class="k">"river"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span>
     <span class="k">"lake_id"</span><span class="p">:</span> <span class="s">"4FCB30DF-…"</span><span class="p">,</span> <span class="k">"lake_name"</span><span class="p">:</span> <span class="s">"Adies River"</span><span class="p">,</span> <span class="k">"mouth_name"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span>
     <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"AASRF"</span><span class="p">,</span> <span class="k">"throwing"</span><span class="p">:</span> <span class="s">""</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/search<span class="param">?name=&amp;guid=&amp;cgndb=&amp;mli=&amp;limit=</span></span></div>
+        <span class="specimen-label">find water bodies by name part, GUID, CGNDB or station MLI</span>
+      </div>
+      <div class="endpoint-body">
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Required</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">name</td><td>One of the four</td><td>Part of the name, 2&ndash;64 chars &mdash; a substring of <code>lake_name</code>, <code>alt_name</code> or <code>french_name</code>.</td></tr>
+            <tr><td class="pname">guid</td><td>One of the four</td><td>Matches <strong>either GUID</strong>: <code>lake_id</code> or <code>secondary_id</code>. 36-char, 32-hex or <code>{braced}</code>; anything else &rarr; 400.</td></tr>
+            <tr><td class="pname">cgndb</td><td>One of the four</td><td>Matches <strong>either code</strong>: <code>CGNDB</code> or <code>CGNDM</code>. 1&ndash;5 letters/digits, case-insensitive; anything else &rarr; 400.</td></tr>
+            <tr><td class="pname">mli</td><td>One of the four</td><td>A water station id (<code>WaterStation.MLI</code>, &le; 64 chars) &mdash; returns the water body that station is linked to.</td></tr>
+            <tr><td class="pname">limit</td><td>Optional</td><td>Default <code>50</code>, capped at <code>200</code>; missing, non-numeric or &lt; 1 &rarr; default.</td></tr>
+          </tbody>
+        </table>
+        <p class="prose" style="margin:2px 0 14px;">Backed by <code>dbo.fn_river_search_json</code> (new in docapi 1.19.0). At least one criterion is required (none &rarr; <code>400</code>); when several are given, <strong>every one must match</strong>. Parameter names are case-insensitive, so <code>?CGNDB=FEFUL</code> and <code>?MLI=&hellip;</code> work too. Order: exact name first, then names starting with the term, then the rest, by name. <code>mli</code> in each item lists every station linked to that water body. No match is <code>200</code> with an empty <code>items</code>, never 404. <code>total</code> is the number returned, not a count beyond <code>limit</code>. Ungated, like the other river GETs. Measured 2026&#8209;09&#8209;28: a guid/CGNDB/MLI lookup ~0.1&ndash;0.16&nbsp;s, a name-only search ~0.5&ndash;1&nbsp;s (it scans every water body).</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>By station MLI</strong> &mdash; captured live 2026&#8209;09&#8209;28.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/search?MLI=02HC025</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"items"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"4094E667-BBE3-11D8-92E2-080020A0F4C9"</span><span class="p">,</span> <span class="k">"secondaryId"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Humber River"</span><span class="p">,</span> 
+      <span class="k">"altName"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"frenchName"</span><span class="p">:</span> <span class="s">"Rivière Humber"</span><span class="p">,</span> <span class="k">"locType"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span> <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"FGBSB"</span><span class="p">,</span> <span class="k">"CGNDM"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> 
+      <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"ON"</span><span class="p">,</span> <span class="k">"mli"</span><span class="p">:</span> <span class="p">[</span><span class="s">"02HC003"</span><span class="p">,</span> <span class="s">"02HC025"</span><span class="p">,</span> <span class="s">"02HC047"</span><span class="p">,</span> <span class="s">"02HC057"</span><span class="p">,</span> <span class="s">"02HC059"</span><span class="p">]</span> <span class="p">}</span> <span class="p">],</span>
+    <span class="k">"total"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">50</span><span class="p">,</span> <span class="k">"query"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"guid"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"cgndb"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"mli"</span><span class="p">:</span> <span class="s">"02HC025"</span> <span class="p">}</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Not a GUID</strong> &mdash; rejected before any SQL runs.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/search?guid=932853209432094</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"guid is not a valid GUID"</span> <span class="p">}</span> <span class="p">}</span></pre>
             </div>
           </div>
         </div>
@@ -1507,6 +1546,10 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?fishes={"Walley","Burbot"}</td><td>200</td><td>2 resolved, near-miss spelling handled</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/1</td><td>500</td><td>CRUD doc SQL objects not created</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/unfished?country=CA&amp;state=NL&amp;river=2</td><td>200</td><td>Adies River (next un-fished)</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/search?name=Humber&amp;limit=3</td><td>200</td><td>Humber Canal, Humber Creek, Humber Ponds</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/search?MLI=02HC025</td><td>200</td><td>Humber River (FGBSB), 5 stations</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/search?name=zzqqxxnomatch</td><td>200</td><td>empty <code>items</code></td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/search</td><td>400</td><td>no criterion</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/description/0c5343a8-…</td><td>200</td><td>Undersill Lake (full document)</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/description/00000000-…</td><td>404</td><td>not_found</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/0c5343a8-…</td><td>200</td><td>Undersill Lake (assigned species)</td></tr>
@@ -1523,7 +1566,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
   <footer>
     <span>docapi — <code>com.fishfind.docapi</code> · 7 controllers: Health, News, Fish, River, Regulation, Waterbody, Station</span>
-    <span class="fver"><strong>1.18.2 deployed 2026&#8209;09&#8209;21</strong> (<code>PATCH /news/admin/{id}</code> 400s on a non-GUID tag) &middot; <strong>1.18.1 deployed 2026&#8209;09&#8209;19</strong> (<code>/news/list</code> ordered by role, guest capped at 100; needs <code>sp_news_list_json(&hellip;, p_sort)</code>) &middot; previously <strong>1.16.0</strong> (news writes on MySQL) &middot; full 7-controller sweep 2026&#8209;09&#8209;09</span>
+    <span class="fver"><strong>1.19.0 deployed 2026&#8209;09&#8209;28</strong> (<code>GET /river/search</code>, verified live) &middot; <strong>1.18.3 deployed 2026&#8209;09&#8209;23</strong> (<code>PATCH /news/admin/{id}</code> keeps an older article date) &middot; <strong>1.18.2 deployed 2026&#8209;09&#8209;21</strong> (<code>PATCH /news/admin/{id}</code> 400s on a non-GUID tag) &middot; <strong>1.18.1 deployed 2026&#8209;09&#8209;19</strong> (<code>/news/list</code> ordered by role, guest capped at 100; needs <code>sp_news_list_json(&hellip;, p_sort)</code>) &middot; previously <strong>1.16.0</strong> (news writes on MySQL) &middot; full 7-controller sweep 2026&#8209;09&#8209;09</span>
   </footer>
 
 </div>

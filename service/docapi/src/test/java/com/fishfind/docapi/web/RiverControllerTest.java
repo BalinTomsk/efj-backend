@@ -11,6 +11,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -438,5 +440,56 @@ class RiverControllerTest {
                         .contentType("application/json").content("[{\"lat\":1}]"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
+    }
+
+    @Test
+    void searchByNameWrapsTheItemsWithTheEchoedQuery() throws Exception {
+        when(queryRepository.search("Humber", null, null, null, 50)).thenReturn(objectMapper.readTree(
+                "[{\"lakeId\":\"abc\",\"lakeName\":\"Humber River\",\"CGNDB\":\"FEFUL\",\"mli\":[\"02HC024\"]}]"));
+
+        mockMvc.perform(get("/api/v1/river/search").param("name", "  Humber "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].lakeName").value("Humber River"))
+                .andExpect(jsonPath("$.data.items[0].mli[0]").value("02HC024"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.limit").value(50))
+                .andExpect(jsonPath("$.data.query.name").value("Humber"))
+                .andExpect(jsonPath("$.data.query.guid").doesNotExist());
+    }
+
+    @Test
+    void searchNormalizesGuidCgndbAndAcceptsUpperCaseParamNames() throws Exception {
+        when(queryRepository.search(any(), any(), any(), any(), anyInt()))
+                .thenReturn(objectMapper.createArrayNode());
+
+        mockMvc.perform(get("/api/v1/river/search")
+                        .param("guid", "{0C5210DB849C20C357F421FF96A2047B}")
+                        .param("CGNDB", "feful").param("MLI", "02HC024").param("limit", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.limit").value(200));
+        verify(queryRepository).search(null, "0c5210db-849c-20c3-57f4-21ff96a2047b", "FEFUL", "02HC024", 200);
+    }
+
+    @Test
+    void searchWithNoCriteriaIs400() throws Exception {
+        mockMvc.perform(get("/api/v1/river/search").param("name", " ").param("limit", "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+        verify(queryRepository, never()).search(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void searchRejectsMalformedCriteria() throws Exception {
+        mockMvc.perform(get("/api/v1/river/search").param("guid", "932853209432094"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("cgndb", "FEFULX"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("name", "a"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("mli", "x".repeat(65)))
+                .andExpect(status().isBadRequest());
+        verify(queryRepository, never()).search(any(), any(), any(), any(), anyInt());
     }
 }

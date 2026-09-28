@@ -61,4 +61,19 @@ public interface RiverQueryRepository {
      * @return the document as a JSON tree, or {@code null} if no water body exists for the id
      */
     JsonNode mouth(String lakeId);
+
+    /**
+     * Water-body lookup by any combination of criteria; every non-null one must match (AND). Backed by
+     * {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs; at least one
+     * criterion is non-null.
+     *
+     * @param name  part of the name — matched against {@code lake_name}, {@code alt_name}, {@code french_name}
+     * @param guid  canonical GUID — matched against {@code lake_id} OR {@code secondary_id}
+     * @param cgndb upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
+     * @param mli   a {@code WaterStation.MLI} — matches the water body that station is linked to
+     * @param limit maximum number of hits (1..200)
+     * @return a JSON array (empty when nothing matches) of {@code {lakeId, secondaryId, lakeName, altName,
+     *         frenchName, locType, CGNDB, CGNDM, country, state, mli:[...]}}, exact name first
+     */
+    JsonNode search(String name, String guid, String cgndb, String mli, int limit);
 }
