@@ -84,3 +84,6 @@ service/weather/docs/digitalocean.md
 
 Skills/*
 docs/*
+
+# Per-folder Claude session logs (memory.md) stay local, never in git
+**/memory.md
