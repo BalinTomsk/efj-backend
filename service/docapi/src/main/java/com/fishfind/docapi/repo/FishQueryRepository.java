@@ -54,4 +54,20 @@ public interface FishQueryRepository {
      * @return a JSON array of {@code {query, name, latin}} objects; never {@code null}
      */
     JsonNode namesToLatin(List<String> names);
+
+    /**
+     * The water bodies where one species is recorded, each counted once, backed by
+     * {@code dbo.fn_fish_water_bodies_json}. Used by the MCP tool {@code find_water_bodies_by_fish}.
+     * The caller validates every argument; this passes them straight through.
+     *
+     * @param fishId         canonical species GUID
+     * @param country        ISO-2 country code, or {@code null} for any
+     * @param state          ISO-2 province/state code, or {@code null} for any
+     * @param locType        water-body type bitmask (1 lake, 2 river, 64 creek, ...), or {@code null} for any
+     * @param minProbability 0..100, applied to each water body's highest-probability record
+     * @param limit          1..200 items to return; {@code total} still counts every match
+     * @return {@code {total, limit, items:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, country,
+     *         state, probability}]}}, highest probability first; never {@code null}
+     */
+    JsonNode waterBodies(String fishId, String country, String state, Integer locType, int minProbability, int limit);
 }

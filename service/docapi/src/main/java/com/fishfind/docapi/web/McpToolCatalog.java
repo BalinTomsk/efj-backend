@@ -56,6 +56,21 @@ public class McpToolCatalog {
     /** Same bound as {@code FishController.MAX_TERM}. */
     static final int FISH_MAX_TERM = 64;
 
+    static final int WATER_BODIES_DEFAULT_LIMIT = 20;
+    static final int WATER_BODIES_MAX_LIMIT = 50;
+
+    /**
+     * Water-body type names a model may pass, mapped to {@code dbo.lake.locType} bits (see the column
+     * comment in {@code envfish-db/mssql/script01_createTable.sql}). Names rather than numbers, because a
+     * model cannot be expected to know the bitmask.
+     */
+    static final Map<String, Integer> WATER_BODY_TYPES = Map.ofEntries(
+            Map.entry("lake", 1), Map.entry("river", 2), Map.entry("stream", 4), Map.entry("pond", 8),
+            Map.entry("marsh", 16), Map.entry("backwater", 32), Map.entry("creek", 64),
+            Map.entry("canal", 128), Map.entry("estuary", 256), Map.entry("shore", 512),
+            Map.entry("drain", 1024), Map.entry("ditch", 2048), Map.entry("wetland", 4096),
+            Map.entry("reservoir", 8192));
+
     private static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,5}");
 
     /** Output keys that hold a photo or a gallery, at any depth (matched case-insensitively). */
@@ -154,6 +169,26 @@ public class McpToolCatalog {
                   "query":{"type":"string","minLength":1,"maxLength":64,"description":"e.g. walleye, Sander vitreus"}
                 },"required":["query"],"additionalProperties":false}""",
                 this::searchFish);
+
+        add("find_water_bodies_by_fish", "Water bodies with a fish species",
+                "Finds the water bodies where one fish species is recorded, optionally limited to a "
+                        + "country, a province/state and water-body types. Returns `total` (how many "
+                        + "match) and up to `limit` of them, each once, highest probability first. Get "
+                        + "the species' fishId from search_fish first. Probability is that of the "
+                        + "species' strongest record there; 0 means a weak or unconfirmed record, so set "
+                        + "min_probability (e.g. 50) when you want only well-supported records.",
+                """
+                {"type":"object","properties":{
+                  "fishId":{"type":"string","description":"The species' fishId GUID, from search_fish"},
+                  "country":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"ISO-2 country code: CA or US"},
+                  "state":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"ISO-2 province/state code, e.g. ON"},
+                  "types":{"type":"array","items":{"type":"string","enum":["lake","river","stream","pond","marsh",
+                           "backwater","creek","canal","estuary","shore","drain","ditch","wetland","reservoir"]},
+                           "description":"Water-body types to include; omit for all"},
+                  "min_probability":{"type":"integer","minimum":0,"maximum":100,"default":0},
+                  "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
+                },"required":["fishId"],"additionalProperties":false}""",
+                this::waterBodiesByFish);
     }
 
     /** The tools in publication order. */
@@ -306,6 +341,69 @@ public class McpToolCatalog {
     private static boolean isPhotoKey(String key) {
         String k = key.toLowerCase(Locale.ROOT);
         return PHOTO_KEYS.contains(k) || k.startsWith("photo");
+    }
+
+    private JsonNode waterBodiesByFish(JsonNode args) {
+        String fishText = optionalText(args, "fishId");
+        if (fishText == null) {
+            throw new InvalidDocumentException("fishId is required (get it from search_fish)");
+        }
+        String fishId = RiverController.normalizeGuid(fishText);
+        String country = optionalText(args, "country");
+        country = country == null ? null : RegulationController.requireCode(country, "country");
+        String state = optionalText(args, "state");
+        state = state == null ? null : RegulationController.requireCode(state, "state");
+        Integer locType = waterBodyTypes(args.get("types"));
+        int minProbability = boundedInt(args, "min_probability", 0, 0, 100);
+        int limit = boundedInt(args, "limit", WATER_BODIES_DEFAULT_LIMIT, 1, WATER_BODIES_MAX_LIMIT);
+
+        JsonNode result = fishRepository.waterBodies(fishId, country, state, locType, minProbability, limit);
+        if (result instanceof ObjectNode out) {
+            ObjectNode query = out.putObject("query");
+            query.put("fishId", fishId);
+            query.put("country", country);
+            query.put("state", state);
+            query.put("locType", locType);
+            query.put("minProbability", minProbability);
+        }
+        return result;
+    }
+
+    /** The {@code types} names as a locType bitmask; {@code null} when absent or empty (= any type). */
+    private static Integer waterBodyTypes(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        if (!node.isArray()) {
+            throw new InvalidDocumentException("types must be an array of water-body type names");
+        }
+        int mask = 0;
+        for (JsonNode t : node) {
+            Integer bit = t.isTextual() ? WATER_BODY_TYPES.get(t.asText().trim().toLowerCase(Locale.ROOT)) : null;
+            if (bit == null) {
+                throw new InvalidDocumentException("Unknown water-body type '" + t.asText()
+                        + "'; use: " + String.join(", ", new java.util.TreeSet<>(WATER_BODY_TYPES.keySet())));
+            }
+            mask |= bit;
+        }
+        return mask == 0 ? null : mask;
+    }
+
+    /** An integer argument: default when absent, a caller error when not an integer, clamped to min..max. */
+    private static int boundedInt(JsonNode args, String key, int fallback, int min, int max) {
+        JsonNode node = args.get(key);
+        if (node == null || node.isNull()) return fallback;
+        int n;
+        if (node.canConvertToInt() && node.isIntegralNumber()) {
+            n = node.asInt();
+        } else if (node.isTextual()) {
+            try {
+                n = Integer.parseInt(node.asText().trim());
+            } catch (NumberFormatException ex) {
+                throw new InvalidDocumentException(key + " must be an integer");
+            }
+        } else {
+            throw new InvalidDocumentException(key + " must be an integer");
+        }
+        return Math.max(min, Math.min(n, max));
     }
 
     // ---- argument helpers ----------------------------------------------------------------------

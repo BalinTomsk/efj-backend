@@ -3,6 +3,7 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.web.FishController.FishSearchItem;
 import com.fishfind.docapi.web.FishController.FishSearchPage;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -41,6 +42,9 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
      * returns one element per requested name, in order, echoing the request in {@code query}.
      */
     static final String NAME_LATIN_SQL = "SELECT dbo.fn_fish_latin_json(?)";
+
+    /** Water bodies holding one species (docapi 1.20.2, MCP find_water_bodies_by_fish). */
+    static final String WATER_BODIES_SQL = "SELECT dbo.fn_fish_water_bodies_json(?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -89,6 +93,34 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
         return queryJsonArray(NAME_LATIN_SQL, ps -> ps.setString(1, namesJson));
     }
 
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "waterBodiesFallback")
+    public JsonNode waterBodies(String fishId, String country, String state, Integer locType,
+                                int minProbability, int limit) {
+        List<String> rows = jdbc.query(WATER_BODIES_SQL, ps -> {
+            ps.setString(1, fishId);
+            ps.setString(2, country);
+            ps.setString(3, state);
+            if (locType == null) {
+                ps.setNull(4, java.sql.Types.INTEGER);
+            } else {
+                ps.setInt(4, locType);
+            }
+            ps.setInt(5, minProbability);
+            ps.setInt(6, limit);
+        }, (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        if (json == null || json.isBlank()) {
+            ObjectNode empty = objectMapper.createObjectNode();
+            empty.put("total", 0);
+            empty.put("limit", limit);
+            empty.putArray("items");
+            return empty;
+        }
+        return parseItem(json);
+    }
+
     /**
      * Runs a scalar-JSON query and parses the result. Both functions are written to return {@code '[]'}
      * rather than NULL, but a NULL/blank scalar is still mapped to an empty array so a caller can never
@@ -134,6 +166,15 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode codesFallback(String country, String province, List<String> codes, Throwable ex) {
         throw new RuntimeException("SQL fish-code lookup failed", ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #waterBodies}.
+     */
+    @SuppressWarnings("unused")
+    public JsonNode waterBodiesFallback(String fishId, String country, String state, Integer locType,
+                                        int minProbability, int limit, Throwable ex) {
+        throw new RuntimeException("SQL fish water-bodies query failed for fish " + fishId, ex);
     }
 
     /**

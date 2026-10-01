@@ -352,6 +352,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 | `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
 | `get_region_regulations` | `country`, optional `state` (two letters each) | `RegulationQueryRepository.region` |
 | `search_fish` | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
+| `find_water_bodies_by_fish` (1.20.2) | `fishId` (GUID, required); `country`/`state` (two letters); `types` (names → `locType` bitmask); `min_probability` 0..100 (default 0); `limit` 1..50 (default 20) | `FishQueryRepository.waterBodies` → `dbo.fn_fish_water_bodies_json` → `{total, limit, items, query}`; each water body once, at its highest probability |
 
 Rules:
 
@@ -1262,7 +1263,8 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (24 tests; 1.20.1 added the one-entry-per-species cases): initialize (version echo, newest offered for an unknown one, no
+  regulation/fish query repositories (27 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
+  `find_water_bodies_by_fish` cases): initialize (version echo, newest offered for an unknown one, no
   session header), 202 for a notification, ping, `tools/list` (7 tools, all read-only), `-32601`/`-32602`/
   `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
   happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth

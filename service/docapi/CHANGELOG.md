@@ -2,6 +2,24 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-01: **1.20.2 — MCP tool `find_water_bodies_by_fish`. DEPLOYED 2026-10-01** (digest `sha256:867b4d44…`,
+  rollback `1.20.1`; clean startup, `restarts=0`, existing endpoints unchanged). The SQL function was applied afterwards.
+  The first guarded probe, before it existed, got SQL 4121 and returned `isError`; the breaker stayed closed. **Verified on
+  prod** after the SQL: walleye/ON/rivers total 578 (min_probability 50: 576) in 0.28 s; walleye/CA/any type 2,687 in 0.92 s. Without it every call is SQL 4121, which counts against the shared `sqlBreaker`.
+  - **What it answers** ("how many rivers in Ontario have walleye?"): the water bodies where one species is recorded,
+    each once, with `total` and up to `limit` items, highest probability first.
+  - **Arguments:**
+    - `fishId` (from `search_fish`), required.
+    - Optional `country`, `state`, `min_probability` (0..100, default 0) and `limit` (1..50, default 20).
+    - Optional `types`: names rather than numbers (`lake`, `river`, `stream`, `pond`, `marsh`, `backwater`, `creek`,
+      `canal`, `estuary`, `shore`, `drain`, `ditch`, `wetland`, `reservoir`), OR'ed into the `locType` bitmask.
+  - **Validation:** every argument is checked before SQL (GUID, two-letter codes, known type names, integers; ranges
+    clamped). The result echoes the normalized `query`.
+  - **Code:** new `FishQueryRepository.waterBodies` (JDBC with retry and breaker; the in-memory backing returns
+    `total 0`). REST is unchanged; MCP only.
+  - **Tests:** `McpControllerTest` +3 (normalized pass-through; defaults and clamping; bad arguments never reach the
+    repository); `tools/list` now 8. 314 green.
+
 - 2026-10-01: **1.20.1 — MCP returns each species once per water body. DEPLOYED 2026-10-01** (digest
   `sha256:2a8ad2c0…`, rollback `1.20.0`; clean startup, `restarts=0` a minute apart, standard matrix unchanged).
   **Verified on prod data:** Humber River (ON): REST `/river/fish` still returns 23 rows; MCP `get_water_body_fish`
