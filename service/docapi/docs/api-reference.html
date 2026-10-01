@@ -382,6 +382,7 @@
     <a href="#river" class="impl"><span class="n">●</span>River</a>
     <a href="#waterbody" class="stub"><span class="n">○</span>Waterbody</a>
     <a href="#station" class="stub"><span class="n">○</span>Station</a>
+    <a href="#mcp" class="impl"><span class="n">●</span>MCP</a>
     <a href="#access">Access &amp; errors</a>
     <a href="#quickref">Quick reference</a>
   </nav>
@@ -420,6 +421,7 @@
       <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed; 5 PATCH writes fronted (Bearer-token gated); source/mouth GET+PATCH deployed and verified live 2026‑09‑09</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
+      <div class="status-tile"><span class="ctrl-name">MCP</span><span class="ctrl-state live">Live</span><span class="ctrl-note">docapi 1.20.0 deployed 2026‑10‑01; reachable from MCP clients once cproxy 0.20.0 ships</span></div>
     </div>
   </section>
 
@@ -1483,6 +1485,63 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
   </section>
 
   <!-- ============================= ACCESS & ERRORS ============================= -->
+  <!-- =============================== MCP =============================== -->
+  <section class="block" id="mcp">
+    <div class="block-head">
+      <h2 class="display">MCP</h2>
+      <span class="tag">McpController · docapi 1.20.0 · deployed 2026‑10‑01</span>
+    </div>
+    <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;30, docapi 1.20.0 &mdash; DEPLOYED 2026&#8209;10&#8209;01</strong>, verified on the droplet against production data (every tool answers, no photo fields). A Model Context Protocol server for Claude Desktop and Claude Code: seven read-only tools over the same repositories the River, Regulation and Fish endpoints use. <strong>Not reachable from an MCP client yet</strong>: through cproxy every <code>POST</code> needs the day-key Bearer token, which expires at UTC midnight and an MCP client cannot renew. The path needs its own long-lived credential in cproxy first.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-post">POST</span><span class="path mono">/api/v1/mcp</span></div>
+        <span class="specimen-label">JSON-RPC 2.0 &mdash; Streamable HTTP, stateless, JSON responses only</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">This endpoint does <strong>not</strong> use the <code>{ data, error, meta }</code> envelope: it speaks JSON-RPC. One message per <code>POST</code> (a batch array is answered too). A request gets <code>200</code> with one JSON body; a notification gets <code>202</code> with none. No session id is issued and no event stream is offered, so <code>GET</code> and <code>DELETE</code> answer <code>405</code> with <code>Allow: POST</code>. Methods: <code>initialize</code>, <code>ping</code>, <code>tools/list</code>, <code>tools/call</code>; protocol versions <code>2025-11-25</code>, <code>2025-06-18</code>, <code>2025-03-26</code>. A request carrying an <code>Origin</code> header (a browser) is refused with <code>403</code>; an unknown <code>MCP-Protocol-Version</code> header with <code>400</code>.</p>
+        <table class="params">
+          <thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">search_water_bodies</td><td><code>name</code> (2&ndash;64), <code>cgndb</code>, <code>mli</code> &mdash; at least one; <code>limit</code> 1&ndash;50, default 20</td><td><code>{items, total, limit}</code> from <code>/river/search</code>&rsquo;s function</td></tr>
+            <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document</td></tr>
+            <tr><td class="pname">get_water_body_fish</td><td><code>guid</code></td><td>the <code>/river/fish</code> document</td></tr>
+            <tr><td class="pname">get_water_body_links</td><td><code>guid</code></td><td><code>{source, mouth}</code> &mdash; the two link documents</td></tr>
+            <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
+            <tr><td class="pname">get_region_regulations</td><td><code>country</code>, optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
+            <tr><td class="pname">search_fish</td><td><code>query</code></td><td>the <code>/fish/search</code> page</td></tr>
+          </tbody>
+        </table>
+        <ul class="notes">
+          <li><strong>No photos.</strong> Every result has every photo field removed at any depth (<code>pic</code>, <code>images</code>, <code>photo*</code>, &hellip;) &mdash; the description&rsquo;s gallery and the source/mouth <code>pic</code> never leave through this endpoint.</li>
+          <li><strong>Arguments are checked before any SQL runs.</strong> A malformed GUID is a tool error, so a model retrying a bad call cannot trip the shared <code>sqlBreaker</code>.</li>
+          <li><strong>Errors are never HTTP 5xx.</strong> A bad argument or an unknown water body is a result with <code>isError: true</code> and a message the model can act on; a database fault is <code>isError: true</code>, &ldquo;temporarily unavailable&rdquo;, with no detail.</li>
+        </ul>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>initialize</strong> &mdash; captured 2026&#8209;09&#8209;30 on the in-memory profile.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">POST</span>/api/v1/mcp &nbsp;{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",&hellip;}}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"jsonrpc"</span><span class="p">:</span> <span class="s">"2.0"</span><span class="p">,</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"result"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"protocolVersion"</span><span class="p">:</span> <span class="s">"2025-06-18"</span><span class="p">,</span>
+    <span class="k">"capabilities"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"tools"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"listChanged"</span><span class="p">:</span> <span class="z">false</span> <span class="p">}</span> <span class="p">},</span>
+    <span class="k">"serverInfo"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"fishfind-docapi"</span><span class="p">,</span> <span class="k">"title"</span><span class="p">:</span> <span class="s">"FishFind water bodies"</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"1.20.0"</span> <span class="p">},</span>
+    <span class="k">"instructions"</span><span class="p">:</span> <span class="s">"FishFind water-body data for Canada and the US: &hellip;"</span> <span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>tools/call</strong> with an unknown water body &mdash; a tool error, not a 404.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">POST</span>/api/v1/mcp &nbsp;{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_water_body","arguments":{"guid":"0d012b12-&hellip;"}}}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"jsonrpc"</span><span class="p">:</span> <span class="s">"2.0"</span><span class="p">,</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">3</span><span class="p">,</span> <span class="k">"result"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="k">"content"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"type"</span><span class="p">:</span> <span class="s">"text"</span><span class="p">,</span> <span class="k">"text"</span><span class="p">:</span> <span class="s">"No waterbody document found for id '0d012b12-&hellip;'"</span> <span class="p">}</span> <span class="p">],</span>
+    <span class="k">"isError"</span><span class="p">:</span> <span class="z">true</span> <span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="block" id="access">
     <div class="block-head">
       <h2 class="display">Access &amp; errors</h2>
@@ -1559,6 +1618,8 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>
+          <tr><td class="qctrl">MCP</td><td class="qpath">POST /api/v1/mcp tools/list</td><td>200</td><td>7 read-only tools &mdash; docapi 1.20.0, verified on the droplet 2026‑10‑01</td></tr>
+          <tr><td class="qctrl">MCP</td><td class="qpath">GET /api/v1/mcp</td><td>405</td><td>no event stream &mdash; verified on the droplet 2026‑10‑01</td></tr>
         </tbody>
       </table>
     </div>

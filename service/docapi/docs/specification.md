@@ -322,7 +322,55 @@ News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use)
   retry/breaker as the document reads.
 
 All non-health responses use the envelope `{ data, error, meta }` where `meta` carries a
-`timestamp`. Exactly one of `data` / `error` is populated.
+`timestamp`. Exactly one of `data` / `error` is populated. **Exception: `/api/v1/mcp`** speaks JSON-RPC 2.0,
+not the envelope (below).
+
+### MCP server — `/api/v1/mcp` (1.20.0)
+
+A Model Context Protocol server for Claude Desktop / Claude Code (`McpController` + `McpToolCatalog`).
+Transport: **Streamable HTTP, stateless, JSON responses only.**
+
+| Verb | Path | Status | Body |
+|------|------|--------|------|
+| `POST` | `/api/v1/mcp` | 200 | one JSON-RPC response (or an array of them for a batch) |
+| `POST` | `/api/v1/mcp` | 202 | none — the message was a notification or a client response |
+| `POST` | `/api/v1/mcp` | 400 | JSON-RPC error: unparseable body (`-32700`), empty batch / not JSON-RPC 2.0 (`-32600`), unsupported `MCP-Protocol-Version` header |
+| `POST` | `/api/v1/mcp` | 403 | JSON-RPC error: the request carries an `Origin` header (a browser; DNS-rebinding guard) |
+| `GET` / `DELETE` | `/api/v1/mcp` | 405 | none, `Allow: POST` — no SSE stream, no session |
+
+Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `2025-11-25`, `2025-06-18`,
+`2025-03-26`, else offers the newest; capabilities `{tools:{listChanged:false}}`; no `Mcp-Session-Id`),
+`ping`, `tools/list`, `tools/call`. Anything else is `-32601`; an unknown tool or non-object `arguments` is
+`-32602`.
+
+| Tool | Arguments | Backing |
+|------|-----------|---------|
+| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` → `{items, total, limit}` |
+| `get_water_body` | `guid` | `RiverQueryRepository.description` |
+| `get_water_body_fish` | `guid` | `RiverQueryRepository.fish` |
+| `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |
+| `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
+| `get_region_regulations` | `country`, optional `state` (two letters each) | `RegulationQueryRepository.region` |
+| `search_fish` | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
+
+Rules:
+
+- **Read-only, public data only.** No write, no `/unfished`, no news. Every tool is annotated
+  `readOnlyHint:true`, `openWorldHint:false`.
+- **No photos.** `McpToolCatalog.stripPhotos` runs on every result and removes, at any depth, any key named
+  `pic`/`pics`/`image`/`images`/`picture`/`pictures` or starting with `photo` (case-insensitive). Applied
+  centrally in `add()` so a new tool cannot leak one by omission.
+- **Validate before the repository.** A GUID is normalized with `RiverController.normalizeGuid` (36-char,
+  32-hex or braced); a bad one is a tool error and SQL is never called — a non-GUID string would otherwise be
+  a conversion failure counted by the shared `sqlBreaker`.
+- **Errors.** A caller mistake (`InvalidDocumentException`, `DocumentNotFoundException`) is a `tools/call`
+  result with `isError:true` and the message; any other exception is logged (WARN) and returned as
+  `isError:true` "temporarily unavailable" with no detail. Never an HTTP 5xx; `ApiExceptionHandler` is not
+  involved. Each call logs one INFO line `MCP tools/call <tool> -> ok|rejected|failed (<ms>ms)`.
+- **Results** carry `content:[{type:"text", text:<compact JSON>}]` plus `structuredContent` (the same object).
+- **Who may call is cproxy's decision.** docapi is reachable only through cproxy; the role header is not
+  consulted. As of cproxy 0.19.0 every POST needs the day-key JWT, so this endpoint is unreachable from an MCP
+  client until cproxy gives the path its own credential.
 
 ## Required files (complete list)
 
@@ -1207,6 +1255,12 @@ build artifacts. Never bake a real `.env` into the image.
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
+- `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
+  regulation/fish query repositories (21 tests): initialize (version echo, newest offered for an unknown one, no
+  session header), 202 for a notification, ping, `tools/list` (7 tools, all read-only), `-32601`/`-32602`/
+  `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
+  happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth
+  (including a `Photo0` key), and a repository exception becoming a temporary tool error with no SQL detail.
 - Test resources: `application.properties` (`spring.profiles.active=test`) and `application-test.yml`
   (no datasource — small resilience4j config, WARN logging; the JDBC datasource for
   `DocApiJdbcWiringTest` comes from its `@TestPropertySource`).

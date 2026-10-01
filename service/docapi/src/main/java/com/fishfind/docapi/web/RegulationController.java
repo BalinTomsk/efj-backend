@@ -182,7 +182,7 @@ public class RegulationController {
     }
 
     /** Exactly-two A–Z letters, upper-cased; anything else is a 400 (a path segment, not a filter default). */
-    private static String requireCode(String value, String paramName) {
+    static String requireCode(String value, String paramName) {
         String v = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
         if (v.length() != 2 || v.charAt(0) < 'A' || v.charAt(0) > 'Z' || v.charAt(1) < 'A' || v.charAt(1) > 'Z') {
             throw new InvalidDocumentException(paramName + " must be a two-letter code");
