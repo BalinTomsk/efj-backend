@@ -1,6 +1,6 @@
 # docapi Changelog
 
-Split out of `CLAUDE.md` for readability. Newest entries first.
+Split out of `AGENTS.md` for readability. Newest entries first.
 
 - 2026-09-28: **1.19.0 — `GET /api/v1/river/search`.** **DEPLOYED 2026-09-28** (image digest `sha256:4a834df2…`;
   `/health` reports `1.19.0`, `restarts=0`, clean startup window; news/unfished probes 200/200/200/404 as before;
@@ -137,7 +137,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   (402,525 chars, a 300 KB photo included); a GET body edited and PUT back kept its species, photo,
   credit and date; PUT without a photo kept the bytes; PUT to an unknown id reported not-found.
 
-  Docs: `docs/specification.md` (new "News writes" section), `CLAUDE.md`, `README.md`,
+  Docs: `docs/specification.md` (new "News writes" section), `AGENTS.md`, `README.md`,
   `docs/api-reference.html` — which also had three stale claims fixed while in it: the footer said
   1.14.0 was deployed (prod runs 1.15.2), and the access card said the gateway is GET-only with
   `POST /api/v1/news → 405` (its allow-list is `GET,POST,PATCH`; only `PUT` is refused).
@@ -336,7 +336,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   `/health` → `1.13.0`, `/news/list` and `/news/default` still `200` (existing traffic unaffected),
   and `POST /news/admin/draft` → a clean `500` (not a crash) — expected until the MySQL procedures
   in `envfish-db/mysql/ADMIN_WRITE_news_procs.sql` are created via the Winhost control panel. See
-  `fishfind-frontend/Editor/CLAUDE.md` for the full session and what's still outstanding (the MySQL
+  `fishfind-frontend/Editor/AGENTS.md` for the full session and what's still outstanding (the MySQL
   script and the `FishTracker.dll` FTP upload).
 
   **Follow-up, same day — 1.13.1 through 1.13.5, WORKING END TO END as of 1.13.5.** The user ran
@@ -363,7 +363,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
     `sp_news_admin_draft_create` does that nothing else does is `DELETE FROM news WHERE
     news_publish <> 1`, and `news_publish` had no index — a full table scan of a ~4,800-row table
     carrying several `LONGBLOB`/`LONGTEXT` columns, the exact "multi-row scan of this table hangs on
-    this host" hazard `envfish-db/CLAUDE.md` already documents for `news_photo0`/`1`/`2`. New
+    this host" hazard `envfish-db/AGENTS.md` already documents for `news_photo0`/`1`/`2`. New
     `NewsIndexBootstrap` (`config/`) creates `idx_news_publish` on startup if missing, applied live
     via docapi's own working MySQL connection — `portos` holds `ALTER`/`INDEX` even though it holds
     no `CREATE ROUTINE`, so this one *could* be fixed from application code without the control
@@ -936,7 +936,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   specific host is catastrophically slow whenever that happens, confirmed via `SHOW FULL
   PROCESSLIST` (`State: executing`, not a lock wait) and three independent rewrites. Fixed in
   `envfish-db` by adding a cached `news.has_photo0` flag column + maintenance triggers (see that
-  repo's changelog and `CLAUDE.md` → "Cached flags on `news`") and rewriting both procedures to read
+  repo's changelog and `AGENTS.md` → "Cached flags on `news`") and rewriting both procedures to read
   it instead of the BLOB columns for anything scanning more than one row. No docapi code changes —
   the fix is entirely in `envfish-db/mysql/`. Verified post-fix: both procedures return in 1-3s on
   prod (previously 90s+ / never returned).
@@ -1067,7 +1067,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   cproxy — was resolved and shipped: cproxy 0.6.1 (0.6.0 plus a same-day Content-Type-forwarding fix
   found during this deploy) adds a `DayKeyStore` (SQLite, 365 rows, one rotating GUID per day of the
   year) gating every PATCH via a new `X-Day-Guid` header, in place of a static `CPROXY_API_KEY`.
-  **Deployed and verified end-to-end through the public gateway** — see `efc-proxy` `CLAUDE.md` →
+  **Deployed and verified end-to-end through the public gateway** — see `efc-proxy` `AGENTS.md` →
   "Day-key store" for the full design and the Content-Type bug. Nothing here changes: docapi's
   endpoint itself is unaware of cproxy's auth layer.
 
@@ -1100,7 +1100,7 @@ Split out of `CLAUDE.md` for readability. Newest entries first.
   a real lake with zero assigned species). `/health` reports 1.5.3, clean startup, full smoke matrix
   clean, breaker closed within 1 poll. `PATCH /river/fish/{guid}` verified directly against docapi
   (insert → GET confirms it → test row deleted) and — once cproxy 0.6.1 shipped with the day-key gate
-  and a Content-Type-forwarding fix — through the public gateway too (see `efc-proxy` `CLAUDE.md`).
+  and a Content-Type-forwarding fix — through the public gateway too (see `efc-proxy` `AGENTS.md`).
 
 - 2026-08-25: **1.5.2 — river fish endpoint `GET /api/v1/river/fish/{guid}` (admin Save-JSON
   Fishing-tab duplicate).** Native docapi duplicate of `Editor/EditLakeFish.aspx`'s Save JSON button

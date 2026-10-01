@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 # weather-station-pusher — Claude Context
 
 ## Project
@@ -15,14 +15,14 @@ It must always reflect the current state of the code.
 
 `CHANGLOG.md` is the **single source of truth for changelog entries**. Put release notes,
 version history, and notable change records there instead of keeping changelog data in
-`CLAUDE.md` or `docs/specification.txt`.
+`AGENTS.md` or `docs/specification.txt`.
 
 **Rules:**
 
 - Whenever **any source file** (`*.java`, `pom.xml`, `application.yml`, `logback-spring.xml`,
   `Dockerfile`, etc.) is created, modified, or deleted — update `docs/specification.txt` to match.
 - Whenever a change is release-worthy or operationally notable — update `CHANGLOG.md`.
-- Whenever **this `claude.md`** is updated — apply the same change to `docs/specification.txt`
+- Whenever **this `AGENTS.md`** is updated — apply the same change to `docs/specification.txt`
   if it affects behaviour, structure, or configuration.
 - `docs/specification.txt` must be sufficient on its own for a developer (or Claude) to
   **fully recreate the service from scratch** with no other context. Keep it complete and accurate.
@@ -47,7 +47,7 @@ Explicitly follows database schema at:
   directories or global skill registries.
 
 - **Before making ANY database change** (schema, stored proc, function, view, seed data, or any
-bug fix that touches the DB), **read `c:\envoinx\fishfind\envfish-db\CLAUDE.md `
+bug fix that touches the DB), **read `c:\envoinx\fishfind\envfish-db\AGENTS.md `
 first** — it is the authoritative DB workflow (never edit the generated `ffi2.sql`; edit the
 `scriptNN_*.sql` sources; test-first: a FAILING unit test to confirm the bug, then a PASSING one
 to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the separate

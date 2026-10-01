@@ -61,7 +61,7 @@ For `<entity>` ∈ { `news`, `waterbody`, `fish`, `station` }:
 **News-admin writes** (news only, added on the separate `NewsAdminController` — flat `news`-row
 mutations for `fishfind-frontend`'s `Editor/AddNews.aspx` authoring page, MySQL-backed via
 `envfish-db/mysql/script02_Proc.sql`'s `sp_news_admin_*` procedures; **not yet applied to
-production**, see `CLAUDE.md` → "News-admin writes" for the `portos` grant gap and the control-panel
+production**, see `AGENTS.md` → "News-admin writes" for the `portos` grant gap and the control-panel
 script that unblocks it):
 
 | Verb | Path | Success status | Response `data` |
@@ -333,7 +333,7 @@ Dockerfile
 .gitignore
 .env.example
 README.md
-CLAUDE.md
+AGENTS.md
 docs/specification.md
 src/main/java/com/fishfind/docapi/DocApiApplication.java
 src/main/java/com/fishfind/docapi/config/DotenvEnvironmentPostProcessor.java
@@ -699,7 +699,7 @@ through `dbo.fn_news_ref_names_json` — until that was removed on 2026-09-03.)
   anything scanning more than one row** — the live Winhost host hangs indefinitely on any
   multi-row-materializing query (temp table, window function) that references the actual BLOB
   column, even a bare `IS NOT NULL`. `has_photo0` is a cached flag maintained by triggers; see
-  `envfish-db/CLAUDE.md` → "Cached flags on `news`" for the full writeup. Found and fixed live,
+  `envfish-db/AGENTS.md` → "Cached flags on `news`" for the full writeup. Found and fixed live,
   post-deploy, 2026-08-31.
 
 ### News-page query repository (`NewsQueryRepository`)
