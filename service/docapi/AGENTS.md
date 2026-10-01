@@ -187,7 +187,8 @@ com.fishfind.docapi
     ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
     │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
     ├── McpToolCatalog             # the 7 read-only water-body/fish/regulation tools; validates before any
-    │                              #   repository call; strips EVERY photo field from every result (stripPhotos)
+    │                              #   repository call; strips EVERY photo field from every result (stripPhotos);
+    │                              #   one entry per species, highest probability (uniqueSpecies, 1.20.1)
     ├── ViewerRole                 # enum GUEST / USER / ADMIN from cproxy's X-Fish-Role header;
     │                              #   fails closed to GUEST (1.18.1)
     ├── ApiResponse                # { data, error, meta } envelope (record)

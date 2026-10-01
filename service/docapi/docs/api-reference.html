@@ -1505,7 +1505,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tbody>
             <tr><td class="pname">search_water_bodies</td><td><code>name</code> (2&ndash;64), <code>cgndb</code>, <code>mli</code> &mdash; at least one; <code>limit</code> 1&ndash;50, default 20</td><td><code>{items, total, limit}</code> from <code>/river/search</code>&rsquo;s function</td></tr>
             <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document</td></tr>
-            <tr><td class="pname">get_water_body_fish</td><td><code>guid</code></td><td>the <code>/river/fish</code> document</td></tr>
+            <tr><td class="pname">get_water_body_fish</td><td><code>guid</code></td><td>the <code>/river/fish</code> document with <strong>each species once</strong> (1.20.1, deployed 2026&#8209;10&#8209;01): the highest-probability entry of each. <code>lake_fish</code>&rsquo;s key is (water body, species, probability), so REST returns one row per probability level.</td></tr>
             <tr><td class="pname">get_water_body_links</td><td><code>guid</code></td><td><code>{source, mouth}</code> &mdash; the two link documents</td></tr>
             <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
             <tr><td class="pname">get_region_regulations</td><td><code>country</code>, optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
