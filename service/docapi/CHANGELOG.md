@@ -2,6 +2,30 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-09-30: **1.20.0 — MCP server at `/api/v1/mcp` (water bodies, read-only).** **DEPLOYED 2026-10-01** (image digest `sha256:6a64d180…`; `/health` reports
+  `1.20.0`, `restarts=0` a minute apart, started once, clean startup window; the standard matrix unchanged —
+  list/default/river-search/news-doc 200, unknown news 404, waterbody/fish/station 500 as before; rollback tag
+  `1.19.0`). **MCP verified on the droplet against prod data**: initialize 200, notification 202, 7 tools,
+  Humber River found by MLI 02HC025, get_water_body/_fish/_links/_regulations all `isError:false` with ZERO
+  photo fields, CA/ON regulations, walleye, bad GUID a tool error, GET 405. Still unreachable from MCP clients
+  until cproxy 0.20.0 (0.19.0 answers the POST with the day-key gate's 500). A Model Context
+  Protocol endpoint for Claude Desktop / Claude Code: seven read-only tools over the existing repositories —
+  `search_water_bodies`, `get_water_body`, `get_water_body_fish`, `get_water_body_links` (source + mouth),
+  `get_water_body_regulations`, `get_region_regulations`, `search_fish`. Streamable HTTP, stateless, JSON responses
+  only: `POST` per JSON-RPC message, `202` for notifications, `GET`/`DELETE` → 405 (no SSE stream, no session —
+  cproxy buffers each response whole, so a stream could not pass through it anyway). **No photos, by decision**:
+  every tool result passes through `McpToolCatalog.stripPhotos`, which removes `pic`/`image(s)`/`picture(s)`/`photo*`
+  keys at any depth (the description gallery and the source/mouth `pic` today). Arguments are validated before
+  any repository call — a malformed GUID never reaches SQL, so a model retrying a bad call cannot trip the shared
+  `sqlBreaker`; caller mistakes and DB faults come back as `isError` tool results, never HTTP 5xx. Hand-written
+  JSON-RPC (no MCP SDK: its Spring starter needs a newer Boot, the core SDK would add Reactor). A request with an
+  `Origin` header is refused (403) — the spec's DNS-rebinding guard; an unknown `MCP-Protocol-Version` header is
+  400. **Not reachable in prod until cproxy changes**: every POST through cproxy needs the day-key JWT, which an
+  MCP client cannot renew; the cproxy side (an MCP path with its own long-lived key, rate limit, TLS) is the
+  next step. `RiverController.normalizeGuid` and `RegulationController.requireCode` became package-private for
+  reuse. **Tests:** new `McpControllerTest` (21), 308 total green; smoke-tested over real HTTP on the in-memory
+  profile (initialize, 202 notification, tools/list, tools/call, GET 405). Rollback: `1.19.0`.
+
 - 2026-09-28: **1.19.0 — `GET /api/v1/river/search`.** **DEPLOYED 2026-09-28** (image digest `sha256:4a834df2…`;
   `/health` reports `1.19.0`, `restarts=0`, clean startup window; news/unfished probes 200/200/200/404 as before;
   rollback tag `1.18.3`). **Search verified live 2026-09-28** once `dbo.fn_river_search_json` reached docapi's

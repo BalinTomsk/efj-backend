@@ -230,7 +230,7 @@ public class RiverController {
     }
 
     /** Accepts 36-char, 32-hex and braced forms; returns the canonical lower-case 36-char GUID. */
-    private static String normalizeGuid(String value) {
+    static String normalizeGuid(String value) {
         String hex = value.replaceAll("[{}\\s-]", "").toLowerCase(Locale.ROOT);
         if (!HEX32_PATTERN.matcher(hex).matches()) {
             throw new InvalidDocumentException("guid is not a valid GUID");

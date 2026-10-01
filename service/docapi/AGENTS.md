@@ -184,6 +184,10 @@ com.fishfind.docapi
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
+    ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
+    │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
+    ├── McpToolCatalog             # the 7 read-only water-body/fish/regulation tools; validates before any
+    │                              #   repository call; strips EVERY photo field from every result (stripPhotos)
     ├── ViewerRole                 # enum GUEST / USER / ADMIN from cproxy's X-Fish-Role header;
     │                              #   fails closed to GUEST (1.18.1)
     ├── ApiResponse                # { data, error, meta } envelope (record)
