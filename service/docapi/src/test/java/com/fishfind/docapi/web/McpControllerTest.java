@@ -208,6 +208,63 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.content[0].text", not(containsString("QUJD"))));
     }
 
+    private static final String BROWN = "6DBF1306-DC10-421A-A29B-B260D540A0AE";
+    private static final String RAINBOW = "B3A33573-8BC6-4803-B977-10F673AAD711";
+    private static final String BROOK = "F124F917-D11F-4ED9-9B59-863D184CBFED";
+
+    @Test
+    void eachSpeciesIsReturnedOnceWithItsHighestProbabilityEntry() throws Exception {
+        // The Humber River (ON) shape: lake_fish's key is (lake, fish, probability), so one species
+        // can have an entry per probability level. The tool must return each species once.
+        when(riverRepository.fish(GUID)).thenReturn(objectMapper.readTree("{\"guid\":\"" + GUID + "\",\"fish\":["
+                + "{\"fishId\":\"" + BROOK + "\",\"fishName\":\"Trout, Brook\",\"probability\":100,\"link\":\"stocking\"},"
+                + "{\"fishId\":\"" + BROWN + "\",\"fishName\":\"Trout, Brown\",\"probability\":90,\"link\":\"#southsaugeen\"},"
+                + "{\"fishId\":\"" + BROWN + "\",\"fishName\":\"Trout, Brown\",\"probability\":100,\"link\":null},"
+                + "{\"fishId\":\"" + RAINBOW + "\",\"fishName\":\"Trout, Rainbow\",\"probability\":0,\"link\":\"#beaver\"},"
+                + "{\"fishId\":\"" + RAINBOW + "\",\"fishName\":\"Trout, Rainbow\",\"probability\":100,\"link\":null},"
+                + "{\"fishId\":\"" + RAINBOW.toLowerCase() + "\",\"fishName\":\"Trout, Rainbow\",\"probability\":90,\"link\":\"#southsaugeen\"}"
+                + "]}"));
+
+        call("get_water_body_fish", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.fish", hasSize(3)))
+                // name order kept; the highest-probability entry of each species wins
+                .andExpect(jsonPath("$.result.structuredContent.fish[0].fishName").value("Trout, Brook"))
+                .andExpect(jsonPath("$.result.structuredContent.fish[1].fishName").value("Trout, Brown"))
+                .andExpect(jsonPath("$.result.structuredContent.fish[1].probability").value(100))
+                .andExpect(jsonPath("$.result.structuredContent.fish[2].fishName").value("Trout, Rainbow"))
+                .andExpect(jsonPath("$.result.structuredContent.fish[2].probability").value(100))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("#beaver"))))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("#southsaugeen"))));
+    }
+
+    @Test
+    void aTieKeepsTheFirstEntryAndAMissingProbabilityRanksLowest() throws Exception {
+        when(riverRepository.fish(GUID)).thenReturn(objectMapper.readTree("{\"fish\":["
+                + "{\"fishId\":\"" + BROWN + "\",\"probability\":null,\"link\":\"none\"},"
+                + "{\"fishId\":\"" + BROWN + "\",\"probability\":50,\"link\":\"first-50\"},"
+                + "{\"fishId\":\"" + BROWN + "\",\"probability\":50,\"link\":\"second-50\"},"
+                + "{\"fishName\":\"no id\"}"
+                + "]}"));
+
+        call("get_water_body_fish", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.fish", hasSize(2)))
+                .andExpect(jsonPath("$.result.structuredContent.fish[0].link").value("first-50"))
+                .andExpect(jsonPath("$.result.structuredContent.fish[1].fishName").value("no id"));
+    }
+
+    @Test
+    void theDescriptionListsEachSpeciesOnce() throws Exception {
+        when(riverRepository.description(GUID)).thenReturn(objectMapper.readTree("{\"lakeName\":\"Humber River\",\"fish\":["
+                + "{\"fishId\":\"" + BROWN + "\",\"fishName\":\"Trout, Brown\",\"status\":null},"
+                + "{\"fishId\":\"" + BROWN + "\",\"fishName\":\"Trout, Brown\",\"status\":null},"
+                + "{\"fishId\":\"" + RAINBOW + "\",\"fishName\":\"Trout, Rainbow\",\"status\":null}]}"));
+
+        call("get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.fish", hasSize(2)))
+                .andExpect(jsonPath("$.result.structuredContent.fish[1].fishName").value("Trout, Rainbow"));
+    }
+
     @Test
     void anUnknownWaterBodyIsAToolError() throws Exception {
         when(riverRepository.fish(GUID)).thenReturn(null);

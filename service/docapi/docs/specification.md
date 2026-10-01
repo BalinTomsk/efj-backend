@@ -357,6 +357,12 @@ Rules:
 
 - **Read-only, public data only.** No write, no `/unfished`, no news. Every tool is annotated
   `readOnlyHint:true`, `openWorldHint:false`.
+- **One entry per species (1.20.1).** `lake_fish`'s key is `(lake_Id, fish_Id, probability)`, so a species
+  can have one row per probability level. Each row is a separate evidence entry, and the REST endpoints
+  return them all. `McpToolCatalog.uniqueSpecies` collapses the `fish` array of `get_water_body_fish` and
+  `get_water_body` to one entry per `fishId`:
+  - It keeps the highest `probability`; on a tie, or with no probability, the first entry.
+  - Name order is kept, and an entry without a `fishId` passes through unchanged.
 - **No photos.** `McpToolCatalog.stripPhotos` runs on every result and removes, at any depth, any key named
   `pic`/`pics`/`image`/`images`/`picture`/`pictures` or starting with `photo` (case-insensitive). Applied
   centrally in `add()` so a new tool cannot leak one by omission.
@@ -1256,7 +1262,7 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (21 tests): initialize (version echo, newest offered for an unknown one, no
+  regulation/fish query repositories (24 tests; 1.20.1 added the one-entry-per-species cases): initialize (version echo, newest offered for an unknown one, no
   session header), 202 for a notification, ping, `tools/list` (7 tools, all read-only), `-32601`/`-32602`/
   `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
   happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth

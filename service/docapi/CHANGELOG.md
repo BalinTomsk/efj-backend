@@ -2,6 +2,22 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-01: **1.20.1 — MCP returns each species once per water body. DEPLOYED 2026-10-01** (digest
+  `sha256:2a8ad2c0…`, rollback `1.20.0`; clean startup, `restarts=0` a minute apart, standard matrix unchanged).
+  **Verified on prod data:** Humber River (ON): REST `/river/fish` still returns 23 rows; MCP `get_water_body_fish`
+  and `get_water_body` return 20 entries / 20 unique species, Brook/Brown/Rainbow trout once each at 100.
+  `dbo.lake_fish`'s primary key is `(lake_Id, fish_Id, probability)`, so a species can have several rows
+  on one water body, one per probability level. Each is a separate evidence entry, NOT a duplicate. The
+  Ontario Humber River has Brown trout at 90/100 and Rainbow trout at 0/90/100. Returned as a plain list,
+  a model read them as duplicates. Now `McpToolCatalog.uniqueSpecies` collapses the `fish` array to one
+  entry per `fishId`:
+  - It keeps the highest `probability`. On a tie, or with no probability, it keeps the first entry.
+  - First-appearance (name) order is kept, and entries without a `fishId` pass through.
+  - It applies to `get_water_body_fish` and to the `fish` list inside `get_water_body`.
+  - The REST endpoints are unchanged and still return every evidence row.
+  **Tests:** `McpControllerTest` +3 (Humber shape → 3 species at 100; tie keeps first, null ranks lowest;
+  description de-duplicated), 311 green.
+
 - 2026-09-30: **1.20.0 — MCP server at `/api/v1/mcp` (water bodies, read-only).** **DEPLOYED 2026-10-01** (image digest `sha256:6a64d180…`; `/health` reports
   `1.20.0`, `restarts=0` a minute apart, started once, clean startup window; the standard matrix unchanged —
   list/default/river-search/news-doc 200, unknown news 404, waterbody/fish/station 500 as before; rollback tag

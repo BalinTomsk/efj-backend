@@ -3,6 +3,7 @@ package com.fishfind.docapi.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.FishQueryRepository;
@@ -38,6 +39,13 @@ import java.util.regex.Pattern;
  * {@link #stripPhotos} on its way out, so a new tool cannot leak one by omission. Results are also
  * shaped for a model's context window: {@code search_water_bodies} is capped at
  * {@value #SEARCH_MAX_LIMIT}.
+ *
+ * <p><strong>One entry per species</strong> (1.20.1). {@code dbo.lake_fish}'s primary key is
+ * {@code (lake_Id, fish_Id, probability)}, so a species can have several rows on one water body, one per
+ * probability level, each a separate evidence entry. The REST endpoints return them all. A model reading
+ * them as a list took them for duplicates, so the MCP tools return each species once: the
+ * highest-probability row ({@link #uniqueSpecies}), applied to {@code get_water_body_fish} and to the
+ * {@code fish} list inside {@code get_water_body}.
  */
 @Component
 public class McpToolCatalog {
@@ -111,9 +119,10 @@ public class McpToolCatalog {
                 guidSchema(), this::description);
 
         add("get_water_body_fish", "Fish species in a water body",
-                "Every fish species recorded in one water body, with Latin name, conservation status, "
-                        + "last recorded catch and the source link for the record.",
-                guidSchema(), args -> found(riverRepository.fish(requireGuid(args)), args));
+                "Every fish species recorded in one water body, listed once each: the entry with the "
+                        + "highest probability (0-100) that the species is present, with its conservation "
+                        + "status, last recorded catch and the source link for that entry.",
+                guidSchema(), args -> uniqueSpecies(found(riverRepository.fish(requireGuid(args)), args)));
 
         add("get_water_body_links", "Water body source and mouth",
                 "Where one water body starts (source) and where it drains (mouth): the linked water "
@@ -211,7 +220,43 @@ public class McpToolCatalog {
     }
 
     private JsonNode description(JsonNode args) {
-        return found(riverRepository.description(requireGuid(args)), args);
+        return uniqueSpecies(found(riverRepository.description(requireGuid(args)), args));
+    }
+
+    /**
+     * Collapses the document's {@code fish} array to one entry per {@code fishId}, keeping the entry with
+     * the highest {@code probability}; on a tie, or where there is no probability (the description's list
+     * has none), the first one. First-appearance order is kept, so the SQL's name order survives. Entries
+     * without a {@code fishId} are kept as they are. Mutates and returns {@code document}.
+     */
+    static JsonNode uniqueSpecies(JsonNode document) {
+        if (!(document instanceof ObjectNode doc) || !(doc.get("fish") instanceof ArrayNode fish)) {
+            return document;
+        }
+        Map<String, JsonNode> best = new LinkedHashMap<>();
+        int unkeyed = 0;
+        for (JsonNode entry : fish) {
+            String id = entry.path("fishId").asText("");
+            if (id.isEmpty()) {
+                best.put("#unkeyed-" + unkeyed++, entry);
+                continue;
+            }
+            String key = id.toLowerCase(Locale.ROOT);
+            JsonNode kept = best.get(key);
+            if (kept == null || probability(entry) > probability(kept)) {
+                best.put(key, entry);
+            }
+        }
+        ArrayNode unique = doc.arrayNode();
+        best.values().forEach(unique::add);
+        doc.set("fish", unique);
+        return doc;
+    }
+
+    /** An entry's probability, or -1 where it has none, so any real value outranks a missing one. */
+    private static int probability(JsonNode entry) {
+        JsonNode p = entry.get("probability");
+        return p != null && p.canConvertToInt() ? p.asInt() : -1;
     }
 
     private JsonNode links(JsonNode args) {
