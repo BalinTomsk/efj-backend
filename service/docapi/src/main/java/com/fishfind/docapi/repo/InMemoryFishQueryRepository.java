@@ -56,4 +56,15 @@ public class InMemoryFishQueryRepository implements FishQueryRepository {
         }
         return array;
     }
+
+    /** No database: no water body holds any species, in the documented shape. */
+    @Override
+    public JsonNode waterBodies(String fishId, String country, String state, Integer locType,
+                                int minProbability, int limit) {
+        ObjectNode out = JsonNodeFactory.instance.objectNode();
+        out.put("total", 0);
+        out.put("limit", limit);
+        out.putArray("items");
+        return out;
+    }
 }

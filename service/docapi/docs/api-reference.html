@@ -1510,6 +1510,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
             <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
             <tr><td class="pname">get_region_regulations</td><td><code>country</code>, optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
             <tr><td class="pname">search_fish</td><td><code>query</code></td><td>the <code>/fish/search</code> page</td></tr>
+            <tr><td class="pname">find_water_bodies_by_fish</td><td><code>fishId</code>; optional <code>country</code>, <code>state</code>, <code>types</code> (<code>lake</code>, <code>river</code>, <code>creek</code>, &hellip;), <code>min_probability</code>, <code>limit</code></td><td><code>{total, limit, items, query}</code>: the water bodies holding that species, each once at its highest probability (1.20.2, <code>dbo.fn_fish_water_bodies_json</code>; MCP only)</td></tr>
           </tbody>
         </table>
         <ul class="notes">

@@ -102,10 +102,10 @@ class McpControllerTest {
     }
 
     @Test
-    void toolsListPublishesSevenReadOnlyTools() throws Exception {
+    void toolsListPublishesEightReadOnlyTools() throws Exception {
         rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.tools", hasSize(7)))
+                .andExpect(jsonPath("$.result.tools", hasSize(8)))
                 .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
                 .andExpect(jsonPath("$.result.tools[0].inputSchema.type").value("object"))
                 .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(0)));
@@ -302,6 +302,51 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.isError").value(true));
         verify(regulationRepository, never()).region(org.mockito.ArgumentMatchers.eq("CANADA"), any());
         verify(regulationRepository, org.mockito.Mockito.times(1)).region(anyString(), any());
+    }
+
+    private static final String WALLEYE = "2CFFB500-3E59-4120-9460-055856E9AC5C";
+
+    @Test
+    void waterBodiesByFishValidatesThenPassesNormalizedArguments() throws Exception {
+        when(fishRepository.waterBodies(WALLEYE.toLowerCase(), "CA", "ON", 66, 50, 10)).thenReturn(objectMapper.readTree(
+                "{\"total\":312,\"limit\":10,\"items\":[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Speed River\","
+                        + "\"locType\":2,\"state\":\"ON\",\"probability\":100}]}"));
+
+        // braced upper-case GUID, lower-case codes, type names in any case: all normalized before SQL
+        call("find_water_bodies_by_fish", "{\"fishId\":\"{" + WALLEYE + "}\",\"country\":\"ca\",\"state\":\"on\","
+                + "\"types\":[\"River\",\"creek\"],\"min_probability\":50,\"limit\":10}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.total").value(312))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Speed River"))
+                .andExpect(jsonPath("$.result.structuredContent.query.locType").value(66))
+                .andExpect(jsonPath("$.result.structuredContent.query.state").value("ON"));
+    }
+
+    @Test
+    void waterBodiesByFishDefaultsAndClamps() throws Exception {
+        when(fishRepository.waterBodies(anyString(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(objectMapper.readTree("{\"total\":0,\"limit\":50,\"items\":[]}"));
+
+        call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"min_probability\":500,\"limit\":999}")
+                .andExpect(jsonPath("$.result.isError").value(false));
+        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), null, null, null, 100, 50);
+    }
+
+    @Test
+    void waterBodiesByFishRejectsBadArgumentsBeforeAnyQuery() throws Exception {
+        call("find_water_bodies_by_fish", "{}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("search_fish")));
+        call("find_water_bodies_by_fish", "{\"fishId\":\"walleye\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"types\":[\"ocean\"]}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("river")));
+        call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"state\":\"Ontario\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"limit\":\"lots\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        verify(fishRepository, never()).waterBodies(any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test
