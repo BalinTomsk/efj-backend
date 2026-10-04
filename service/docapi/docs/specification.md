@@ -345,17 +345,25 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 
 | Tool | Arguments | Backing |
 |------|-----------|---------|
-| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` → `{items, total, limit}` |
+| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (200 candidates) → `canadianIds` filter → first `limit` → `{items, total, limit}` |
 | `get_water_body` | `guid` | `RiverQueryRepository.description` |
-| `get_water_body_fish` | `guid` | `RiverQueryRepository.fish` |
+| `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
 | `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |
 | `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
-| `get_region_regulations` | `country`, optional `state` (two letters each) | `RegulationQueryRepository.region` |
-| `search_fish` | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
-| `find_water_bodies_by_fish` (1.20.2) | `fishId` (GUID, required); `country`/`state` (two letters); `types` (names → `locType` bitmask); `min_probability` 0..100 (default 0); `limit` 1..50 (default 20) | `FishQueryRepository.waterBodies` → `dbo.fn_fish_water_bodies_json` → `{total, limit, items, query}`; each water body once, at its highest probability |
+| `get_region_regulations` | `country` CA only (absent = CA), optional `state` | `RegulationQueryRepository.region` |
+| `search_fish` (admin) | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
+| `find_water_bodies_by_fish` (1.20.2, admin) | `fishId` (GUID, required); `country` CA only (absent = CA), `state`; `types` (names → `locType` bitmask); `min_probability` 0..100 (default 0); `limit` 1..50 (default 20) | `FishQueryRepository.waterBodies` → `dbo.fn_fish_water_bodies_json` → `{total, limit, items, query}`; each water body once, at its highest probability |
 
 Rules:
 
+- **Canadian water bodies only (1.21.0).** A water body is Canadian when it has a CGNDB code, or its source
+  (Tributaries side 16) or mouth (side 32) is in `CA` — `RiverQueryRepository.canadianIds` →
+  `dbo.fn_lake_canadian_ids_json`. Search results are filtered; every `guid` tool checks first and answers a
+  non-Canadian id exactly like an unknown one (`isError`), with no further query.
+- **Fish information for admins only (1.21.0).** The role is `X-Fish-Role`, which cproxy sets from the MCP
+  key's owning account (`admin` for `users_sync.access = 255` and for hand-made operator keys, else `user`).
+  Tools marked admin are absent from `tools/list` and `-32602 Unknown tool` on `tools/call` for any other
+  role; `get_water_body` drops its `fish` array. A missing or unknown role is GUEST (fail closed).
 - **Read-only, public data only.** No write, no `/unfished`, no news. Every tool is annotated
   `readOnlyHint:true`, `openWorldHint:false`.
 - **One entry per species (1.20.1).** `lake_fish`'s key is `(lake_Id, fish_Id, probability)`, so a species
@@ -375,9 +383,8 @@ Rules:
   `isError:true` "temporarily unavailable" with no detail. Never an HTTP 5xx; `ApiExceptionHandler` is not
   involved. Each call logs one INFO line `MCP tools/call <tool> -> ok|rejected|failed (<ms>ms)`.
 - **Results** carry `content:[{type:"text", text:<compact JSON>}]` plus `structuredContent` (the same object).
-- **Who may call is cproxy's decision.** docapi is reachable only through cproxy; the role header is not
-  consulted. As of cproxy 0.19.0 every POST needs the day-key JWT, so this endpoint is unreachable from an MCP
-  client until cproxy gives the path its own credential.
+- **Who may call is cproxy's decision.** docapi is reachable only through cproxy, which authenticates the MCP
+  key (cproxy 0.20.0+) and stamps the role header; docapi trusts that header (1.21.0) and nothing else.
 
 ## Required files (complete list)
 
@@ -1263,9 +1270,10 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (27 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
-  `find_water_bodies_by_fish` cases): initialize (version echo, newest offered for an unknown one, no
-  session header), 202 for a notification, ping, `tools/list` (7 tools, all read-only), `-32601`/`-32602`/
+  regulation/fish query repositories (33 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
+  `find_water_bodies_by_fish` cases, 1.21.0 the role and Canada-only cases; requests run as admin unless a
+  test says otherwise, and `canadianIds` passes every id unless a test overrides it): initialize (version echo, newest offered for an unknown one, no
+  session header), 202 for a notification, ping, `tools/list` (8 tools for admin, 5 for anyone else, all read-only), `-32601`/`-32602`/
   `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
   happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth
   (including a `Photo0` key), and a repository exception becoming a temporary tool error with no SQL detail.

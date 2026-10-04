@@ -186,7 +186,9 @@ com.fishfind.docapi
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
     │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
-    ├── McpToolCatalog             # the 7 read-only water-body/fish/regulation tools; validates before any
+    ├── McpToolCatalog             # the 8 read-only water-body/fish/regulation tools; validates before any
+    │                              #   repository call; Canadian water bodies only and fish tools for ADMIN
+    │                              #   only (X-Fish-Role from cproxy, 1.21.0);
     │                              #   repository call; strips EVERY photo field from every result (stripPhotos);
     │                              #   one entry per species, highest probability (uniqueSpecies, 1.20.1);
     │                              #   find_water_bodies_by_fish -> FishQueryRepository.waterBodies (1.20.2)

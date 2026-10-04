@@ -7,7 +7,11 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * JDBC river query repository backed by {@code dbo.fn_river_unfished_json} /
@@ -155,6 +159,37 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
                 (rs, i) -> rs.getString(1));
         String json = rows.isEmpty() ? null : rows.get(0);
         return (json == null || json.isBlank()) ? objectMapper.createArrayNode() : parse(json);
+    }
+
+    /** The Canadian subset of a list of water bodies (docapi 1.21.0, MCP). */
+    static final String CANADIAN_IDS_SQL = "SELECT dbo.fn_lake_canadian_ids_json(?)";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "canadianIdsFallback")
+    public Set<String> canadianIds(Collection<String> lakeIds) {
+        Set<String> out = new HashSet<>();
+        if (lakeIds == null || lakeIds.isEmpty()) {
+            return out;
+        }
+        String idsJson;
+        try {
+            idsJson = objectMapper.writeValueAsString(lakeIds);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Could not render the water-body ids as JSON", ex);
+        }
+        List<String> rows = jdbc.query(CANADIAN_IDS_SQL, ps -> ps.setString(1, idsJson), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        if (json != null && !json.isBlank()) {
+            parse(json).forEach(id -> out.add(id.asText().toUpperCase(Locale.ROOT)));
+        }
+        return out;
+    }
+
+    /** Circuit-breaker fallback for {@link #canadianIds}. */
+    @SuppressWarnings("unused")
+    public Set<String> canadianIdsFallback(Collection<String> lakeIds, Throwable ex) {
+        throw new RuntimeException("SQL Canadian water-body check failed", ex);
     }
 
     /** Circuit-breaker fallback for {@link #search}. */

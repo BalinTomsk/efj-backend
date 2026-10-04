@@ -63,10 +63,10 @@ public class McpController {
     static final String SERVER_NAME = "fishfind-docapi";
 
     static final String INSTRUCTIONS =
-            "FishFind water-body data for Canada and the US: lakes, rivers and other water bodies, the "
-                    + "fish species recorded in them, and fishing regulations. Start with "
-                    + "search_water_bodies to get a water body's lakeId GUID, then pass it to the "
-                    + "get_water_body* tools. Read-only; no photos are provided.";
+            "FishFind water-body data for CANADA: lakes, rivers and other Canadian water bodies, where "
+                    + "they start and end, and fishing regulations. Start with search_water_bodies to get a "
+                    + "water body's lakeId GUID, then pass it to the get_water_body* tools. Fish species "
+                    + "information is available to administrators only. Read-only; no photos are provided.";
 
     // JSON-RPC 2.0 error codes.
     static final int PARSE_ERROR = -32700;
@@ -89,7 +89,11 @@ public class McpController {
     @PostMapping
     public ResponseEntity<JsonNode> post(@RequestBody(required = false) String body,
                                          @RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
-                                         @RequestHeader(value = "MCP-Protocol-Version", required = false) String protocolVersion) {
+                                         @RequestHeader(value = "MCP-Protocol-Version", required = false) String protocolVersion,
+                                         @RequestHeader(value = ViewerRole.HEADER, required = false) String roleHeader) {
+        // Who is calling, as cproxy established it from the MCP key's owning account. Missing or unknown
+        // reads as GUEST (fail closed): fish tools are then hidden.
+        ViewerRole role = ViewerRole.fromHeader(roleHeader);
         if (origin != null) {
             return json(HttpStatus.FORBIDDEN, error(null, INVALID_REQUEST, "Browser origins are not accepted"));
         }
@@ -114,12 +118,12 @@ public class McpController {
             }
             ArrayNode replies = objectMapper.createArrayNode();
             for (JsonNode item : message) {
-                JsonNode reply = handle(item);
+                JsonNode reply = handle(item, role);
                 if (reply != null) replies.add(reply);
             }
             return replies.isEmpty() ? ResponseEntity.accepted().build() : json(HttpStatus.OK, replies);
         }
-        JsonNode reply = handle(message);
+        JsonNode reply = handle(message, role);
         return reply == null ? ResponseEntity.accepted().build() : json(HttpStatus.OK, reply);
     }
 
@@ -139,7 +143,7 @@ public class McpController {
      * One JSON-RPC message → its response, or {@code null} for a notification or a client response
      * (both of which get no reply).
      */
-    JsonNode handle(JsonNode message) {
+    JsonNode handle(JsonNode message, ViewerRole role) {
         if (!message.isObject() || !"2.0".equals(message.path("jsonrpc").asText())) {
             return error(null, INVALID_REQUEST, "Not a JSON-RPC 2.0 message");
         }
@@ -158,8 +162,8 @@ public class McpController {
         return switch (method.asText()) {
             case "initialize" -> result(id, initialize(params));
             case "ping" -> result(id, objectMapper.createObjectNode());
-            case "tools/list" -> result(id, toolsList());
-            case "tools/call" -> callTool(id, params);
+            case "tools/list" -> result(id, toolsList(role));
+            case "tools/call" -> callTool(id, params, role);
             default -> error(id, METHOD_NOT_FOUND, "Method not found: " + method.asText());
         };
     }
@@ -177,10 +181,10 @@ public class McpController {
         return out;
     }
 
-    private ObjectNode toolsList() {
+    private ObjectNode toolsList(ViewerRole role) {
         ObjectNode out = objectMapper.createObjectNode();
         ArrayNode list = out.putArray("tools");
-        for (McpToolCatalog.Tool tool : catalog.tools()) {
+        for (McpToolCatalog.Tool tool : catalog.tools(role)) {
             ObjectNode t = list.addObject();
             t.put("name", tool.name());
             t.put("title", tool.title());
@@ -191,8 +195,9 @@ public class McpController {
         return out;
     }
 
-    private ObjectNode callTool(JsonNode id, JsonNode params) {
-        McpToolCatalog.Tool tool = catalog.find(params.path("name").asText(null));
+    private ObjectNode callTool(JsonNode id, JsonNode params, ViewerRole role) {
+        // A tool the caller's role may not use is reported exactly like one that does not exist.
+        McpToolCatalog.Tool tool = catalog.find(params.path("name").asText(null), role);
         if (tool == null) {
             return error(id, INVALID_PARAMS, "Unknown tool: " + params.path("name").asText(""));
         }
@@ -207,7 +212,7 @@ public class McpController {
         ObjectNode out;
         String outcome;
         try {
-            out = toolResult(tool.handler().apply(args));
+            out = toolResult(tool.handler().apply(args, role));
             outcome = "ok";
         } catch (InvalidDocumentException | DocumentNotFoundException ex) {
             out = toolError(ex.getMessage());
