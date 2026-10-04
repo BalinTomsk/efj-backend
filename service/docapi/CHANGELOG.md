@@ -2,6 +2,34 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-03: **1.21.0 — MCP: Canadian water bodies only; fish information for admins only. DEPLOYED 2026-10-04**
+  (rollback `1.20.2`; healthy, `restarts=0`, no WARN/ERROR). Two earlier attempts the same day hit SQL 4121 (the new
+  function was not yet on prod) and were rolled back after one failed call each.
+  **Verified on prod:** `tools/list` 8 for admin, 5 for user and no role; `search_fish` as user → `-32602 Unknown tool`;
+  a US-only GUID → `isError` "No Canadian water body…"; `get_water_body` has `fish` for admin only; US region
+  regulations refused, ON allowed; "Mississippi River" search returns only the Ontario ones; walleye ON rivers 585
+  (was 578) and all of CA 2,697 (was 2,687) — the either-end + CGNDB rule.
+  **Needs, in order:** the envfish-db SQL (`dbo.fn_lake_canadian_ids_json` new, `dbo.fn_fish_water_bodies_json`
+  changed) applied by the user, then cproxy sending `X-Fish-Role: admin|user` for MCP keys, then this.
+  Without the SQL every MCP lookup is SQL 4121 and counts against the shared `sqlBreaker`.
+  Without the cproxy change every caller reads as GUEST, so the fish tools vanish even for admins (fail closed).
+  - **Canada only.** A water body counts when it has a CGNDB code, or its source (Tributaries side 16) or mouth
+    (side 32) is in `CA`. `RiverQueryRepository.canadianIds` → `dbo.fn_lake_canadian_ids_json`.
+    - `search_water_bodies` asks for 200 candidates, keeps the Canadian ones, then cuts to `limit`.
+    - A non-Canadian GUID on any `get_water_body*` tool gets the same `isError` as an unknown one; nothing else
+      is queried.
+    - `get_region_regulations` and `find_water_bodies_by_fish` accept `country` CA only (absent = CA); the
+      species search now matches either end of a water body, and CGNDB for CA.
+  - **Fish for admins only.** The role is cproxy's `X-Fish-Role` (the key owner's account). For anyone but
+    ADMIN, `get_water_body_fish`, `search_fish` and `find_water_bodies_by_fish` are absent from `tools/list`
+    (5 tools instead of 8) and `-32602 Unknown tool` on `tools/call`; `get_water_body` drops its `fish` array.
+    A missing or unknown role is GUEST.
+  - **Code:** `McpToolCatalog.Tool` gains `adminOnly` and a `(args, role)` handler; `tools(role)`,
+    `find(name, role)`. `McpController` reads the header and passes the role through. REST is unchanged.
+  - **Tests:** `McpControllerTest` +6 (5 tools for guest/user/unknown role; fish tool calls refused with no query;
+    `fish` dropped for non-admins; non-Canadian GUID refused before any lookup; search filtered then limited;
+    US regulations/species refused). Existing tests run as admin. 320 green.
+
 - 2026-10-01: **1.20.2 — MCP tool `find_water_bodies_by_fish`. DEPLOYED 2026-10-01** (digest `sha256:867b4d44…`,
   rollback `1.20.1`; clean startup, `restarts=0`, existing endpoints unchanged). The SQL function was applied afterwards.
   The first guarded probe, before it existed, got SQL 4121 and returned `isError`; the breaker stayed closed. **Verified on

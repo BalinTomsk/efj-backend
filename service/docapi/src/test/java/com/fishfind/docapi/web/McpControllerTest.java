@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -13,7 +14,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -24,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -54,11 +60,31 @@ class McpControllerTest {
     @MockBean
     private FishQueryRepository fishRepository;
 
+    /** Unless a test says otherwise every water body is Canadian, so the older tests keep their meaning. */
+    @BeforeEach
+    void everyWaterBodyIsCanadianByDefault() {
+        when(riverRepository.canadianIds(any())).thenAnswer(inv -> ((Collection<String>) inv.getArgument(0))
+                .stream().map(id -> id.toUpperCase(Locale.ROOT)).collect(Collectors.toSet()));
+    }
+
+    /** As cproxy sends it for an admin's key; the default, so the pre-1.21.0 tests still reach every tool. */
     private ResultActions rpc(String body) throws Exception {
-        return mockMvc.perform(post("/api/v1/mcp")
+        return rpcAs("admin", body);
+    }
+
+    /** {@code role} null = no X-Fish-Role header at all (read as GUEST). */
+    private ResultActions rpcAs(String role, String body) throws Exception {
+        var request = post("/api/v1/mcp")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
-                .content(body));
+                .content(body);
+        if (role != null) request = request.header("X-Fish-Role", role);
+        return mockMvc.perform(request);
+    }
+
+    private ResultActions callAs(String role, String tool, String arguments) throws Exception {
+        return rpcAs(role, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool
+                + "\",\"arguments\":" + arguments + "}}");
     }
 
     private ResultActions call(String tool, String arguments) throws Exception {
@@ -164,7 +190,7 @@ class McpControllerTest {
 
     @Test
     void searchPassesNormalizedCriteriaAndCapsTheLimit() throws Exception {
-        when(riverRepository.search("Ottawa", null, "FEFUL", null, 50))
+        when(riverRepository.search("Ottawa", null, "FEFUL", null, RiverController.SEARCH_MAX_LIMIT))
                 .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Ottawa River\"}]"));
 
         call("search_water_bodies", "{\"name\":\" Ottawa \",\"cgndb\":\"feful\",\"limit\":500}")
@@ -329,7 +355,7 @@ class McpControllerTest {
 
         call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"min_probability\":500,\"limit\":999}")
                 .andExpect(jsonPath("$.result.isError").value(false));
-        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), null, null, null, 100, 50);
+        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), "CA", null, null, 100, 50);
     }
 
     @Test
@@ -346,6 +372,96 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.isError").value(true));
         call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"limit\":\"lots\"}")
                 .andExpect(jsonPath("$.result.isError").value(true));
+        verify(fishRepository, never()).waterBodies(any(), any(), any(), any(), anyInt(), anyInt());
+    }
+
+    // ---- 1.21.0: fish information for admins only ---------------------------------------------
+
+    private static final Set<String> FISH_TOOLS = Set.of("get_water_body_fish", "search_fish", "find_water_bodies_by_fish");
+
+    @Test
+    void aGuestOrUserSeesFiveToolsAndNoFishTools() throws Exception {
+        for (String role : new String[] {null, "guest", "user", "superuser"}) {
+            rpcAs(role, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
+                    .andExpect(jsonPath("$.result.tools", hasSize(5)))
+                    .andExpect(jsonPath("$.result.tools[?(@.name == 'get_water_body_fish')]", hasSize(0)))
+                    .andExpect(jsonPath("$.result.tools[?(@.name == 'search_fish')]", hasSize(0)))
+                    .andExpect(jsonPath("$.result.tools[?(@.name == 'find_water_bodies_by_fish')]", hasSize(0)));
+        }
+    }
+
+    @Test
+    void aNonAdminCallingAFishToolGetsUnknownToolAndNothingIsQueried() throws Exception {
+        for (String tool : FISH_TOOLS) {
+            callAs("user", tool, "{\"guid\":\"" + GUID + "\",\"query\":\"walleye\",\"fishId\":\"" + WALLEYE + "\"}")
+                    .andExpect(jsonPath("$.error.code").value(McpController.INVALID_PARAMS))
+                    .andExpect(jsonPath("$.error.message", containsString("Unknown tool")));
+        }
+        verifyNoInteractions(fishRepository);
+        verify(riverRepository, never()).fish(any());
+    }
+
+    @Test
+    void getWaterBodyShowsSpeciesToAdminsOnly() throws Exception {
+        // A fresh document per call, as the JDBC repository returns.
+        when(riverRepository.description(GUID)).thenAnswer(inv -> objectMapper.readTree(
+                "{\"lakeName\":\"Lake X\",\"fish\":[{\"fishId\":\"" + WALLEYE + "\",\"fishName\":\"Walleye\"}]}"));
+
+        callAs("user", "get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.lakeName").value("Lake X"))
+                .andExpect(jsonPath("$.result.structuredContent.fish").doesNotExist())
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("Walleye"))));
+        callAs(null, "get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.fish").doesNotExist());
+        callAs("admin", "get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.fish[0].fishName").value("Walleye"));
+    }
+
+    // ---- 1.21.0: Canadian water bodies only ----------------------------------------------------
+
+    @Test
+    void aNonCanadianWaterBodyIsAnsweredLikeAnUnknownOne() throws Exception {
+        doReturn(Set.of()).when(riverRepository).canadianIds(any());
+
+        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_regulations",
+                "get_water_body_fish")) {
+            callAs("admin", tool, "{\"guid\":\"" + GUID + "\"}")
+                    .andExpect(jsonPath("$.result.isError").value(true))
+                    .andExpect(jsonPath("$.result.content[0].text", containsString("Canadian")));
+        }
+        verify(riverRepository, never()).description(any());
+        verify(riverRepository, never()).source(any());
+        verify(riverRepository, never()).fish(any());
+        verify(regulationRepository, never()).lakeRegulation(any());
+    }
+
+    @Test
+    void searchKeepsOnlyCanadianMatchesAndThenAppliesTheLimit() throws Exception {
+        String us = "11111111-1111-1111-1111-111111111111", on = "22222222-2222-2222-2222-222222222222",
+               qc = "33333333-3333-3333-3333-333333333333";
+        when(riverRepository.search("Red", null, null, null, RiverController.SEARCH_MAX_LIMIT))
+                .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + us + "\",\"lakeName\":\"Red River US\"},"
+                        + "{\"lakeId\":\"" + on + "\",\"lakeName\":\"Red River ON\"},"
+                        + "{\"lakeId\":\"" + qc + "\",\"lakeName\":\"Red River QC\"}]"));
+        doReturn(Set.of(on, qc)).when(riverRepository).canadianIds(any());
+
+        callAs("user", "search_water_bodies", "{\"name\":\"Red\"}")
+                .andExpect(jsonPath("$.result.structuredContent.total").value(2))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Red River ON"))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("Red River US"))));
+        callAs("user", "search_water_bodies", "{\"name\":\"Red\",\"limit\":1}")
+                .andExpect(jsonPath("$.result.structuredContent.items", hasSize(1)))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Red River ON"));
+    }
+
+    @Test
+    void regulationsAndTheSpeciesToolAreCanadaOnly() throws Exception {
+        callAs("user", "get_region_regulations", "{\"country\":\"US\",\"state\":\"MN\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("Canada")));
+        callAs("admin", "find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"country\":\"US\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        verify(regulationRepository, never()).region(anyString(), any());
         verify(fishRepository, never()).waterBodies(any(), any(), any(), any(), anyInt(), anyInt());
     }
 

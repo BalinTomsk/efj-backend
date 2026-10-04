@@ -55,4 +55,14 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
     public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
         return objectMapper.createArrayNode();
     }
+
+    /** No database, so no geography to check: every id passes (the documents themselves are all missing). */
+    @Override
+    public java.util.Set<String> canadianIds(java.util.Collection<String> lakeIds) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        if (lakeIds != null) {
+            lakeIds.forEach(id -> out.add(id.toUpperCase(java.util.Locale.ROOT)));
+        }
+        return out;
+    }
 }

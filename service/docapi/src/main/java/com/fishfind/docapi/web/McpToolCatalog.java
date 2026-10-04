@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -39,6 +40,17 @@ import java.util.regex.Pattern;
  * {@link #stripPhotos} on its way out, so a new tool cannot leak one by omission. Results are also
  * shaped for a model's context window: {@code search_water_bodies} is capped at
  * {@value #SEARCH_MAX_LIMIT}.
+ *
+ * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB code or
+ * its source or mouth is in Canada ({@code dbo.fn_lake_canadian_ids_json}, through
+ * {@link RiverQueryRepository#canadianIds}). Search results are filtered; a lookup by a non-Canadian GUID is
+ * answered like an unknown one; regulations and the species tool accept country {@code CA} only.
+ *
+ * <p><strong>Fish information is for admins only</strong> (1.21.0). The caller's role is cproxy's
+ * {@code X-Fish-Role} (the MCP key's owning account; hand-made operator keys are admin). For anyone but
+ * {@link ViewerRole#ADMIN} the fish tools ({@code adminOnly}) are absent from {@code tools/list} and unknown
+ * to {@code tools/call}, and {@code get_water_body} drops its species list. A missing or unrecognised role is
+ * GUEST: fail closed.
  *
  * <p><strong>One entry per species</strong> (1.20.1). {@code dbo.lake_fish}'s primary key is
  * {@code (lake_Id, fish_Id, probability)}, so a species can have several rows on one water body, one per
@@ -88,11 +100,17 @@ public class McpToolCatalog {
      * @param description what the tool returns, written for the model choosing between tools
      * @param inputSchema JSON Schema of the {@code arguments} object
      * @param annotations behaviour hints (read-only etc.)
-     * @param handler     arguments → result object; throws {@link InvalidDocumentException} or
+     * @param adminOnly   true for fish information: listed and callable for {@link ViewerRole#ADMIN} only
+     * @param handler     (arguments, caller role) → result object; throws {@link InvalidDocumentException} or
      *                    {@link DocumentNotFoundException} for a caller mistake
      */
     public record Tool(String name, String title, String description, JsonNode inputSchema,
-                       JsonNode annotations, Function<JsonNode, JsonNode> handler) {
+                       JsonNode annotations, boolean adminOnly, BiFunction<JsonNode, ViewerRole, JsonNode> handler) {
+
+        /** Whether {@code role} may see and call this tool. */
+        public boolean allowedFor(ViewerRole role) {
+            return !adminOnly || role == ViewerRole.ADMIN;
+        }
     }
 
     private final RiverQueryRepository riverRepository;
@@ -111,10 +129,11 @@ public class McpToolCatalog {
         this.objectMapper = objectMapper;
 
         add("search_water_bodies", "Search water bodies",
-                "Finds lakes, rivers and other water bodies in Canada and the US by part of a name, by "
-                        + "CGNDB code, or by the MLI id of a linked hydrometric station. Every criterion "
-                        + "given must match. Returns up to `limit` matches, exact name first, each with "
-                        + "its `lakeId` GUID — pass that GUID to the other water-body tools.",
+                "Finds Canadian lakes, rivers and other water bodies by part of a name, by CGNDB code, "
+                        + "or by the MLI id of a linked hydrometric station. Every criterion given must "
+                        + "match. Only Canadian water bodies are returned (a CGNDB code, or a source or mouth "
+                        + "in Canada). Returns up to `limit` matches, exact name first, each with its "
+                        + "`lakeId` GUID — pass that GUID to the other water-body tools.",
                 """
                 {"type":"object","properties":{
                   "name":{"type":"string","minLength":2,"maxLength":64,
@@ -125,41 +144,43 @@ public class McpToolCatalog {
                          "description":"Id of a water station linked to the water body, e.g. 02HC024"},
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
                 },"additionalProperties":false}""",
-                this::searchWaterBodies);
+                false, (args, role) -> searchWaterBodies(args));
 
         add("get_water_body", "Water body details",
                 "The description of one water body: names, type, description text, physical "
                         + "statistics (length, depth, area, volume), location (lat/lon, province/state, "
-                        + "region), source and mouth, and the species recorded there.",
-                guidSchema(), this::description);
+                        + "region), source and mouth. Canadian water bodies only.",
+                guidSchema(), false, this::description);
 
         add("get_water_body_fish", "Fish species in a water body",
                 "Every fish species recorded in one water body, listed once each: the entry with the "
                         + "highest probability (0-100) that the species is present, with its conservation "
                         + "status, last recorded catch and the source link for that entry.",
-                guidSchema(), args -> uniqueSpecies(found(riverRepository.fish(requireGuid(args)), args)));
+                guidSchema(), true,
+                (args, role) -> uniqueSpecies(found(riverRepository.fish(requireCanadianGuid(args)), args)));
 
         add("get_water_body_links", "Water body source and mouth",
                 "Where one water body starts (source) and where it drains (mouth): the linked water "
                         + "body or point for each end, with coordinates, elevation and location.",
-                guidSchema(), this::links);
+                guidSchema(), false, (args, role) -> links(args));
 
         add("get_water_body_regulations", "Water body fishing regulations",
                 "The fishing regulations specific to one water body. Province/state-wide rules also "
                         + "apply; get them with get_region_regulations.",
-                guidSchema(), args -> found(regulationRepository.lakeRegulation(requireGuid(args)), args));
+                guidSchema(), false,
+                (args, role) -> found(regulationRepository.lakeRegulation(requireCanadianGuid(args)), args));
 
         add("get_region_regulations", "Regional fishing regulations",
-                "Fishing regulations for a whole country, or for one province/state. Country-wide "
+                "Fishing regulations for Canada, or for one province or territory. Country-wide "
                         + "rules and province rules are separate sets — the province set does not "
                         + "repeat the country rules.",
                 """
                 {"type":"object","properties":{
-                  "country":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"ISO-2 country code: CA or US"},
+                  "country":{"type":"string","enum":["CA","ca"],"description":"Always CA: this server covers Canada"},
                   "state":{"type":"string","pattern":"^[A-Za-z]{2}$",
-                           "description":"ISO-2 province/state code, e.g. ON or MN; omit for country-wide rules"}
+                           "description":"Province/territory code, e.g. ON or QC; omit for country-wide rules"}
                 },"required":["country"],"additionalProperties":false}""",
-                this::regionRegulations);
+                false, (args, role) -> regionRegulations(args));
 
         add("search_fish", "Search fish species",
                 "Finds fish species by common, alternative or Latin name, best match first, each with "
@@ -168,11 +189,11 @@ public class McpToolCatalog {
                 {"type":"object","properties":{
                   "query":{"type":"string","minLength":1,"maxLength":64,"description":"e.g. walleye, Sander vitreus"}
                 },"required":["query"],"additionalProperties":false}""",
-                this::searchFish);
+                true, (args, role) -> searchFish(args));
 
         add("find_water_bodies_by_fish", "Water bodies with a fish species",
-                "Finds the water bodies where one fish species is recorded, optionally limited to a "
-                        + "country, a province/state and water-body types. Returns `total` (how many "
+                "Finds the Canadian water bodies where one fish species is recorded, optionally limited "
+                        + "to a province/territory and water-body types. Returns `total` (how many "
                         + "match) and up to `limit` of them, each once, highest probability first. Get "
                         + "the species' fishId from search_fish first. Probability is that of the "
                         + "species' strongest record there; 0 means a weak or unconfirmed record, so set "
@@ -180,31 +201,32 @@ public class McpToolCatalog {
                 """
                 {"type":"object","properties":{
                   "fishId":{"type":"string","description":"The species' fishId GUID, from search_fish"},
-                  "country":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"ISO-2 country code: CA or US"},
-                  "state":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"ISO-2 province/state code, e.g. ON"},
+                  "country":{"type":"string","enum":["CA","ca"],"description":"Always CA: this server covers Canada"},
+                  "state":{"type":"string","pattern":"^[A-Za-z]{2}$","description":"Province/territory code, e.g. ON"},
                   "types":{"type":"array","items":{"type":"string","enum":["lake","river","stream","pond","marsh",
                            "backwater","creek","canal","estuary","shore","drain","ditch","wetland","reservoir"]},
                            "description":"Water-body types to include; omit for all"},
                   "min_probability":{"type":"integer","minimum":0,"maximum":100,"default":0},
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
                 },"required":["fishId"],"additionalProperties":false}""",
-                this::waterBodiesByFish);
+                true, (args, role) -> waterBodiesByFish(args));
     }
 
-    /** The tools in publication order. */
-    public List<Tool> tools() {
-        return List.copyOf(tools.values());
+    /** The tools {@code role} may use, in publication order. */
+    public List<Tool> tools(ViewerRole role) {
+        return tools.values().stream().filter(t -> t.allowedFor(role)).toList();
     }
 
-    /** The tool called {@code name}, or {@code null}. */
-    public Tool find(String name) {
-        return name == null ? null : tools.get(name);
+    /** The tool called {@code name} if {@code role} may use it, else {@code null} (as if it did not exist). */
+    public Tool find(String name, ViewerRole role) {
+        Tool tool = name == null ? null : tools.get(name);
+        return tool != null && tool.allowedFor(role) ? tool : null;
     }
 
-    private void add(String name, String title, String description, String inputSchema,
-                     Function<JsonNode, JsonNode> handler) {
+    private void add(String name, String title, String description, String inputSchema, boolean adminOnly,
+                     BiFunction<JsonNode, ViewerRole, JsonNode> handler) {
         tools.put(name, new Tool(name, title, description, json(inputSchema), json(READ_ONLY_ANNOTATIONS),
-                handler.andThen(McpToolCatalog::stripPhotos)));
+                adminOnly, handler.andThen(McpToolCatalog::stripPhotos)));
     }
 
     private JsonNode json(String text) {
@@ -246,7 +268,17 @@ public class McpToolCatalog {
             throw new InvalidDocumentException("mli must not exceed " + RiverController.SEARCH_MAX_TERM + " characters");
         }
         int limit = limit(args);
-        JsonNode items = riverRepository.search(name, null, cgndb, mli, limit);
+        // Ask for the most the search allows, keep the Canadian ones, then cut to the caller's limit -- so a
+        // name shared with US water bodies still fills the page with Canadian matches.
+        JsonNode candidates = riverRepository.search(name, null, cgndb, mli, RiverController.SEARCH_MAX_LIMIT);
+        List<String> ids = new java.util.ArrayList<>();
+        candidates.forEach(c -> ids.add(c.path("lakeId").asText("")));
+        java.util.Set<String> canadian = riverRepository.canadianIds(ids.stream().filter(i -> !i.isEmpty()).toList());
+        ArrayNode items = objectMapper.createArrayNode();
+        for (JsonNode c : candidates) {
+            if (items.size() >= limit) break;
+            if (canadian.contains(c.path("lakeId").asText("").toUpperCase(Locale.ROOT))) items.add(c);
+        }
         ObjectNode out = objectMapper.createObjectNode();
         out.set("items", items);
         out.put("total", items.size());
@@ -254,8 +286,12 @@ public class McpToolCatalog {
         return out;
     }
 
-    private JsonNode description(JsonNode args) {
-        return uniqueSpecies(found(riverRepository.description(requireGuid(args)), args));
+    private JsonNode description(JsonNode args, ViewerRole role) {
+        JsonNode doc = uniqueSpecies(found(riverRepository.description(requireCanadianGuid(args)), args));
+        if (role != ViewerRole.ADMIN && doc instanceof ObjectNode o) {
+            o.remove("fish");   // fish information is for admins only
+        }
+        return doc;
     }
 
     /**
@@ -295,7 +331,7 @@ public class McpToolCatalog {
     }
 
     private JsonNode links(JsonNode args) {
-        String guid = requireGuid(args);
+        String guid = requireCanadianGuid(args);
         JsonNode source = riverRepository.source(guid);
         if (source == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
@@ -307,7 +343,7 @@ public class McpToolCatalog {
     }
 
     private JsonNode regionRegulations(JsonNode args) {
-        String country = RegulationController.requireCode(optionalText(args, "country"), "country");
+        String country = requireCanada(optionalText(args, "country"));
         String state = optionalText(args, "state");
         return regulationRepository.region(country,
                 state == null ? null : RegulationController.requireCode(state, "state"));
@@ -349,8 +385,7 @@ public class McpToolCatalog {
             throw new InvalidDocumentException("fishId is required (get it from search_fish)");
         }
         String fishId = RiverController.normalizeGuid(fishText);
-        String country = optionalText(args, "country");
-        country = country == null ? null : RegulationController.requireCode(country, "country");
+        String country = requireCanada(optionalText(args, "country"));   // always CA: Canada only
         String state = optionalText(args, "state");
         state = state == null ? null : RegulationController.requireCode(state, "state");
         Integer locType = waterBodyTypes(args.get("types"));
@@ -414,6 +449,26 @@ public class McpToolCatalog {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, args.path("guid").asText());
         }
         return document;
+    }
+
+    /**
+     * The {@code guid} argument, canonical, and only if that water body is Canadian. Anything else -- a
+     * non-Canadian water body or an unknown id -- gets the same answer, so the tool cannot be used to probe
+     * what lies outside Canada.
+     */
+    private String requireCanadianGuid(JsonNode args) {
+        String guid = requireGuid(args);
+        if (riverRepository.canadianIds(List.of(guid)).isEmpty()) {
+            throw new InvalidDocumentException("No Canadian water body has id " + guid
+                    + " (this server covers Canadian water bodies only)");
+        }
+        return guid;
+    }
+
+    /** {@code CA} when the country argument is absent or CA (any case); anything else is a caller error. */
+    private static String requireCanada(String country) {
+        if (country == null || country.trim().equalsIgnoreCase("CA")) return "CA";
+        throw new InvalidDocumentException("Only Canada (CA) is available on this server");
     }
 
     /** The {@code guid} argument in canonical form; anything that is not a GUID never reaches SQL. */
