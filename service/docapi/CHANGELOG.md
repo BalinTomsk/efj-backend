@@ -3,7 +3,12 @@
 Split out of `AGENTS.md` for readability. Newest entries first.
 
 - 2026-10-05: **1.22.0 — tributaries: `GET /api/v1/river/tributaries/{guid}` and MCP tool `get_water_body_tributaries`.
-  NOT DEPLOYED, NOT COMMITTED.** Asked: "how many rivers come into the Humber River?" No tool could say; the only way
+  DEPLOYED 2026-10-05** (digest `sha256:7cc18f38…`, rollback `1.21.0`; merged as #118 = b1a2353, SQL as envfish-db #68 =
+  c51c3eb, applied by the user first). Clean start, `restarts=0`, no WARN/ERROR. **Verified on prod:** Humber River → 12
+  tributaries in 0.18 s (Berry, Black, Centreville, Cold, Emery, Humber, Purpleville, Rowntree and Silver creeks, East and
+  West Humber River, and Humber Springs Ponds, the headwater ponds that drain into it); malformed GUID 400, unknown 404;
+  MCP `tools/list` 6 for a user, `get_water_body_tributaries` total 12 / limit 3 → 3 shown.
+  Asked: "how many rivers come into the Humber River?" No tool could say; the only way
   was to search names containing "Humber" and check each one's mouth.
   - **What it answers:** the water bodies that flow INTO one water body, each once, by name: `{guid, lakeName, total,
     limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, link, lat, lon, country, state}]}`.
