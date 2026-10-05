@@ -2,6 +2,32 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-05: **1.22.0 — tributaries: `GET /api/v1/river/tributaries/{guid}` and MCP tool `get_water_body_tributaries`.
+  NOT DEPLOYED, NOT COMMITTED.** Asked: "how many rivers come into the Humber River?" No tool could say; the only way
+  was to search names containing "Humber" and check each one's mouth.
+  - **What it answers:** the water bodies that flow INTO one water body, each once, by name: `{guid, lakeName, total,
+    limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, link, lat, lon, country, state}]}`.
+    `link` is `mouth` (its `Tributaries` side-32 row points here) or `inflow` (a side-4 row this water body holds:
+    how `sp_add_tributary` records an inflow on a lake/pond/reservoir; used only when there is no mouth row).
+    lat/lon/country/state are the junction row's. Direct tributaries only.
+  - **SQL:** new `dbo.fn_lake_inflows_json(@lake_id, @limit)` (envfish-db `script02_Funct.sql`,
+    `unit_test@LakeInflows.sql`, 6 tests, first seen failing with Msg 4121). The mouth half reuses the existing,
+    until now uncalled, `dbo.fn_SubTributary`. Named "inflows", not "tributary", because `fn_lake_tributary_json`
+    already exists and means every link row a water body owns (the editor's Tributary tab), the other direction.
+  - **REST:** `?limit=` default 50, cap 200, garbage → default (as `/search`). Unknown GUID ⇒ 404; nothing flowing
+    in ⇒ 200 with `tributaries: []`. **The GUID is validated before the repository** (malformed ⇒ 400), unlike the
+    older `/{guid}` reads here, so a bad id never becomes a SQL conversion error on the shared `sqlBreaker`.
+  - **MCP:** 9 tools for admin, 6 for everyone else (it is not fish information). Parent must be Canadian, like
+    every `get_water_body*` tool. It asks SQL for 200, keeps the Canadian items (as `search_water_bodies` does, so
+    no listed item leads to a lookup that is then refused), counts them as `total`, cuts to `limit` (default 20,
+    max 50). `totalIsLowerBound: true` appears only when the water body has more than 200 inflows.
+  - **Tests:** `RiverControllerTest` +4, `McpControllerTest` +3 (and the tool counts 8→9 / 5→6; the non-Canadian test
+    now covers this tool too). 327 green.
+  - **Deploy order:** the user applies `dbo.fn_lake_inflows_json` to the docapi database **and it is confirmed from a
+    fresh connection to that database** → this image. Same trap as 1.21.0: without the function every call is SQL
+    4121, which counts against the shared `sqlBreaker` (4 failures open it for every SQL endpoint for 30 s). No cproxy
+    change: it fronts by verb, not path.
+
 - 2026-10-03: **1.21.0 — MCP: Canadian water bodies only; fish information for admins only. DEPLOYED 2026-10-04**
   (rollback `1.20.2`; healthy, `restarts=0`, no WARN/ERROR). Two earlier attempts the same day hit SQL 4121 (the new
   function was not yet on prod) and were rolled back after one failed call each.

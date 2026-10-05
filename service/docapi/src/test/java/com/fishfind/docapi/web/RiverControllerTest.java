@@ -336,6 +336,53 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
+    // ---- tributaries (1.22.0) ----
+
+    @Test
+    void tributariesNormalizeTheGuidAndDefaultTheLimit() throws Exception {
+        when(queryRepository.tributaries("4094e667-bbe3-11d8-92e2-080020a0f4c9", RiverController.SEARCH_DEFAULT_LIMIT))
+                .thenReturn(objectMapper.readTree("{\"guid\":\"4094E667-BBE3-11D8-92E2-080020A0F4C9\","
+                        + "\"lakeName\":\"Humber River\",\"total\":1,\"limit\":50,"
+                        + "\"tributaries\":[{\"lakeName\":\"East Humber River\",\"link\":\"mouth\"}]}"));
+
+        mockMvc.perform(get("/api/v1/river/tributaries/4094E667BBE311D892E2080020A0F4C9"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.tributaries[0].lakeName").value("East Humber River"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void tributariesCapTheLimitAndTreatGarbageAsTheDefault() throws Exception {
+        String id = "4094e667-bbe3-11d8-92e2-080020a0f4c9";
+        when(queryRepository.tributaries(eq(id), anyInt())).thenReturn(objectMapper.readTree("{\"tributaries\":[]}"));
+
+        mockMvc.perform(get("/api/v1/river/tributaries/" + id).param("limit", "5000")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/river/tributaries/" + id).param("limit", "x")).andExpect(status().isOk());
+
+        verify(queryRepository).tributaries(id, RiverController.SEARCH_MAX_LIMIT);
+        verify(queryRepository).tributaries(id, RiverController.SEARCH_DEFAULT_LIMIT);
+    }
+
+    @Test
+    void tributariesOfAnUnknownGuidAre404() throws Exception {
+        when(queryRepository.tributaries("00000000-0000-0000-0000-000000000000", RiverController.SEARCH_DEFAULT_LIMIT))
+                .thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/tributaries/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void tributariesOfAMalformedGuidAre400AndNeverQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/river/tributaries/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(queryRepository, never()).tributaries(anyString(), anyInt());
+    }
+
     // ---- PATCH source (merge patch) ----
 
     @Test

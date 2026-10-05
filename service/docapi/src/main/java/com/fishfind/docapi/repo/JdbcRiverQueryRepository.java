@@ -143,6 +143,30 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
         throw new RuntimeException("SQL river-mouth query failed for id " + lakeId, ex);
     }
 
+    /** The water bodies flowing into one water body (1.22.0); new in {@code envfish-db}, not a reused export. */
+    static final String TRIBUTARIES_SQL = "SELECT dbo.fn_lake_inflows_json(?, ?)";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "tributariesFallback")
+    public JsonNode tributaries(String lakeId, int limit) {
+        List<String> rows = jdbc.query(
+                TRIBUTARIES_SQL,
+                ps -> {
+                    ps.setString(1, lakeId);
+                    ps.setInt(2, limit);
+                },
+                (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #tributaries}. */
+    @SuppressWarnings("unused")
+    public JsonNode tributariesFallback(String lakeId, int limit, Throwable ex) {
+        throw new RuntimeException("SQL river-tributaries query failed for id " + lakeId, ex);
+    }
+
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")

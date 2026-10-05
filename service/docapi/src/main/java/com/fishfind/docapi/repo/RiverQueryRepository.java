@@ -66,6 +66,18 @@ public interface RiverQueryRepository {
     JsonNode mouth(String lakeId);
 
     /**
+     * The water bodies that flow INTO one water body (1.22.0) — those whose mouth ({@code Tributaries} side 32)
+     * is this one, plus the side-4 inflows recorded on it (a lake/pond/reservoir), each listed once. Backed by
+     * {@code dbo.fn_lake_inflows_json}.
+     *
+     * @param lakeId the water body's canonical GUID
+     * @param limit  maximum number of items (1..200); {@code total} still counts every inflow
+     * @return {@code {guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType,
+     *         CGNDB, link, lat, lon, country, state}]}} by name, or {@code null} if no water body exists for the id
+     */
+    JsonNode tributaries(String lakeId, int limit);
+
+    /**
      * Water-body lookup by any combination of criteria; every non-null one must match (AND). Backed by
      * {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs; at least one
      * criterion is non-null.

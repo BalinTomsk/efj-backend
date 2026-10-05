@@ -50,6 +50,12 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
         return null;
     }
 
+    /** No database: nothing to describe, so every id is "not found" (controller maps to 404). */
+    @Override
+    public JsonNode tributaries(String lakeId, int limit) {
+        return null;
+    }
+
     /** No database: nothing to find, so every search is an empty list. */
     @Override
     public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
