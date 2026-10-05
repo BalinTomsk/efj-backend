@@ -86,7 +86,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 **River / water-body lookups** (added on `RiverController` — calls `dbo.fn_river_unfished_json` /
 `dbo.fn_river_search_json` /
 `dbo.fn_lake_view_json` / `dbo.fn_lake_fishing_json` / `dbo.fn_lake_source_json` /
-`dbo.fn_lake_mouth_json` / `dbo.sp_lake_fish_upsert_batch` / `dbo.sp_lake_description_update` /
+`dbo.fn_lake_mouth_json` / `dbo.fn_lake_inflows_json` / `dbo.sp_lake_fish_upsert_batch` / `dbo.sp_lake_description_update` /
 `dbo.sp_lake_source_update` / `dbo.sp_lake_mouth_update`, all existing in `envfish-db`; see
 [Data access](#data-access)):
 
@@ -100,6 +100,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 | `PATCH` | `/api/v1/river/description/{guid}` | 200 | `{ lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}] }`; 400 on an invalid body, 404 if the guid is unknown |
 | `GET` | `/api/v1/river/source/{guid}` | 200 | the Source-tab document (`{guid, lakeName, sources:[{id, pointId, pointName, lat, lon, elevation, country, state, county, city, district, municipality, region, zone, coast, location, description, stamp}]}`); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/mouth/{guid}` | 200 | the Mouth-tab document, same shape as `source` under a `mouths` key; 404 if the guid is unknown |
+| `GET` | `/api/v1/river/tributaries/{guid}?limit=` | 200 | `{ guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, link, lat, lon, country, state}] }` — the water bodies flowing in, by name; empty `tributaries` when none; 400 on a malformed guid (before any SQL), 404 if the guid is unknown (1.22.0) |
 | `PATCH` | `/api/v1/river/source/{guid}` | 200 | `{ lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}] }`; 400 on an invalid body, 404 if the guid is unknown |
 | `PATCH` | `/api/v1/river/mouth/{guid}` | 200 | same shape as `PATCH .../source/{guid}`; 400 on an invalid body, 404 if the guid is unknown |
 
@@ -160,6 +161,15 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   backed by `dbo.fn_lake_source_json` / `dbo.fn_lake_mouth_json` — already live in prod (same
   2026-08-13 rollout as the other Save-JSON tab functions), so no new DB object for the read side.
   Unknown/NULL guid ⇒ 404. Same public-data reasoning as `description`/`fish`.
+- `GET /api/v1/river/tributaries/{guid}?limit=` (1.22.0) — the water bodies that flow INTO one water body,
+  the reverse of `source`/`mouth`, via the new `dbo.fn_lake_inflows_json` (`unit_test@LakeInflows.sql`). An
+  inflow is a water body whose mouth (`Tributaries` side 32) is this one (`link: "mouth"`, read through
+  `dbo.fn_SubTributary`), or a side-4 row this water body holds (`link: "inflow"`, how `sp_add_tributary`
+  records an inflow on a lake; used only when there is no mouth row). Each is listed once; lat/lon/country/state
+  are the junction row's. Direct tributaries only. `limit` default 50, cap 200, non-numeric ⇒ default; `total`
+  counts every inflow. The path GUID is normalized first (36-char, 32-hex or braced); anything else ⇒ 400 with
+  no SQL. Not to be confused with `dbo.fn_lake_tributary_json`, the editor's Tributary-tab export, which
+  lists the rows a water body owns (the other direction) and has no endpoint.
 - `PATCH /api/v1/river/source/{guid}` / `PATCH /api/v1/river/mouth/{guid}` — the write counterparts: a
   JSON **merge patch** of that tab's editable fields on `Editor/EditLakeLink.aspx` (`ButtonSubmit_Click`)
   — `lat`, `lon`, `elevation`, `country`, `state`, `county`, `city`, `district`, `municipality`,
@@ -349,6 +359,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 | `get_water_body` | `guid` | `RiverQueryRepository.description` |
 | `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
 | `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |
+| `get_water_body_tributaries` (1.22.0) | `guid`; `limit` 1..50 (default 20) | `RiverQueryRepository.tributaries` (200) → `canadianIds` filter → first `limit` → `{guid, lakeName, total, limit, tributaries}`; `total` counts the Canadian ones, `totalIsLowerBound: true` only when the water body has over 200 inflows |
 | `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
 | `get_region_regulations` | `country` CA only (absent = CA), optional `state` | `RegulationQueryRepository.region` |
 | `search_fish` (admin) | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
@@ -358,7 +369,7 @@ Rules:
 
 - **Canadian water bodies only (1.21.0).** A water body is Canadian when it has a CGNDB code, or its source
   (Tributaries side 16) or mouth (side 32) is in `CA` — `RiverQueryRepository.canadianIds` →
-  `dbo.fn_lake_canadian_ids_json`. Search results are filtered; every `guid` tool checks first and answers a
+  `dbo.fn_lake_canadian_ids_json`. Search and tributary results are filtered; every `guid` tool checks first and answers a
   non-Canadian id exactly like an unknown one (`isError`), with no further query.
 - **Fish information for admins only (1.21.0).** The role is `X-Fish-Role`, which cproxy sets from the MCP
   key's owning account (`admin` for `users_sync.access = 255` and for hand-made operator keys, else `user`).
@@ -1255,7 +1266,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsCacheTest` (42 tests) — both news caches: US/CA bucketing, LRU of other requests, deep pages cached after their first load, clear/eviction, `/import` evicting **every** cached entry, plus the "only on a cold entry" guarantees — 16 concurrent requests produce one query for `/list`, `/default`, a document, `/export`, `/search` and `/photo`, and unknown ids are remembered, bounded, TTL-expiring and dropped on update. **Since 2026-09-17** it also pins the five new LRUs: each bounded at its configured size (default 25), export/photo keyed case-insensitively, the search term keyed case-**sensitively** (the response echoes `query` verbatim), species-id order not splitting one search across two entries, `limit` being part of the lake/fish key, and a miss NOT being stored. The four tests that used to pin those endpoints as deliberate read-throughs were replaced by their opposites. **Since 1.15.2** one more test sets three *different* non-default bounds and asserts each reaches its own cache, since every other test here runs on the defaults and would still pass if the properties were ignored.
 - `NewsCachePropertiesTest` (3, 1.15.2) — defaults still equal the constants they replaced; every `docapi.cache.*` key binds to its own field (distinct values, so a field wired to the wrong key fails rather than coincidentally matching); and the environment-variable forms the runbook tells an operator to use actually bind, notably `docapi.cache.water-body` reached as `DOCAPI_CACHE_WATERBODY`.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (37 tests): `/river/search` (items/total/limit/echoed query; GUID and CGNDB normalization, upper-case parameter names, limit cap; 400 with no criterion or a malformed guid/cgndb/name/mli, repository never called), `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (41 tests): `/river/tributaries/{guid}` (GUID normalized, limit default/cap, 404 unknown, 400 malformed with the repository never called), `/river/search` (items/total/limit/echoed query; GUID and CGNDB normalization, upper-case parameter names, limit cap; 400 with no criterion or a malformed guid/cgndb/name/mli, repository never called), `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
 - `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`
   `RegulationQueryRepository` + `RegulationCommandRepository` (11 tests): `GET /river/regulation/{guid}`
   (200 doc / 404 unknown), `PATCH /river/regulation/{guid}` (200 result envelope, asserts via an
@@ -1270,10 +1281,10 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (33 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
-  `find_water_bodies_by_fish` cases, 1.21.0 the role and Canada-only cases; requests run as admin unless a
+  regulation/fish query repositories (36 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
+  `find_water_bodies_by_fish` cases, 1.21.0 the role and Canada-only cases, 1.22.0 the tributaries cases; requests run as admin unless a
   test says otherwise, and `canadianIds` passes every id unless a test overrides it): initialize (version echo, newest offered for an unknown one, no
-  session header), 202 for a notification, ping, `tools/list` (8 tools for admin, 5 for anyone else, all read-only), `-32601`/`-32602`/
+  session header), 202 for a notification, ping, `tools/list` (9 tools for admin, 6 for anyone else, all read-only), `-32601`/`-32602`/
   `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
   happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth
   (including a `Photo0` key), and a repository exception becoming a temporary tool error with no SQL detail.

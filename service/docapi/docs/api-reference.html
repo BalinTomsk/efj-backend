@@ -421,7 +421,7 @@
       <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed; 5 PATCH writes fronted (Bearer-token gated); source/mouth GET+PATCH deployed and verified live 2026‑09‑09</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
-      <div class="status-tile"><span class="ctrl-name">MCP</span><span class="ctrl-state live">Live</span><span class="ctrl-note">docapi 1.20.0 deployed 2026‑10‑01; reachable from MCP clients once cproxy 0.20.0 ships</span></div>
+      <div class="status-tile"><span class="ctrl-name">MCP</span><span class="ctrl-state live">Live</span><span class="ctrl-note">docapi 1.21.0 live 2026‑10‑04 at mcp.fishfind.info (cproxy MCP keys); 1.22.0 adds a tributaries tool, not deployed</span></div>
     </div>
   </section>
 
@@ -1267,6 +1267,50 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
     <div class="endpoint">
       <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/tributaries/<span class="param">{guid}</span>?limit=</span></div>
+        <span class="specimen-label">Water bodies flowing in &mdash; the reverse of source/mouth</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;10&#8209;05, docapi 1.22.0 &mdash; NOT DEPLOYED.</strong> Needs <code>dbo.fn_lake_inflows_json</code> on the docapi database first (<code>envfish-db/mssql/ADMIN_WRITE_lake_inflows.sql</code>); without it every call is SQL 4121 and counts against the shared <code>sqlBreaker</code>.</p>
+        <p class="prose" style="margin:2px 0 14px;">The water bodies that flow <strong>into</strong> this one, each once, by name (<code>dbo.fn_lake_inflows_json</code>). <code>link</code> says how it is recorded: <code>mouth</code> &mdash; that water body&rsquo;s mouth (<code>Tributaries</code> side 32) is this one; <code>inflow</code> &mdash; this water body holds a side-4 row for it (how an inflow into a lake is recorded), used only when there is no mouth row. <code>lat</code>/<code>lon</code>/<code>country</code>/<code>state</code> are where it joins. Direct tributaries only: ask again on one to go further upstream.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">guid</td><td>36-char, 32-hex or braced. Anything else &rarr; <code>400 invalid_document</code> before any SQL runs (unlike the older <code>/{guid}</code> reads above).</td></tr>
+            <tr><td class="pname">limit</td><td>default 50, capped at 200; non-numeric or &lt;1 &rarr; the default. <code>total</code> always counts every inflow.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Humber River (ON)</strong> &mdash; shape derived from the code and the prod mouth rows of these three; not captured from this endpoint (not deployed). <code>total</code> also counts tributaries whose name lacks &ldquo;Humber&rdquo;.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/tributaries/4094e667-bbe3-11d8-92e2-080020a0f4c9?limit=3</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"guid"</span><span class="p">:</span> <span class="s">"4094E667-BBE3-11D8-92E2-080020A0F4C9"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Humber River"</span><span class="p">,</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">…</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">3</span><span class="p">,</span>
+    <span class="k">"tributaries"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"0C39655D-849C-20C3-6FD6-B596C1C5246D"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"East Humber River"</span><span class="p">,</span> <span class="k">"locType"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span> <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"FBBGB"</span><span class="p">,</span>
+        <span class="k">"link"</span><span class="p">:</span> <span class="s">"mouth"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">43.7882</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-79.5898</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"ON"</span><span class="p">,</span> <span class="k">"altName"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"frenchName"</span><span class="p">:</span> <span class="z">null</span> <span class="p">},</span>
+      <span class="p">{</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Humber Creek"</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"mouth"</span><span class="p">,</span> <span class="n">…</span> <span class="p">},</span> <span class="p">{</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"West Humber River"</span><span class="p">,</span> <span class="k">"link"</span><span class="p">:</span> <span class="s">"mouth"</span><span class="p">,</span> <span class="n">…</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Malformed guid</strong> &mdash; refused before SQL.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/tributaries/not-a-guid</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"guid is not a valid GUID"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>. A known water body with nothing flowing in is a <code>200</code> with <code>"tributaries": []</code>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/tributaries/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/source/<span class="param">{guid}</span></span></div>
         <span class="specimen-label">JSON merge patch — admin Save-JSON Source-tab duplicate</span>
       </div>
@@ -1489,9 +1533,9 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
   <section class="block" id="mcp">
     <div class="block-head">
       <h2 class="display">MCP</h2>
-      <span class="tag">McpController · docapi 1.20.0 · deployed 2026‑10‑01</span>
+      <span class="tag">McpController · docapi 1.21.0 live · 1.22.0 not deployed</span>
     </div>
-    <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;30, docapi 1.20.0 &mdash; DEPLOYED 2026&#8209;10&#8209;01</strong>, verified on the droplet against production data (every tool answers, no photo fields). A Model Context Protocol server for Claude Desktop and Claude Code: seven read-only tools over the same repositories the River, Regulation and Fish endpoints use. <strong>Not reachable from an MCP client yet</strong>: through cproxy every <code>POST</code> needs the day-key Bearer token, which expires at UTC midnight and an MCP client cannot renew. The path needs its own long-lived credential in cproxy first.</p>
+    <p class="prose" style="margin-bottom:18px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;09&#8209;30, docapi 1.20.0 &mdash; DEPLOYED 2026&#8209;10&#8209;01</strong>, verified on the droplet against production data (every tool answers, no photo fields). A Model Context Protocol server for Claude Desktop and Claude Code: read-only tools over the same repositories the River, Regulation and Fish endpoints use &mdash; eight in 1.21.0 (live 2026&#8209;10&#8209;04), nine in 1.22.0 (adds <code>get_water_body_tributaries</code>, not deployed). Clients reach it at <code>mcp.fishfind.info</code> through cproxy with a long-lived MCP key (self-service on the portal&rsquo;s Profile page), not the day-key token.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -1507,6 +1551,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
             <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document</td></tr>
             <tr><td class="pname">get_water_body_fish <em>(admin)</em></td><td><code>guid</code></td><td>the <code>/river/fish</code> document with <strong>each species once</strong> (1.20.1, deployed 2026&#8209;10&#8209;01): the highest-probability entry of each. <code>lake_fish</code>&rsquo;s key is (water body, species, probability), so REST returns one row per probability level.</td></tr>
             <tr><td class="pname">get_water_body_links</td><td><code>guid</code></td><td><code>{source, mouth}</code> &mdash; the two link documents</td></tr>
+            <tr><td class="pname">get_water_body_tributaries</td><td><code>guid</code>; <code>limit</code> 1&ndash;50, default 20</td><td><code>{guid, lakeName, total, limit, tributaries}</code> from <code>/river/tributaries</code>, Canadian items only; <code>totalIsLowerBound: true</code> when the water body has over 200 inflows (1.22.0, not deployed)</td></tr>
             <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
             <tr><td class="pname">get_region_regulations</td><td><code>country</code> (CA only), optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
             <tr><td class="pname">search_fish <em>(admin)</em></td><td><code>query</code></td><td>the <code>/fish/search</code> page</td></tr>
@@ -1514,7 +1559,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           </tbody>
         </table>
         <ul class="notes">
-          <li><strong>Canadian water bodies only (1.21.0).</strong> A water body is shown when it has a CGNDB code or its source or mouth is in Canada. Search results are filtered; a non-Canadian GUID is answered like an unknown one.</li>
+          <li><strong>Canadian water bodies only (1.21.0).</strong> A water body is shown when it has a CGNDB code or its source or mouth is in Canada. Search and tributary results are filtered; a non-Canadian GUID is answered like an unknown one.</li>
           <li><strong>Fish information for admins only (1.21.0).</strong> cproxy sends <code>X-Fish-Role</code> from the MCP key&rsquo;s owning account. For anyone but <code>admin</code> the tools marked <em>(admin)</em> are not listed and are an unknown tool if called, and <code>get_water_body</code> has no <code>fish</code> list.</li>
           <li><strong>No photos.</strong> Every result has every photo field removed at any depth (<code>pic</code>, <code>images</code>, <code>photo*</code>, &hellip;) &mdash; the description&rsquo;s gallery and the source/mouth <code>pic</code> never leave through this endpoint.</li>
           <li><strong>Arguments are checked before any SQL runs.</strong> A malformed GUID is a tool error, so a model retrying a bad call cannot trip the shared <code>sqlBreaker</code>.</li>

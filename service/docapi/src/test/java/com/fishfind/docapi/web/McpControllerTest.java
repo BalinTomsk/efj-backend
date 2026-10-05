@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -128,10 +129,10 @@ class McpControllerTest {
     }
 
     @Test
-    void toolsListPublishesEightReadOnlyTools() throws Exception {
+    void toolsListPublishesNineReadOnlyTools() throws Exception {
         rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.tools", hasSize(8)))
+                .andExpect(jsonPath("$.result.tools", hasSize(9)))
                 .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
                 .andExpect(jsonPath("$.result.tools[0].inputSchema.type").value("object"))
                 .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(0)));
@@ -315,6 +316,67 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.content[0].text", not(containsString("QUJD"))));
     }
 
+    // ---- 1.22.0: get_water_body_tributaries ---------------------------------------------------
+
+    private static final String TRIB_US = "11111111-1111-1111-1111-111111111111";
+    private static final String TRIB_A = "22222222-2222-2222-2222-222222222222";
+    private static final String TRIB_B = "33333333-3333-3333-3333-333333333333";
+
+    private void humberWithThreeTributaries(int sqlTotal) throws Exception {
+        when(riverRepository.tributaries(GUID, RiverController.SEARCH_MAX_LIMIT)).thenReturn(objectMapper.readTree(
+                "{\"guid\":\"" + GUID + "\",\"lakeName\":\"Humber River\",\"total\":" + sqlTotal + ",\"limit\":200,"
+                        + "\"tributaries\":["
+                        + "{\"lakeId\":\"" + TRIB_A.toUpperCase() + "\",\"lakeName\":\"East Humber River\",\"link\":\"mouth\"},"
+                        + "{\"lakeId\":\"" + TRIB_US + "\",\"lakeName\":\"Over The Border Creek\",\"link\":\"mouth\"},"
+                        + "{\"lakeId\":\"" + TRIB_B + "\",\"lakeName\":\"West Humber River\",\"link\":\"inflow\",\"pic\":\"QUJD\"}]}"));
+    }
+
+    @Test
+    void tributariesKeepOnlyCanadianOnesThenApplyTheLimit() throws Exception {
+        humberWithThreeTributaries(3);
+        doAnswer(inv -> ((Collection<String>) inv.getArgument(0)).stream()
+                .map(id -> id.toUpperCase(Locale.ROOT)).filter(id -> !id.equals(TRIB_US))
+                .collect(Collectors.toSet())).when(riverRepository).canadianIds(any());
+
+        callAs("user", "get_water_body_tributaries", "{\"guid\":\"" + GUID.toUpperCase() + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.lakeName").value("Humber River"))
+                .andExpect(jsonPath("$.result.structuredContent.total").value(2))
+                .andExpect(jsonPath("$.result.structuredContent.limit").value(20))
+                .andExpect(jsonPath("$.result.structuredContent.totalIsLowerBound").doesNotExist())
+                .andExpect(jsonPath("$.result.structuredContent.tributaries", hasSize(2)))
+                .andExpect(jsonPath("$.result.structuredContent.tributaries[0].lakeName").value("East Humber River"))
+                .andExpect(jsonPath("$.result.structuredContent.tributaries[1].link").value("inflow"))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("Over The Border"))))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("QUJD"))));
+        callAs("user", "get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":1}")
+                .andExpect(jsonPath("$.result.structuredContent.total").value(2))
+                .andExpect(jsonPath("$.result.structuredContent.tributaries", hasSize(1)));
+    }
+
+    @Test
+    void tributariesSayWhenTheTotalIsOnlyALowerBound() throws Exception {
+        humberWithThreeTributaries(250);
+
+        call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":500}")
+                .andExpect(jsonPath("$.result.structuredContent.total").value(3))
+                .andExpect(jsonPath("$.result.structuredContent.totalIsLowerBound").value(true))
+                .andExpect(jsonPath("$.result.structuredContent.limit").value(McpToolCatalog.SEARCH_MAX_LIMIT));
+    }
+
+    @Test
+    void tributariesOfAnUnknownWaterBodyOrABadArgumentAreToolErrors() throws Exception {
+        when(riverRepository.tributaries(GUID, RiverController.SEARCH_MAX_LIMIT)).thenReturn(null);
+        call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+
+        call("get_water_body_tributaries", "{\"guid\":\"not-a-guid\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":\"many\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        verify(riverRepository).tributaries(any(), anyInt());   // only the first call got that far
+    }
+
     @Test
     void regionRegulationsValidateTheCodes() throws Exception {
         when(regulationRepository.region("CA", "ON"))
@@ -380,10 +442,10 @@ class McpControllerTest {
     private static final Set<String> FISH_TOOLS = Set.of("get_water_body_fish", "search_fish", "find_water_bodies_by_fish");
 
     @Test
-    void aGuestOrUserSeesFiveToolsAndNoFishTools() throws Exception {
+    void aGuestOrUserSeesSixToolsAndNoFishTools() throws Exception {
         for (String role : new String[] {null, "guest", "user", "superuser"}) {
             rpcAs(role, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
-                    .andExpect(jsonPath("$.result.tools", hasSize(5)))
+                    .andExpect(jsonPath("$.result.tools", hasSize(6)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'get_water_body_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'search_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'find_water_bodies_by_fish')]", hasSize(0)));
@@ -423,7 +485,7 @@ class McpControllerTest {
     void aNonCanadianWaterBodyIsAnsweredLikeAnUnknownOne() throws Exception {
         doReturn(Set.of()).when(riverRepository).canadianIds(any());
 
-        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_regulations",
+        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_tributaries", "get_water_body_regulations",
                 "get_water_body_fish")) {
             callAs("admin", tool, "{\"guid\":\"" + GUID + "\"}")
                     .andExpect(jsonPath("$.result.isError").value(true))
@@ -431,6 +493,7 @@ class McpControllerTest {
         }
         verify(riverRepository, never()).description(any());
         verify(riverRepository, never()).source(any());
+        verify(riverRepository, never()).tributaries(any(), anyInt());
         verify(riverRepository, never()).fish(any());
         verify(regulationRepository, never()).lakeRegulation(any());
     }

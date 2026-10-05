@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
  *
  * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB code or
  * its source or mouth is in Canada ({@code dbo.fn_lake_canadian_ids_json}, through
- * {@link RiverQueryRepository#canadianIds}). Search results are filtered; a lookup by a non-Canadian GUID is
+ * {@link RiverQueryRepository#canadianIds}). Search and tributary results are filtered; a lookup by a non-Canadian GUID is
  * answered like an unknown one; regulations and the species tool accept country {@code CA} only.
  *
  * <p><strong>Fish information is for admins only</strong> (1.21.0). The caller's role is cproxy's
@@ -163,6 +163,20 @@ public class McpToolCatalog {
                 "Where one water body starts (source) and where it drains (mouth): the linked water "
                         + "body or point for each end, with coordinates, elevation and location.",
                 guidSchema(), false, (args, role) -> links(args));
+
+        add("get_water_body_tributaries", "Water bodies flowing into a water body",
+                "The rivers, creeks and other water bodies that flow INTO one water body (its "
+                        + "tributaries), by name: those whose mouth is this water body, plus the inflows "
+                        + "recorded on a lake. `link` says which (mouth / inflow); lat/lon is where it joins. "
+                        + "Returns `total` (how many) and up to `limit` of them, each with its `lakeId`. "
+                        + "Canadian water bodies only. Only direct tributaries: call again on one to go "
+                        + "further upstream.",
+                """
+                {"type":"object","properties":{
+                  "guid":{"type":"string","description":"The water body's lakeId GUID, from search_water_bodies"},
+                  "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
+                },"required":["guid"],"additionalProperties":false}""",
+                false, (args, role) -> tributaries(args));
 
         add("get_water_body_regulations", "Water body fishing regulations",
                 "The fishing regulations specific to one water body. Province/state-wide rules also "
@@ -339,6 +353,41 @@ public class McpToolCatalog {
         ObjectNode out = objectMapper.createObjectNode();
         out.set("source", source);
         out.set("mouth", riverRepository.mouth(guid));
+        return out;
+    }
+
+    /**
+     * The direct tributaries of one Canadian water body. Asks for the most the function allows, keeps the
+     * Canadian ones (as {@code search_water_bodies} does, so no item leads to a lookup that is then refused), then
+     * cuts to the caller's limit. {@code total} counts the Canadian ones among those examined; when the water body
+     * has more inflows than one query returns, {@code totalIsLowerBound} says so.
+     */
+    private JsonNode tributaries(JsonNode args) {
+        String guid = requireCanadianGuid(args);
+        int limit = boundedInt(args, "limit", SEARCH_DEFAULT_LIMIT, 1, SEARCH_MAX_LIMIT);
+        JsonNode doc = found(riverRepository.tributaries(guid, RiverController.SEARCH_MAX_LIMIT), args);
+
+        JsonNode candidates = doc.path("tributaries");
+        List<String> ids = new java.util.ArrayList<>();
+        candidates.forEach(c -> ids.add(c.path("lakeId").asText("")));
+        Set<String> canadian = riverRepository.canadianIds(ids.stream().filter(i -> !i.isEmpty()).toList());
+        ArrayNode items = objectMapper.createArrayNode();
+        int total = 0;
+        for (JsonNode c : candidates) {
+            if (canadian.contains(c.path("lakeId").asText("").toUpperCase(Locale.ROOT))) {
+                if (items.size() < limit) items.add(c);
+                total++;
+            }
+        }
+        ObjectNode out = objectMapper.createObjectNode();
+        out.set("guid", doc.get("guid"));
+        out.set("lakeName", doc.get("lakeName"));
+        out.put("total", total);
+        if (doc.path("total").asInt(0) > candidates.size()) {
+            out.put("totalIsLowerBound", true);
+        }
+        out.put("limit", limit);
+        out.set("tributaries", items);
         return out;
     }
 

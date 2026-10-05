@@ -80,6 +80,9 @@ import java.util.regex.Pattern;
  * name, either GUID ({@code lake_id} / {@code secondary_id}), either CGNDB code ({@code CGNDB} /
  * {@code CGNDM}) or the MLI of a linked water station, via {@code dbo.fn_river_search_json}. Every
  * supplied criterion must match; parameter names are case-insensitive ({@code CGNDB=}, {@code MLI=}).
+ *
+ * <p>{@code GET /api/v1/river/tributaries/{guid}?limit=} (1.22.0) lists the water bodies that flow INTO one
+ * water body — the reverse of {@code /source} and {@code /mouth} — via {@code dbo.fn_lake_inflows_json}.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -375,6 +378,31 @@ public class RiverController {
         JsonNode document = queryRepository.mouth(guid);
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * The water bodies that flow into one water body (1.22.0): those whose mouth is this one, plus the
+     * inflows recorded on it (a lake), each once, by name.
+     *
+     * <p>Unlike the older {@code /{guid}} reads here, the GUID is validated before the repository is called:
+     * a malformed one would otherwise be a SQL conversion error counted by the shared {@code sqlBreaker}.
+     *
+     * @param guid  the water body's GUID (36-char, 32-hex or braced)
+     * @param limit null/&lt;1/non-numeric → {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT}
+     * @return {@code {guid, lakeName, total, limit, tributaries}} nested in the response envelope; an empty
+     *         {@code tributaries} (never 404) when nothing flows in
+     * @throws InvalidDocumentException  if {@code guid} is not a GUID (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/tributaries/{guid}")
+    public ApiResponse<JsonNode> tributaries(@PathVariable String guid,
+                                             @RequestParam(required = false) String limit) {
+        String id = normalizeGuid(guid);
+        JsonNode document = queryRepository.tributaries(id, parseLimit(limit));
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
         }
         return ApiResponse.ok(document);
     }
