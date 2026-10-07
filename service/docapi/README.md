@@ -215,7 +215,7 @@ bare `X-Day-Guid` header is no longer accepted) — see `efc-proxy` `AGENTS.md` 
 keys present in the body are touched) of the `Editor/LakeEditor.aspx` "General" tab's editable
 fields, via the new `dbo.sp_lake_description_update`. Covers every field
 `fn_lake_description_json` exports — name variants, `link`, `type`, the size/measurement fields,
-`cgndb`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description` —
+`cgndb`, `stateId`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description` —
 **except** the identity/linkage fields the same admin page shows read-only in this exact spot:
 `lakeName`, `source`/`sourceId`, `mouth`/`mouthId`. Those are reported back as `protectedFields`
 rather than silently dropped or applied. `noFish` is blocked (reported `ignored`) while the lake has

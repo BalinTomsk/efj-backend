@@ -76,10 +76,11 @@ import java.util.regex.Pattern;
  * reporting them back as {@code protectedFields} rather than silently dropping or applying them, same
  * as {@code description}.
  *
- * <p>{@code GET /api/v1/river/search?name=&guid=&cgndb=&mli=&limit=} finds water bodies by part of a
+ * <p>{@code GET /api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&limit=} finds water bodies by part of a
  * name, either GUID ({@code lake_id} / {@code secondary_id}), either CGNDB code ({@code CGNDB} /
- * {@code CGNDM}) or the MLI of a linked water station, via {@code dbo.fn_river_search_json}. Every
- * supplied criterion must match; parameter names are case-insensitive ({@code CGNDB=}, {@code MLI=}).
+ * {@code CGNDM}), the province's/state's own id ({@code state_id}, 1.23.0) or the MLI of a linked water
+ * station, via {@code dbo.fn_river_search_json}. Every supplied criterion must match; parameter names are
+ * case-insensitive ({@code CGNDB=}, {@code MLI=}, {@code stateid=}).
  *
  * <p>{@code GET /api/v1/river/tributaries/{guid}?limit=} (1.22.0) lists the water bodies that flow INTO one
  * water body — the reverse of {@code /source} and {@code /mouth} — via {@code dbo.fn_lake_inflows_json}.
@@ -113,6 +114,12 @@ public class RiverController {
 
     /** CGNDB / CGNDM are {@code char(5)} alphanumeric codes. */
     private static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,5}");
+
+    /**
+     * {@code lake.state_id} is {@code varchar(32)}: a province's/state's own id (BC GNIS id {@code 39325},
+     * Alberta FWMIS id {@code 4309}; other jurisdictions use letters and separators, e.g. {@code 27-0133-00}).
+     */
+    static final Pattern STATE_ID_PATTERN = Pattern.compile("[A-Za-z0-9._/-]{1,32}");
 
     /** A GUID in 32-hex form once braces, dashes and whitespace are stripped. */
     private static final Pattern HEX32_PATTERN = Pattern.compile("[0-9a-f]{32}");
@@ -164,7 +171,8 @@ public class RiverController {
      * @param params {@code name} (≥ {@value #SEARCH_MIN_NAME} chars, substring of the primary/alt/French
      *               name), {@code guid} (36-char, 32-hex or braced; matches {@code lake_id} or
      *               {@code secondary_id}), {@code cgndb} (1–5 letters/digits; matches {@code CGNDB} or
-     *               {@code CGNDM}), {@code mli} (station id), {@code limit} (null/&lt;1 →
+     *               {@code CGNDM}), {@code stateId} (1–32 letters/digits/{@code . _ / -}; matches
+     *               {@code state_id} exactly), {@code mli} (station id), {@code limit} (null/&lt;1 →
      *               {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT})
      * @return {@code {items, total, limit, query}} — {@code items} is empty (never 404) when nothing matches
      * @throws InvalidDocumentException if no criterion is given or one is malformed (→ 400)
@@ -174,9 +182,10 @@ public class RiverController {
         String name = trimToNull(param(params, "name"));
         String guid = trimToNull(param(params, "guid"));
         String cgndb = trimToNull(param(params, "cgndb"));
+        String stateId = trimToNull(param(params, "stateId"));
         String mli = trimToNull(param(params, "mli"));
-        if (name == null && guid == null && cgndb == null && mli == null) {
-            throw new InvalidDocumentException("At least one of name, guid, cgndb, mli is required");
+        if (name == null && guid == null && cgndb == null && stateId == null && mli == null) {
+            throw new InvalidDocumentException("At least one of name, guid, cgndb, stateId, mli is required");
         }
         if (name != null && (name.length() < SEARCH_MIN_NAME || name.length() > SEARCH_MAX_TERM)) {
             throw new InvalidDocumentException(
@@ -191,18 +200,28 @@ public class RiverController {
                 throw new InvalidDocumentException("cgndb must be 1 to 5 letters or digits");
             }
         }
+        if (stateId != null) {
+            checkStateId(stateId);
+        }
         if (mli != null && mli.length() > SEARCH_MAX_TERM) {
             throw new InvalidDocumentException("mli must not exceed " + SEARCH_MAX_TERM + " characters");
         }
         int limit = parseLimit(param(params, "limit"));
 
-        JsonNode items = queryRepository.search(name, guid, cgndb, mli, limit);
+        JsonNode items = queryRepository.search(name, guid, cgndb, stateId, mli, limit);
         return ApiResponse.ok(new RiverSearchPage(items, items.size(), limit,
-                new RiverSearchQuery(name, guid, cgndb, mli)));
+                new RiverSearchQuery(name, guid, cgndb, stateId, mli)));
     }
 
     /** The echoed, normalized criteria of a search ({@code null} for any not supplied). */
-    public record RiverSearchQuery(String name, String guid, String cgndb, String mli) {
+    public record RiverSearchQuery(String name, String guid, String cgndb, String stateId, String mli) {
+    }
+
+    /** Rejects a {@code stateId} that cannot be a {@code lake.state_id}; shared with the MCP search tool. */
+    static void checkStateId(String stateId) {
+        if (!STATE_ID_PATTERN.matcher(stateId).matches()) {
+            throw new InvalidDocumentException("stateId must be 1 to 32 letters, digits or . _ / -");
+        }
     }
 
     /**

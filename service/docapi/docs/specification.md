@@ -93,7 +93,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`) |
-| `GET` | `/api/v1/river/search?name=&guid=&cgndb=&mli=&limit=` | 200 | `{ items:[{lakeId, secondaryId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, country, state, mli:[…]}], total, limit, query:{name, guid, cgndb, mli} }`; empty `items` when nothing matches; 400 when no criterion is given or one is malformed |
+| `GET` | `/api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&limit=` | 200 | `{ items:[{lakeId, secondaryId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[…]}], total, limit, query:{name, guid, cgndb, mli} }`; empty `items` when nothing matches; 400 when no criterion is given or one is malformed |
 | `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth, fish, base64 photo gallery); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/fish/{guid}` | 200 | the assigned-species document (every `lake_fish` row: name, latin, conservation status, last-catch, external link); 404 if the guid is unknown |
 | `PATCH` | `/api/v1/river/fish/{guid}` | 200 | one result per input entry, in order: `[{fishId, fishName, action}, …]`, `action` one of `inserted`/`updated`/`skipped`/`unknown_fish`/`invalid_fish_id`; 400 on an invalid body, 404 if the guid is unknown |
@@ -113,13 +113,14 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 - `GET /api/v1/river/search` (1.19.0) — water-body lookup via `dbo.fn_river_search_json`. `name` (2–64
   chars) is a substring of `lake_name`/`alt_name`/`french_name`; `guid` matches `lake_id` **or**
   `secondary_id` (36-char, 32-hex or braced — normalized to canonical lower case, else 400); `cgndb`
-  matches `CGNDB` **or** `CGNDM` (1–5 letters/digits, upper-cased, else 400); `mli` (≤ 64) matches the
-  water body a `WaterStation` with that MLI is linked to. At least one is required (else 400); several
-  are ANDed. Parameter names are case-insensitive (`CGNDB=`, `MLI=`). `limit` defaults to 50, capped at
+  matches `CGNDB` **or** `CGNDM` (1–5 letters/digits, upper-cased, else 400); `stateId` (1.23.0) matches
+  `state_id`, the province's/state's own id, exactly (1–32 letters, digits or `. _ / -`, else 400); `mli`
+  (≤ 64) matches the water body a `WaterStation` with that MLI is linked to. At least one is required
+  (else 400); several are ANDed. Parameter names are case-insensitive (`CGNDB=`, `MLI=`, `stateid=`). `limit` defaults to 50, capped at
   200; a missing/non-numeric/<1 value falls back to the default. Ordered exact name, then name prefix,
   then the rest, by `lake_name`. The function drives the lookup from the most selective key supplied
-  (guid → CGNDB → MLI → name), so only a name-only search scans `lake`. `mli` in each item lists every
-  station linked to that water body. Covered by `unit_test@RiverSearch.sql` (7 tests).
+  (guid → CGNDB → state id → MLI → name), so only a name-only search scans `lake`. `mli` in each item lists
+  every station linked to that water body. Covered by `unit_test@RiverSearch.sql` (9 tests).
 - `GET /api/v1/river/description/{guid}` — a native duplicate of the admin "Save JSON" View-tab export
   (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already
   live in prod (added 2026-08-14 for the admin Save-JSON tabs), so no new DB object. Unknown/NULL guid
@@ -355,7 +356,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 
 | Tool | Arguments | Backing |
 |------|-----------|---------|
-| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (200 candidates) → `canadianIds` filter → first `limit` → `{items, total, limit}` |
+| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (200 candidates) → `canadianIds` filter → first `limit` → `{items, total, limit}` |
 | `get_water_body` | `guid` | `RiverQueryRepository.description` |
 | `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
 | `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |

@@ -51,7 +51,7 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
      * Water-body search by name part / either GUID / either CGNDB code / station MLI, as one JSON
      * array. The function picks the most selective supplied key to drive the lookup.
      */
-    static final String SEARCH_SQL = "SELECT dbo.fn_river_search_json(?, ?, ?, ?, ?)";
+    static final String SEARCH_SQL = "SELECT dbo.fn_river_search_json(?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -170,15 +170,16 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")
-    public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
+    public JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit) {
         List<String> rows = jdbc.query(
                 SEARCH_SQL,
                 ps -> {
                     ps.setString(1, name);
                     ps.setString(2, guid);
                     ps.setString(3, cgndb);
-                    ps.setString(4, mli);
-                    ps.setInt(5, limit);
+                    ps.setString(4, stateId);
+                    ps.setString(5, mli);
+                    ps.setInt(6, limit);
                 },
                 (rs, i) -> rs.getString(1));
         String json = rows.isEmpty() ? null : rows.get(0);
@@ -218,7 +219,8 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
 
     /** Circuit-breaker fallback for {@link #search}. */
     @SuppressWarnings("unused")
-    public JsonNode searchFallback(String name, String guid, String cgndb, String mli, int limit, Throwable ex) {
+    public JsonNode searchFallback(String name, String guid, String cgndb, String stateId, String mli, int limit,
+                                   Throwable ex) {
         throw new RuntimeException("SQL river-search query failed", ex);
     }
 

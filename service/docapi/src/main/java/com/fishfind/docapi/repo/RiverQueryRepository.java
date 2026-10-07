@@ -84,13 +84,14 @@ public interface RiverQueryRepository {
      *
      * @param name  part of the name — matched against {@code lake_name}, {@code alt_name}, {@code french_name}
      * @param guid  canonical GUID — matched against {@code lake_id} OR {@code secondary_id}
-     * @param cgndb upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
-     * @param mli   a {@code WaterStation.MLI} — matches the water body that station is linked to
-     * @param limit maximum number of hits (1..200)
+     * @param cgndb   upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
+     * @param stateId the province's/state's own id — matched exactly against {@code state_id} (1.23.0)
+     * @param mli     a {@code WaterStation.MLI} — matches the water body that station is linked to
+     * @param limit   maximum number of hits (1..200)
      * @return a JSON array (empty when nothing matches) of {@code {lakeId, secondaryId, lakeName, altName,
-     *         frenchName, locType, CGNDB, CGNDM, country, state, mli:[...]}}, exact name first
+     *         frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[...]}}, exact name first
      */
-    JsonNode search(String name, String guid, String cgndb, String mli, int limit);
+    JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit);
 
     /**
      * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB

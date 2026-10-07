@@ -2,6 +2,27 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-07: **1.23.0 — search by the province's/state's own id (`stateId`). DEPLOYED 2026-10-07** (digest
+  `sha256:2f62dc46…`, rollback `1.22.0`; not yet committed/merged). The user applied all three SQL scripts first, so
+  search was down (1.22.0 calling the 5-parameter function) until this image started. Clean start, `restarts=0`, no
+  WARN/ERROR. **Verified on prod:** `?stateId=39325` → Fraser River, `?name=Cold%20Lake&stateId=4309` → Cold Lake,
+  `?cgndb=HADQD` items carry `stateId`, a malformed `stateId` → 400; MCP `search_water_bodies` through cproxy answers again.
+  New column `Lake.state_id` (envfish-db): the province's id for a water body — BC Geographical Names id (= FWA
+  GNIS_ID, e.g. `39325` Fraser River) or Alberta FWMIS waterbody id (`4309` Cold Lake); edited as "State ID" on
+  `Editor/LakeEditor.aspx`.
+  - **REST:** `GET /api/v1/river/search?stateId=` (exact match; 1–32 letters, digits or `. _ / -`, else 400; name
+    case-insensitive, `stateid=` works). Echoed in `query.stateId`; every item carries `stateId`.
+  - **MCP:** `search_water_bodies` takes `stateId` (same validation, shared `RiverController.checkStateId`).
+    `get_water_body` and `GET /river/description/{guid}` carry `stateId` with no Java change (the SQL adds it).
+  - **SQL:** `dbo.fn_river_search_json` gains `@state_id` as its 4th parameter (6 parameters, was 5);
+    `JdbcRiverQueryRepository.SEARCH_SQL` and `RiverQueryRepository.search(name, guid, cgndb, stateId, mli, limit)`
+    follow. `sp_lake_description_update` accepts `stateId` in the PATCH body (SQL only).
+  - **Tests:** `RiverControllerTest` +2, `McpControllerTest` +2; 331 green.
+  - **Deploy order:** `envfish-db/mssql/ADMIN_WRITE_lake_state_id_1_schema.sql` (any time; safe with 1.22.0) →
+    `ADMIN_WRITE_lake_state_id_2_search.sql` **immediately followed by this image**: 1.22.0 calls the 5-parameter form,
+    so between the two every search fails (SQL 313) and 4 failures open the shared `sqlBreaker` for 30 s. The image
+    the other way round fails the same way (SQL 8144) until the function lands. No cproxy change (it fronts by verb).
+
 - 2026-10-05: **1.22.0 — tributaries: `GET /api/v1/river/tributaries/{guid}` and MCP tool `get_water_body_tributaries`.
   DEPLOYED 2026-10-05** (digest `sha256:7cc18f38…`, rollback `1.21.0`; merged as #118 = b1a2353, SQL as envfish-db #68 =
   c51c3eb, applied by the user first). Clean start, `restarts=0`, no WARN/ERROR. **Verified on prod:** Humber River → 12
