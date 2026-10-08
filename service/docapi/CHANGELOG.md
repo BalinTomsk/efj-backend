@@ -2,7 +2,9 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
-- 2026-10-07: **1.23.1 — CGNDM handled like CGNDB everywhere. Built, NOT deployed.** CGNDB keeps one record per province,
+- 2026-10-07: **1.23.1 — CGNDM handled like CGNDB everywhere. DEPLOYED 2026-10-07** (digest `sha256:38463055…`,
+  rollback `1.23.0`; merged as #120 = 7cf5df3). Clean start, `restarts=0`, no WARN/ERROR; news, `?cgndb=HAINF`,
+  `?stateId=39325` and tributaries 200; MCP `tools/list` carries the new `search_water_bodies` text. CGNDB keeps one record per province,
   so a water body in two provinces has two keys (Reindeer Lake: `GAWWT` MB, `HAINF` SK): `CGNDB` holds one, `CGNDM`
   the other. The behaviour is in SQL (envfish-db; applied to production 2026-10-07, so 1.23.0 already serves it, verified via MCP): a CGNDM-only water body is
   Canadian for MCP (`fn_lake_canadian_ids_json`) and `find_water_bodies_by_fish`; `CGNDM` appears in
