@@ -181,7 +181,7 @@ The River entity adds five lookups and three writes. `GET /api/v1/river/unfished
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
-CGNDB, throwing }` (fields null when `found:false`); `country` is echoed only (the query filters by
+CGNDB, CGNDM, throwing }` (fields null when `found:false`); `country` is echoed only (the query filters by
 state), and a bad `country`/`state` falls back to the default (CA/ON), a bad `river` to `2` — mirroring
 the page (no 400s).
 

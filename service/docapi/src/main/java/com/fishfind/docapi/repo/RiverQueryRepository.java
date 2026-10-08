@@ -20,7 +20,7 @@ public interface RiverQueryRepository {
      * @param state   ISO-2 state/province code (the actual filter)
      * @param river   locType value (2 = river)
      * @return a JSON object {@code { found, country, state, river, lake_id, lake_name, mouth_name,
-     *         CGNDB, throwing }} (fields null when {@code found} is false)
+     *         CGNDB, CGNDM, throwing }} (fields null when {@code found} is false)
      */
     JsonNode unfished(String country, String state, int river);
 
@@ -73,7 +73,7 @@ public interface RiverQueryRepository {
      * @param lakeId the water body's canonical GUID
      * @param limit  maximum number of items (1..200); {@code total} still counts every inflow
      * @return {@code {guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType,
-     *         CGNDB, link, lat, lon, country, state}]}} by name, or {@code null} if no water body exists for the id
+     *         CGNDB, CGNDM, link, lat, lon, country, state}]}} by name, or {@code null} if no water body exists for the id
      */
     JsonNode tributaries(String lakeId, int limit);
 
@@ -94,7 +94,7 @@ public interface RiverQueryRepository {
     JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit);
 
     /**
-     * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB
+     * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB / CGNDM
      * code, or a source or mouth in country {@code CA}. Used by the MCP tools (docapi 1.21.0), which show
      * Canadian water bodies only.
      *

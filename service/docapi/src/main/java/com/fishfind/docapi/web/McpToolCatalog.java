@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  * shaped for a model's context window: {@code search_water_bodies} is capped at
  * {@value #SEARCH_MAX_LIMIT}.
  *
- * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB code or
+ * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB or CGNDM code or
  * its source or mouth is in Canada ({@code dbo.fn_lake_canadian_ids_json}, through
  * {@link RiverQueryRepository#canadianIds}). Search and tributary results are filtered; a lookup by a non-Canadian GUID is
  * answered like an unknown one; regulations and the species tool accept country {@code CA} only.
@@ -129,11 +129,13 @@ public class McpToolCatalog {
         this.objectMapper = objectMapper;
 
         add("search_water_bodies", "Search water bodies",
-                "Finds Canadian lakes, rivers and other water bodies by part of a name, by CGNDB code, "
+                "Finds Canadian lakes, rivers and other water bodies by part of a name, by CGNDB code "
+                        + "(a water body in two provinces has one per province, both searchable), "
                         + "by the province's own id for the water body (`stateId`, e.g. a BC Geographical "
                         + "Names id or an Alberta FWMIS waterbody id), or by the MLI id of a linked "
                         + "hydrometric station. Every criterion given must match. Only Canadian water bodies "
-                        + "are returned (a CGNDB code, or a source or mouth in Canada). Returns up to `limit` "
+                        + "are returned (a CGNDB code, or a source or mouth in Canada). Items carry both codes "
+                        + "(`CGNDB`, `CGNDM`). Returns up to `limit` "
                         + "matches, exact name first, each with its `lakeId` GUID — pass that GUID to the "
                         + "other water-body tools.",
                 """

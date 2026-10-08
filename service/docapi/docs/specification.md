@@ -92,7 +92,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
-| `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, throwing }` (fields null when `found:false`) |
+| `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, CGNDM, throwing }` (fields null when `found:false`) |
 | `GET` | `/api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&limit=` | 200 | `{ items:[{lakeId, secondaryId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[…]}], total, limit, query:{name, guid, cgndb, mli} }`; empty `items` when nothing matches; 400 when no criterion is given or one is malformed |
 | `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth, fish, base64 photo gallery); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/fish/{guid}` | 200 | the assigned-species document (every `lake_fish` row: name, latin, conservation status, last-catch, external link); 404 if the guid is unknown |
@@ -100,7 +100,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 | `PATCH` | `/api/v1/river/description/{guid}` | 200 | `{ lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}] }`; 400 on an invalid body, 404 if the guid is unknown |
 | `GET` | `/api/v1/river/source/{guid}` | 200 | the Source-tab document (`{guid, lakeName, sources:[{id, pointId, pointName, lat, lon, elevation, country, state, county, city, district, municipality, region, zone, coast, location, description, stamp}]}`); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/mouth/{guid}` | 200 | the Mouth-tab document, same shape as `source` under a `mouths` key; 404 if the guid is unknown |
-| `GET` | `/api/v1/river/tributaries/{guid}?limit=` | 200 | `{ guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, link, lat, lon, country, state}] }` — the water bodies flowing in, by name; empty `tributaries` when none; 400 on a malformed guid (before any SQL), 404 if the guid is unknown (1.22.0) |
+| `GET` | `/api/v1/river/tributaries/{guid}?limit=` | 200 | `{ guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, link, lat, lon, country, state}] }` — the water bodies flowing in, by name; empty `tributaries` when none; 400 on a malformed guid (before any SQL), 404 if the guid is unknown (1.22.0) |
 | `PATCH` | `/api/v1/river/source/{guid}` | 200 | `{ lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}] }`; 400 on an invalid body, 404 if the guid is unknown |
 | `PATCH` | `/api/v1/river/mouth/{guid}` | 200 | same shape as `PATCH .../source/{guid}`; 400 on an invalid body, 404 if the guid is unknown |
 
@@ -368,7 +368,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 
 Rules:
 
-- **Canadian water bodies only (1.21.0).** A water body is Canadian when it has a CGNDB code, or its source
+- **Canadian water bodies only (1.21.0).** A water body is Canadian when it has a CGNDB or CGNDM code, or its source
   (Tributaries side 16) or mouth (side 32) is in `CA` — `RiverQueryRepository.canadianIds` →
   `dbo.fn_lake_canadian_ids_json`. Search and tributary results are filtered; every `guid` tool checks first and answers a
   non-Canadian id exactly like an unknown one (`isError`), with no further query.
@@ -1074,7 +1074,7 @@ The river lookups are delegated to `RiverQueryRepository`, same pattern. Two imp
 **SQL details — `unfished`:** `dbo.fn_river_unfished_json(@country char(2), @state char(2), @river
 int)` returns the whole document: a `TOP 1 … FROM dbo.vw_lake WHERE @state IN (source_state,
 mouth_state) AND locType = @river AND ISNULL(isFish,0)=0 AND ISNULL(noFish,0)=0 ORDER BY lake_name`
-(mirroring `wbUnFish.aspx`), plus `throwing` = `STRING_AGG(CGNDB, ',')` of the `dbo.Tributaries side=2`
+(mirroring `wbUnFish.aspx`), plus `throwing` = `STRING_AGG(COALESCE(CGNDB, CGNDM), ',')` of the `dbo.Tributaries side=2`
 rows joined to `dbo.Lake`. The raw-table access lives inside the function (per the no-raw-table rule);
 the Java layer just parses the returned JSON. The controller cleans the parameters (bad
 `country`/`state`→default, bad `river`→2) before the call.

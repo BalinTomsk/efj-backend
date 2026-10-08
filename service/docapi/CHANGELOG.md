@@ -2,6 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-07: **1.23.1 — CGNDM handled like CGNDB everywhere. Built, NOT deployed.** CGNDB keeps one record per province,
+  so a water body in two provinces has two keys (Reindeer Lake: `GAWWT` MB, `HAINF` SK): `CGNDB` holds one, `CGNDM`
+  the other. The behaviour is in SQL (envfish-db; applied to production 2026-10-07, so 1.23.0 already serves it, verified via MCP): a CGNDM-only water body is
+  Canadian for MCP (`fn_lake_canadian_ids_json`) and `find_water_bodies_by_fish`; `CGNDM` appears in
+  `/river/unfished`, `/river/tributaries`, `find_water_bodies_by_fish` items and `get_water_body` / `/river/description`
+  (`cgndm`); PATCH `/river/description` takes `cgndm`. Java: only the MCP `search_water_bodies` description and
+  javadoc mention CGNDM, so the SQL alone already changes behaviour for 1.23.0; this image only updates what the model
+  reads. 331 tests green.
+
 - 2026-10-07: **1.23.0 — search by the province's/state's own id (`stateId`). DEPLOYED 2026-10-07** (digest
   `sha256:2f62dc46…`, rollback `1.22.0`; not yet committed/merged). The user applied all three SQL scripts first, so
   search was down (1.22.0 calling the 5-parameter function) until this image started. Clean start, `restarts=0`, no

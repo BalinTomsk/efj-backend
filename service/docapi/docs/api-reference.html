@@ -1560,7 +1560,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           </tbody>
         </table>
         <ul class="notes">
-          <li><strong>Canadian water bodies only (1.21.0).</strong> A water body is shown when it has a CGNDB code or its source or mouth is in Canada. Search and tributary results are filtered; a non-Canadian GUID is answered like an unknown one.</li>
+          <li><strong>Canadian water bodies only (1.21.0).</strong> A water body is shown when it has a CGNDB or CGNDM code or its source or mouth is in Canada. Search and tributary results are filtered; a non-Canadian GUID is answered like an unknown one.</li>
           <li><strong>Fish information for admins only (1.21.0).</strong> cproxy sends <code>X-Fish-Role</code> from the MCP key&rsquo;s owning account. For anyone but <code>admin</code> the tools marked <em>(admin)</em> are not listed and are an unknown tool if called, and <code>get_water_body</code> has no <code>fish</code> list.</li>
           <li><strong>No photos.</strong> Every result has every photo field removed at any depth (<code>pic</code>, <code>images</code>, <code>photo*</code>, &hellip;) &mdash; the description&rsquo;s gallery and the source/mouth <code>pic</code> never leave through this endpoint.</li>
           <li><strong>Arguments are checked before any SQL runs.</strong> A malformed GUID is a tool error, so a model retrying a bad call cannot trip the shared <code>sqlBreaker</code>.</li>
