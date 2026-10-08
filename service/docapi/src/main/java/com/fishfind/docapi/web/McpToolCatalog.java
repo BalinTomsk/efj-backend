@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  * shaped for a model's context window: {@code search_water_bodies} is capped at
  * {@value #SEARCH_MAX_LIMIT}.
  *
- * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB code or
+ * <p><strong>Canadian water bodies only</strong> (1.21.0). A water body is shown when it has a CGNDB or CGNDM code or
  * its source or mouth is in Canada ({@code dbo.fn_lake_canadian_ids_json}, through
  * {@link RiverQueryRepository#canadianIds}). Search and tributary results are filtered; a lookup by a non-Canadian GUID is
  * answered like an unknown one; regulations and the species tool accept country {@code CA} only.
@@ -129,17 +129,23 @@ public class McpToolCatalog {
         this.objectMapper = objectMapper;
 
         add("search_water_bodies", "Search water bodies",
-                "Finds Canadian lakes, rivers and other water bodies by part of a name, by CGNDB code, "
-                        + "or by the MLI id of a linked hydrometric station. Every criterion given must "
-                        + "match. Only Canadian water bodies are returned (a CGNDB code, or a source or mouth "
-                        + "in Canada). Returns up to `limit` matches, exact name first, each with its "
-                        + "`lakeId` GUID — pass that GUID to the other water-body tools.",
+                "Finds Canadian lakes, rivers and other water bodies by part of a name, by CGNDB code "
+                        + "(a water body in two provinces has one per province, both searchable), "
+                        + "by the province's own id for the water body (`stateId`, e.g. a BC Geographical "
+                        + "Names id or an Alberta FWMIS waterbody id), or by the MLI id of a linked "
+                        + "hydrometric station. Every criterion given must match. Only Canadian water bodies "
+                        + "are returned (a CGNDB code, or a source or mouth in Canada). Items carry both codes "
+                        + "(`CGNDB`, `CGNDM`). Returns up to `limit` "
+                        + "matches, exact name first, each with its `lakeId` GUID — pass that GUID to the "
+                        + "other water-body tools.",
                 """
                 {"type":"object","properties":{
                   "name":{"type":"string","minLength":2,"maxLength":64,
                           "description":"Part of the English, alternative or French name"},
                   "cgndb":{"type":"string","maxLength":5,
                            "description":"Canadian Geographical Names Database code, e.g. FEFUL"},
+                  "stateId":{"type":"string","maxLength":32,
+                             "description":"The province's own id for the water body, e.g. 39325 (BC Geographical Names id of the Fraser River)"},
                   "mli":{"type":"string","maxLength":64,
                          "description":"Id of a water station linked to the water body, e.g. 02HC024"},
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
@@ -263,9 +269,10 @@ public class McpToolCatalog {
     private JsonNode searchWaterBodies(JsonNode args) {
         String name = optionalText(args, "name");
         String cgndb = optionalText(args, "cgndb");
+        String stateId = optionalText(args, "stateId");
         String mli = optionalText(args, "mli");
-        if (name == null && cgndb == null && mli == null) {
-            throw new InvalidDocumentException("Give at least one of name, cgndb, mli");
+        if (name == null && cgndb == null && stateId == null && mli == null) {
+            throw new InvalidDocumentException("Give at least one of name, cgndb, stateId, mli");
         }
         if (name != null && (name.length() < RiverController.SEARCH_MIN_NAME
                 || name.length() > RiverController.SEARCH_MAX_TERM)) {
@@ -278,13 +285,16 @@ public class McpToolCatalog {
                 throw new InvalidDocumentException("cgndb must be 1 to 5 letters or digits");
             }
         }
+        if (stateId != null) {
+            RiverController.checkStateId(stateId);
+        }
         if (mli != null && mli.length() > RiverController.SEARCH_MAX_TERM) {
             throw new InvalidDocumentException("mli must not exceed " + RiverController.SEARCH_MAX_TERM + " characters");
         }
         int limit = limit(args);
         // Ask for the most the search allows, keep the Canadian ones, then cut to the caller's limit -- so a
         // name shared with US water bodies still fills the page with Canadian matches.
-        JsonNode candidates = riverRepository.search(name, null, cgndb, mli, RiverController.SEARCH_MAX_LIMIT);
+        JsonNode candidates = riverRepository.search(name, null, cgndb, stateId, mli, RiverController.SEARCH_MAX_LIMIT);
         List<String> ids = new java.util.ArrayList<>();
         candidates.forEach(c -> ids.add(c.path("lakeId").asText("")));
         java.util.Set<String> canadian = riverRepository.canadianIds(ids.stream().filter(i -> !i.isEmpty()).toList());

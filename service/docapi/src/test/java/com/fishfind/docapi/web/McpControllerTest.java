@@ -191,7 +191,7 @@ class McpControllerTest {
 
     @Test
     void searchPassesNormalizedCriteriaAndCapsTheLimit() throws Exception {
-        when(riverRepository.search("Ottawa", null, "FEFUL", null, RiverController.SEARCH_MAX_LIMIT))
+        when(riverRepository.search("Ottawa", null, "FEFUL", null, null, RiverController.SEARCH_MAX_LIMIT))
                 .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Ottawa River\"}]"));
 
         call("search_water_bodies", "{\"name\":\" Ottawa \",\"cgndb\":\"feful\",\"limit\":500}")
@@ -204,12 +204,32 @@ class McpControllerTest {
     }
 
     @Test
+    void searchByStateIdPassesItToTheRepository() throws Exception {
+        when(riverRepository.search(null, null, null, "39325", null, RiverController.SEARCH_MAX_LIMIT))
+                .thenReturn(objectMapper.readTree(
+                        "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Fraser River\",\"stateId\":\"39325\"}]"));
+
+        call("search_water_bodies", "{\"stateId\":\" 39325 \"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.total").value(1))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].stateId").value("39325"));
+    }
+
+    @Test
+    void searchWithAMalformedStateIdIsAToolError() throws Exception {
+        call("search_water_bodies", "{\"stateId\":\"39 325\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("stateId")));
+        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
     void searchWithNoCriterionIsAToolErrorAndNeverQueries() throws Exception {
         call("search_water_bodies", "{}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.isError").value(true))
                 .andExpect(jsonPath("$.result.content[0].text", containsString("at least one")));
-        verify(riverRepository, never()).search(any(), any(), any(), any(), anyInt());
+        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
     }
 
     @Test
@@ -502,7 +522,7 @@ class McpControllerTest {
     void searchKeepsOnlyCanadianMatchesAndThenAppliesTheLimit() throws Exception {
         String us = "11111111-1111-1111-1111-111111111111", on = "22222222-2222-2222-2222-222222222222",
                qc = "33333333-3333-3333-3333-333333333333";
-        when(riverRepository.search("Red", null, null, null, RiverController.SEARCH_MAX_LIMIT))
+        when(riverRepository.search("Red", null, null, null, null, RiverController.SEARCH_MAX_LIMIT))
                 .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + us + "\",\"lakeName\":\"Red River US\"},"
                         + "{\"lakeId\":\"" + on + "\",\"lakeName\":\"Red River ON\"},"
                         + "{\"lakeId\":\"" + qc + "\",\"lakeName\":\"Red River QC\"}]"));

@@ -20,7 +20,7 @@ public interface RiverQueryRepository {
      * @param state   ISO-2 state/province code (the actual filter)
      * @param river   locType value (2 = river)
      * @return a JSON object {@code { found, country, state, river, lake_id, lake_name, mouth_name,
-     *         CGNDB, throwing }} (fields null when {@code found} is false)
+     *         CGNDB, CGNDM, throwing }} (fields null when {@code found} is false)
      */
     JsonNode unfished(String country, String state, int river);
 
@@ -73,7 +73,7 @@ public interface RiverQueryRepository {
      * @param lakeId the water body's canonical GUID
      * @param limit  maximum number of items (1..200); {@code total} still counts every inflow
      * @return {@code {guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType,
-     *         CGNDB, link, lat, lon, country, state}]}} by name, or {@code null} if no water body exists for the id
+     *         CGNDB, CGNDM, link, lat, lon, country, state}]}} by name, or {@code null} if no water body exists for the id
      */
     JsonNode tributaries(String lakeId, int limit);
 
@@ -84,16 +84,17 @@ public interface RiverQueryRepository {
      *
      * @param name  part of the name — matched against {@code lake_name}, {@code alt_name}, {@code french_name}
      * @param guid  canonical GUID — matched against {@code lake_id} OR {@code secondary_id}
-     * @param cgndb upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
-     * @param mli   a {@code WaterStation.MLI} — matches the water body that station is linked to
-     * @param limit maximum number of hits (1..200)
+     * @param cgndb   upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
+     * @param stateId the province's/state's own id — matched exactly against {@code state_id} (1.23.0)
+     * @param mli     a {@code WaterStation.MLI} — matches the water body that station is linked to
+     * @param limit   maximum number of hits (1..200)
      * @return a JSON array (empty when nothing matches) of {@code {lakeId, secondaryId, lakeName, altName,
-     *         frenchName, locType, CGNDB, CGNDM, country, state, mli:[...]}}, exact name first
+     *         frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[...]}}, exact name first
      */
-    JsonNode search(String name, String guid, String cgndb, String mli, int limit);
+    JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit);
 
     /**
-     * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB
+     * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB / CGNDM
      * code, or a source or mouth in country {@code CA}. Used by the MCP tools (docapi 1.21.0), which show
      * Canadian water bodies only.
      *

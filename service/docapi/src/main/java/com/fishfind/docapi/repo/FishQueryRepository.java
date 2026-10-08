@@ -66,7 +66,7 @@ public interface FishQueryRepository {
      * @param locType        water-body type bitmask (1 lake, 2 river, 64 creek, ...), or {@code null} for any
      * @param minProbability 0..100, applied to each water body's highest-probability record
      * @param limit          1..200 items to return; {@code total} still counts every match
-     * @return {@code {total, limit, items:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, country,
+     * @return {@code {total, limit, items:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, country,
      *         state, probability}]}}, highest probability first; never {@code null}
      */
     JsonNode waterBodies(String fishId, String country, String state, Integer locType, int minProbability, int limit);

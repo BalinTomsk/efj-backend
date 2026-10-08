@@ -181,7 +181,7 @@ The River entity adds five lookups and three writes. `GET /api/v1/river/unfished
 un-processed water body of a type in a state (no fish assigned, not flagged No Fish). It is a native
 duplicate of the frontend `Resources/wbUnFish.aspx` endpoint used by the add-fish tooling, backed by
 `dbo.fn_river_unfished_json`. Returns `{ found, country, state, river, lake_id, lake_name, mouth_name,
-CGNDB, throwing }` (fields null when `found:false`); `country` is echoed only (the query filters by
+CGNDB, CGNDM, throwing }` (fields null when `found:false`); `country` is echoed only (the query filters by
 state), and a bad `country`/`state` falls back to the default (CA/ON), a bad `river` to `2` — mirroring
 the page (no 400s).
 
@@ -215,7 +215,7 @@ bare `X-Day-Guid` header is no longer accepted) — see `efc-proxy` `AGENTS.md` 
 keys present in the body are touched) of the `Editor/LakeEditor.aspx` "General" tab's editable
 fields, via the new `dbo.sp_lake_description_update`. Covers every field
 `fn_lake_description_json` exports — name variants, `link`, `type`, the size/measurement fields,
-`cgndb`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description` —
+`cgndb`, `stateId`, `roadAccess`, `fishingProhibited`, `isolated`, `noFish`, `reviewed`, `description` —
 **except** the identity/linkage fields the same admin page shows read-only in this exact spot:
 `lakeName`, `source`/`sourceId`, `mouth`/`mouthId`. Those are reported back as `protectedFields`
 rather than silently dropped or applied. `noFish` is blocked (reported `ignored`) while the lake has

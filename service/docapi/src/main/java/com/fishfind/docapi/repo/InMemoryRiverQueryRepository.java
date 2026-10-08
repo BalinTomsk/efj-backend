@@ -58,7 +58,7 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
 
     /** No database: nothing to find, so every search is an empty list. */
     @Override
-    public JsonNode search(String name, String guid, String cgndb, String mli, int limit) {
+    public JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit) {
         return objectMapper.createArrayNode();
     }
 

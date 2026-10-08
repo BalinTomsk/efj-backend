@@ -11,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -491,7 +492,7 @@ class RiverControllerTest {
 
     @Test
     void searchByNameWrapsTheItemsWithTheEchoedQuery() throws Exception {
-        when(queryRepository.search("Humber", null, null, null, 50)).thenReturn(objectMapper.readTree(
+        when(queryRepository.search("Humber", null, null, null, null, 50)).thenReturn(objectMapper.readTree(
                 "[{\"lakeId\":\"abc\",\"lakeName\":\"Humber River\",\"CGNDB\":\"FEFUL\",\"mli\":[\"02HC024\"]}]"));
 
         mockMvc.perform(get("/api/v1/river/search").param("name", "  Humber "))
@@ -506,7 +507,7 @@ class RiverControllerTest {
 
     @Test
     void searchNormalizesGuidCgndbAndAcceptsUpperCaseParamNames() throws Exception {
-        when(queryRepository.search(any(), any(), any(), any(), anyInt()))
+        when(queryRepository.search(any(), any(), any(), any(), any(), anyInt()))
                 .thenReturn(objectMapper.createArrayNode());
 
         mockMvc.perform(get("/api/v1/river/search")
@@ -516,7 +517,29 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.total").value(0))
                 .andExpect(jsonPath("$.data.limit").value(200));
-        verify(queryRepository).search(null, "0c5210db-849c-20c3-57f4-21ff96a2047b", "FEFUL", "02HC024", 200);
+        verify(queryRepository).search(null, "0c5210db-849c-20c3-57f4-21ff96a2047b", "FEFUL", null, "02HC024", 200);
+    }
+
+    @Test
+    void searchByStateIdPassesItThroughAndEchoesIt() throws Exception {
+        when(queryRepository.search(null, null, null, "39325", null, 50)).thenReturn(objectMapper.readTree(
+                "[{\"lakeId\":\"abc\",\"lakeName\":\"Fraser River\",\"stateId\":\"39325\"}]"));
+
+        mockMvc.perform(get("/api/v1/river/search").param("stateid", " 39325 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].stateId").value("39325"))
+                .andExpect(jsonPath("$.data.query.stateId").value("39325"))
+                .andExpect(jsonPath("$.data.query.cgndb").doesNotExist());
+    }
+
+    @Test
+    void searchRejectsMalformedStateId() throws Exception {
+        mockMvc.perform(get("/api/v1/river/search").param("stateId", "39 325"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.message", containsString("stateId")));
+        mockMvc.perform(get("/api/v1/river/search").param("stateId", "1".repeat(33)))
+                .andExpect(status().isBadRequest());
+        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
     }
 
     @Test
@@ -524,7 +547,7 @@ class RiverControllerTest {
         mockMvc.perform(get("/api/v1/river/search").param("name", " ").param("limit", "5"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
-        verify(queryRepository, never()).search(any(), any(), any(), any(), anyInt());
+        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
     }
 
     @Test
@@ -537,6 +560,6 @@ class RiverControllerTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/river/search").param("mli", "x".repeat(65)))
                 .andExpect(status().isBadRequest());
-        verify(queryRepository, never()).search(any(), any(), any(), any(), anyInt());
+        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
     }
 }
