@@ -155,7 +155,7 @@ public class McpToolCatalog {
         add("get_water_body", "Water body details",
                 "The description of one water body: names, type, description text, physical "
                         + "statistics (length, depth, area, volume), location (lat/lon, province/state, "
-                        + "region), source and mouth. Canadian water bodies only.",
+                        + "region), source and mouth, and its waterfalls and dams. Canadian water bodies only.",
                 guidSchema(), false, this::description);
 
         add("get_water_body_fish", "Fish species in a water body",
@@ -183,6 +183,13 @@ public class McpToolCatalog {
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
                 },"required":["guid"],"additionalProperties":false}""",
                 false, (args, role) -> tributaries(args));
+
+        add("get_water_body_barriers", "Waterfalls and dams of a water body",
+                "The waterfalls and dams on one water body (a river, or the outlet of a lake): name "
+                        + "(null for unnamed ones), type, lat/lon, CGNDB code, province and how it was tied "
+                        + "to the water body (`linkMethod`). Named ones first. Canadian water bodies only.",
+                guidSchema(), false,
+                (args, role) -> found(riverRepository.barriers(requireCanadianGuid(args)), args));
 
         add("get_water_body_regulations", "Water body fishing regulations",
                 "The fishing regulations specific to one water body. Province/state-wide rules also "

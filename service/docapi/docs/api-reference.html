@@ -1312,6 +1312,49 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
     <div class="endpoint">
       <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/barriers/<span class="param">{guid}</span></span></div>
+        <span class="specimen-label">Waterfalls and dams of a water body</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;10&#8209;10, docapi 1.24.0 &mdash; DEPLOYED AND VERIFIED the same day.</strong> Exploits River (NL): 2 waterfalls, 3 dams; malformed GUID <code>400</code>, unknown <code>404</code>.</p>
+        <p class="prose" style="margin:2px 0 14px;">The waterfalls and dams tied to one water body (<code>dbo.fn_lake_barriers_json</code>; the CHN / NHN / FWA imports and CGNDB). Named ones first; unnamed ones carry <code>"name": null</code>. Each item: <code>id</code>, <code>name</code>, <code>type</code>, <code>CGNDB</code>, <code>chnFeatureId</code>, <code>cabdId</code>, <code>lat</code>, <code>lon</code>, <code>province</code>, <code>linkMethod</code> (how it was tied to the water body: <code>chn_polygon</code>, <code>chn_network</code>, <code>name_near</code>, <code>manual</code>), <code>linkDistanceM</code>. The same two arrays are in <code>/river/description/{guid}</code> (<code>waterfalls</code>, <code>dams</code>).</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">guid</td><td>36-char, 32-hex or braced. Anything else &rarr; <code>400 invalid_document</code> before any SQL runs.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Exploits River (NL)</strong> &mdash; local response, 2026&#8209;10&#8209;10: its 2 waterfalls and the first of its 3 dams, lat/lon rounded.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/barriers/{guid of Exploits River}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Exploits River"</span><span class="p">,</span>
+    <span class="k">"waterfalls"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Grand Falls"</span><span class="p">,</span> <span class="k">"type"</span><span class="p">:</span> <span class="s">"Falls"</span><span class="p">,</span> <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"AAIIX"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">48.9292</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-55.6692</span><span class="p">,</span> <span class="k">"province"</span><span class="p">:</span> <span class="s">"NL"</span><span class="p">,</span> <span class="k">"linkMethod"</span><span class="p">:</span> <span class="s">"chn_polygon"</span><span class="p">,</span> <span class="n">…</span> <span class="p">},</span>
+      <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"Red Indian Falls"</span><span class="p">,</span> <span class="k">"CGNDB"</span><span class="p">:</span> <span class="s">"ACZMW"</span><span class="p">,</span> <span class="n">…</span> <span class="p">}</span> <span class="p">],</span>
+    <span class="k">"dams"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"name"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"type"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">48.9291</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-55.7033</span><span class="p">,</span> <span class="k">"linkMethod"</span><span class="p">:</span> <span class="s">"chn_polygon"</span><span class="p">,</span> <span class="n">…</span> <span class="p">},</span> <span class="n">…</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Malformed guid</strong> &mdash; refused before SQL.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/barriers/not-a-guid</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"guid is not a valid GUID"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown guid</strong>. A known water body without waterfalls or dams is a <code>200</code> with two empty arrays.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/river/barriers/00000000-0000-0000-0000-000000000000</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/source/<span class="param">{guid}</span></span></div>
         <span class="specimen-label">JSON merge patch — admin Save-JSON Source-tab duplicate</span>
       </div>
@@ -1549,10 +1592,11 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th></tr></thead>
           <tbody>
             <tr><td class="pname">search_water_bodies</td><td><code>name</code> (2&ndash;64), <code>cgndb</code>, <code>stateId</code> (1.23.0), <code>mli</code> &mdash; at least one; <code>limit</code> 1&ndash;50, default 20</td><td><code>{items, total, limit}</code> from <code>/river/search</code>&rsquo;s function</td></tr>
-            <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document</td></tr>
+            <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document, with its <code>waterfalls</code> and <code>dams</code> (1.24.0 SQL)</td></tr>
             <tr><td class="pname">get_water_body_fish <em>(admin)</em></td><td><code>guid</code></td><td>the <code>/river/fish</code> document with <strong>each species once</strong> (1.20.1, deployed 2026&#8209;10&#8209;01): the highest-probability entry of each. <code>lake_fish</code>&rsquo;s key is (water body, species, probability), so REST returns one row per probability level.</td></tr>
             <tr><td class="pname">get_water_body_links</td><td><code>guid</code></td><td><code>{source, mouth}</code> &mdash; the two link documents</td></tr>
             <tr><td class="pname">get_water_body_tributaries</td><td><code>guid</code>; <code>limit</code> 1&ndash;50, default 20</td><td><code>{guid, lakeName, total, limit, tributaries}</code> from <code>/river/tributaries</code>, Canadian items only; <code>totalIsLowerBound: true</code> when the water body has over 200 inflows (1.22.0, live 2026&#8209;10&#8209;05)</td></tr>
+            <tr><td class="pname">get_water_body_barriers</td><td><code>guid</code></td><td><code>{guid, lakeName, waterfalls, dams}</code> from <code>/river/barriers</code> (1.24.0, live 2026&#8209;10&#8209;10)</td></tr>
             <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
             <tr><td class="pname">get_region_regulations</td><td><code>country</code> (CA only), optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
             <tr><td class="pname">search_fish <em>(admin)</em></td><td><code>query</code></td><td>the <code>/fish/search</code> page</td></tr>

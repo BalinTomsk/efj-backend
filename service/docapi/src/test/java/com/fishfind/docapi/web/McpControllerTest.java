@@ -129,10 +129,10 @@ class McpControllerTest {
     }
 
     @Test
-    void toolsListPublishesNineReadOnlyTools() throws Exception {
+    void toolsListPublishesTenReadOnlyTools() throws Exception {
         rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.tools", hasSize(9)))
+                .andExpect(jsonPath("$.result.tools", hasSize(10)))
                 .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
                 .andExpect(jsonPath("$.result.tools[0].inputSchema.type").value("object"))
                 .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(0)));
@@ -384,6 +384,34 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.structuredContent.limit").value(McpToolCatalog.SEARCH_MAX_LIMIT));
     }
 
+    // ---- 1.24.0: get_water_body_barriers ------------------------------------------------------
+
+    @Test
+    void barriersReturnTheWaterfallsAndDamsOfACanadianWaterBody() throws Exception {
+        when(riverRepository.barriers(GUID)).thenReturn(objectMapper.readTree(
+                "{\"guid\":\"" + GUID + "\",\"lakeName\":\"Exploits River\","
+                        + "\"waterfalls\":[{\"name\":\"Grand Falls\",\"type\":\"Falls\",\"lat\":48.93,\"lon\":-55.67}],"
+                        + "\"dams\":[{\"name\":null,\"lat\":48.93,\"lon\":-55.70,\"linkMethod\":\"chn_polygon\"}]}"));
+
+        callAs("user", "get_water_body_barriers", "{\"guid\":\"" + GUID.toUpperCase() + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.lakeName").value("Exploits River"))
+                .andExpect(jsonPath("$.result.structuredContent.waterfalls", hasSize(1)))
+                .andExpect(jsonPath("$.result.structuredContent.waterfalls[0].name").value("Grand Falls"))
+                .andExpect(jsonPath("$.result.structuredContent.dams", hasSize(1)))
+                .andExpect(jsonPath("$.result.structuredContent.dams[0].linkMethod").value("chn_polygon"));
+    }
+
+    @Test
+    void barriersOfAnUnknownWaterBodyOrABadGuidAreToolErrors() throws Exception {
+        when(riverRepository.barriers(GUID)).thenReturn(null);
+        call("get_water_body_barriers", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        call("get_water_body_barriers", "{\"guid\":\"not-a-guid\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        verify(riverRepository).barriers(any());   // only the first call got that far
+    }
+
     @Test
     void tributariesOfAnUnknownWaterBodyOrABadArgumentAreToolErrors() throws Exception {
         when(riverRepository.tributaries(GUID, RiverController.SEARCH_MAX_LIMIT)).thenReturn(null);
@@ -462,10 +490,10 @@ class McpControllerTest {
     private static final Set<String> FISH_TOOLS = Set.of("get_water_body_fish", "search_fish", "find_water_bodies_by_fish");
 
     @Test
-    void aGuestOrUserSeesSixToolsAndNoFishTools() throws Exception {
+    void aGuestOrUserSeesSevenToolsAndNoFishTools() throws Exception {
         for (String role : new String[] {null, "guest", "user", "superuser"}) {
             rpcAs(role, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
-                    .andExpect(jsonPath("$.result.tools", hasSize(6)))
+                    .andExpect(jsonPath("$.result.tools", hasSize(7)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'get_water_body_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'search_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'find_water_bodies_by_fish')]", hasSize(0)));
@@ -505,7 +533,8 @@ class McpControllerTest {
     void aNonCanadianWaterBodyIsAnsweredLikeAnUnknownOne() throws Exception {
         doReturn(Set.of()).when(riverRepository).canadianIds(any());
 
-        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_tributaries", "get_water_body_regulations",
+        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_tributaries", "get_water_body_barriers",
+                "get_water_body_regulations",
                 "get_water_body_fish")) {
             callAs("admin", tool, "{\"guid\":\"" + GUID + "\"}")
                     .andExpect(jsonPath("$.result.isError").value(true))
@@ -514,6 +543,7 @@ class McpControllerTest {
         verify(riverRepository, never()).description(any());
         verify(riverRepository, never()).source(any());
         verify(riverRepository, never()).tributaries(any(), anyInt());
+        verify(riverRepository, never()).barriers(any());
         verify(riverRepository, never()).fish(any());
         verify(regulationRepository, never()).lakeRegulation(any());
     }
