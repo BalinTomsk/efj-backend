@@ -167,6 +167,24 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
         throw new RuntimeException("SQL river-tributaries query failed for id " + lakeId, ex);
     }
 
+    /** The waterfalls and dams of one water body (1.24.0); live on docapi's database since envfish-db #70. */
+    static final String BARRIERS_SQL = "SELECT dbo.fn_lake_barriers_json(?)";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "barriersFallback")
+    public JsonNode barriers(String lakeId) {
+        List<String> rows = jdbc.query(BARRIERS_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #barriers}. */
+    @SuppressWarnings("unused")
+    public JsonNode barriersFallback(String lakeId, Throwable ex) {
+        throw new RuntimeException("SQL river-barriers query failed for id " + lakeId, ex);
+    }
+
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")

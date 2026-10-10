@@ -148,11 +148,11 @@ com.fishfind.docapi
 │   │                              #   fn_fish_latin_json
 │   ├── RiverQueryRepository       # interface: unfished/description/fish/source/mouth(lakeId) +
 │   │                              #   search(name, guid, cgndb, stateId, mli, limit) (1.19.0; stateId 1.23.0) +
-│   │                              #   tributaries(lakeId, limit) (1.22.0)
+│   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0)
 │   ├── InMemoryRiverQueryRepository # default backing — found:false / null docs (no DB)
 │   ├── JdbcRiverQueryRepository   # JDBC backing — dbo.fn_river_unfished_json / fn_lake_view_json /
 │   │                              #   fn_lake_fishing_json / fn_lake_source_json / fn_lake_mouth_json /
-│   │                              #   fn_lake_inflows_json
+│   │                              #   fn_lake_inflows_json / fn_lake_barriers_json
 │   ├── RiverFishCommandRepository # interface: upsertFish(lakeId, itemsJson) — batch species upsert
 │   ├── InMemoryRiverFishCommandRepository / JdbcRiverFishCommandRepository (sp_lake_fish_upsert_batch)
 │   ├── RiverDescriptionCommandRepository # interface: patchDescription(lakeId, patchJson)
@@ -182,14 +182,14 @@ com.fishfind.docapi
     │                              #   (lakejson&tab=view) + /river/fish/{guid} (tab=fishing) +
     │                              #   /river/source/{guid} (tab=source) + /river/mouth/{guid} (tab=mouth),
     │                              #   PATCH on fish/description/source/mouth, GET /river/search (1.19.0),
-    │                              #   GET /river/tributaries/{guid} (1.22.0)
+    │                              #   GET /river/tributaries/{guid} (1.22.0), GET /river/barriers/{guid} (1.24.0)
     ├── RegulationController        # GET/PATCH /river/regulation/{guid} + /region/regulation/{country}[/{state}]
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
     │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
-    ├── McpToolCatalog             # the 9 read-only water-body/fish/regulation tools; validates before any
+    ├── McpToolCatalog             # the 10 read-only water-body/fish/regulation tools; validates before any
     │                              #   repository call; Canadian water bodies only and fish tools for ADMIN
     │                              #   only (X-Fish-Role from cproxy, 1.21.0);
     │                              #   repository call; strips EVERY photo field from every result (stripPhotos);
@@ -534,6 +534,7 @@ ordering. Batch cap 100 ⇒ 400.
 | `GET /api/v1/river/source/{guid}` | `SELECT dbo.fn_lake_source_json(?)` | **Native docapi duplicate of the admin "Save JSON" Source-tab export** (`Editor/EditLakeLink.aspx?Type=16` → `HandlerImage.ashx?lakejson=<guid>&tab=source`). Returns `{guid, lakeName, sources:[{id, pointId, pointName, lat, lon, elevation, country, state, county, city, district, municipality, region, zone, coast, location, description, stamp}]}` — normally one element (`UK_Tributaries_Source` allows at most one `side=16` row per water body). `dbo.fn_lake_source_json` **already exists in prod** (2026-08-13 rollout), so this is a **docapi-only change with no new DB object** for the read side. `NULL` (unknown guid) ⇒ 404. Same public-data reasoning as `/description/{guid}`. |
 | `GET /api/v1/river/mouth/{guid}` | `SELECT dbo.fn_lake_mouth_json(?)` | Same shape as `/source/{guid}` above (`mouths` key instead of `sources`), for the `side=32` row (`Editor/EditLakeLink.aspx?Type=32`, `UK_Tributaries_Mouth`). `NULL` ⇒ 404. |
 | `GET /api/v1/river/tributaries/{guid}?limit=` | `SELECT dbo.fn_lake_inflows_json(?, ?)` | **1.22.0.** The water bodies that flow INTO one water body — the reverse of `/source` and `/mouth` — each once, by name: `{guid, lakeName, total, limit, tributaries:[{lakeId, lakeName, altName, frenchName, locType, CGNDB, link, lat, lon, country, state}]}`. `link` is `mouth` (its side-32 row points here) or `inflow` (a side-4 row this water body holds, how `sp_add_tributary` records an inflow on a lake; used only when there is no mouth row). Direct tributaries only. `limit` default 50, cap 200, garbage ⇒ default; `total` counts all. Unknown GUID ⇒ 404; none ⇒ empty `tributaries`, never 404. **The GUID is validated first** (malformed ⇒ 400, repository never called), so a bad id cannot become a SQL conversion error on the shared `sqlBreaker`. New DB object, added test-first (`unit_test@LakeInflows.sql`, 6 tests); named *inflows* because `fn_lake_tributary_json` already exists for the opposite direction (the rows a water body owns). Also the MCP tool `get_water_body_tributaries` (Canada-filtered there). |
+| `GET /api/v1/river/barriers/{guid}` | `SELECT dbo.fn_lake_barriers_json(?)` | **1.24.0.** The waterfalls and dams of one water body: `{guid, lakeName, waterfalls, dams}`, each item `{id, name, type, CGNDB, chnFeatureId, cabdId, lat, lon, province, linkMethod, linkDistanceM}`, named ones first. Empty arrays, never 404, when there are none; unknown GUID ⇒ 404; malformed ⇒ 400 before any SQL (as `/tributaries`). The function is envfish-db #70 (`unit_test@LakeBarriersJson.sql`), live on production since the NB/NS import; the same two arrays are in `/river/description/{guid}` (`fn_lake_view_json`). Also the MCP tool `get_water_body_barriers`. |
 | `PATCH /api/v1/river/source/{guid}` | `EXEC dbo.sp_lake_source_update ?, ?` | **The write counterpart — a JSON merge patch of `Editor/EditLakeLink.aspx?Type=16`'s editable fields**, via the new `RiverLinkCommandRepository` / `sp_lake_source_update` (new DB object, 2026-08-26). Body is a JSON object; only keys present are touched. Covers `lat`, `lon`, `elevation`, `country`, `state`, `county`, `city`, `district`, `municipality`, `region`, `zone`, `coast`, `location`, `description` — the exact set `ButtonSubmit_Click` writes for this tab. **Deliberately protects every identity/linkage field `EditLakeLink.aspx` shows read-only in this exact spot** — the main water body's own `lakeName`/`guid`, and the linked point's `pointName`/`pointId` (plus the row's internal `id`/`stamp`, neither a user-editable field) — reported back as `protectedFields`, same contract as `description`. Empty/non-object/over-100-key body ⇒ 400 `invalid_document`; unknown lake guid ⇒ 404. Response shape matches the description PATCH. **Fronted through cproxy automatically** — the day-key gate is verb-based, not path-based, so no cproxy change is needed. **Not yet deployed to prod** — see the 2026-08-26 changelog entry. |
 | `PATCH /api/v1/river/mouth/{guid}` | `EXEC dbo.sp_lake_mouth_update ?, ?` | Same contract as `PATCH /river/source/{guid}` above, targeting the `side=32` row via the new `sp_lake_mouth_update`. Both PATCH procedures live behind one shared `RiverLinkCommandRepository` bean (`patchSource`/`patchMouth`), not two separate repositories, since they are the identical merge-patch mechanism against a different `Tributaries.side`. |
 
@@ -913,8 +914,8 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
   `q` ⇒ 400.
 - `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` +
   `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository`
-  (41): `/river/tributaries/{guid}` (1.22.0: GUID normalized, limit default/cap, 404 unknown, 400 malformed with
-  the repository never called), `/river/search` (envelope, GUID/CGNDB normalization, upper-case param names, limit cap, 400s with
+  (44): `/river/tributaries/{guid}` (1.22.0: GUID normalized, limit default/cap, 404 unknown, 400 malformed with
+  the repository never called), `/river/barriers/{guid}` (1.24.0: same three cases), `/river/search` (envelope, GUID/CGNDB normalization, upper-case param names, limit cap, 400s with
   the repository never called), `/river/unfished` result mapping, default fallback (missing params → CA/ON/2), bad-code/river
   cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc /
   404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid),

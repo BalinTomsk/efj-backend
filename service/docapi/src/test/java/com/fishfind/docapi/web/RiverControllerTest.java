@@ -384,6 +384,39 @@ class RiverControllerTest {
         verify(queryRepository, never()).tributaries(anyString(), anyInt());
     }
 
+    // ---- barriers (1.24.0) ----
+
+    @Test
+    void barriersNormalizeTheGuidAndReturnBothArrays() throws Exception {
+        when(queryRepository.barriers("4094e667-bbe3-11d8-92e2-080020a0f4c9"))
+                .thenReturn(objectMapper.readTree("{\"guid\":\"4094E667-BBE3-11D8-92E2-080020A0F4C9\","
+                        + "\"lakeName\":\"Exploits River\",\"waterfalls\":[{\"name\":\"Grand Falls\"}],\"dams\":[]}"));
+
+        mockMvc.perform(get("/api/v1/river/barriers/4094E667BBE311D892E2080020A0F4C9"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.waterfalls[0].name").value("Grand Falls"))
+                .andExpect(jsonPath("$.data.dams").isEmpty())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void barriersOfAnUnknownGuidAre404() throws Exception {
+        when(queryRepository.barriers("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/barriers/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void barriersOfAMalformedGuidAre400AndNeverQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/river/barriers/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(queryRepository, never()).barriers(anyString());
+    }
+
     // ---- PATCH source (merge patch) ----
 
     @Test

@@ -84,6 +84,9 @@ import java.util.regex.Pattern;
  *
  * <p>{@code GET /api/v1/river/tributaries/{guid}?limit=} (1.22.0) lists the water bodies that flow INTO one
  * water body — the reverse of {@code /source} and {@code /mouth} — via {@code dbo.fn_lake_inflows_json}.
+ *
+ * <p>{@code GET /api/v1/river/barriers/{guid}} (1.24.0) lists one water body's waterfalls and dams via
+ * {@code dbo.fn_lake_barriers_json}.
  */
 @RestController
 @RequestMapping(value = "/api/v1/river", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -420,6 +423,26 @@ public class RiverController {
                                              @RequestParam(required = false) String limit) {
         String id = normalizeGuid(guid);
         JsonNode document = queryRepository.tributaries(id, parseLimit(limit));
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * The waterfalls and dams of one water body (1.24.0), named ones first. The GUID is validated before the
+     * repository is called, as for {@code /tributaries}.
+     *
+     * @param guid the water body's GUID (36-char, 32-hex or braced)
+     * @return {@code {guid, lakeName, waterfalls, dams}} nested in the response envelope; empty arrays (never 404)
+     *         when the water body has none
+     * @throws InvalidDocumentException  if {@code guid} is not a GUID (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/barriers/{guid}")
+    public ApiResponse<JsonNode> barriers(@PathVariable String guid) {
+        String id = normalizeGuid(guid);
+        JsonNode document = queryRepository.barriers(id);
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
         }

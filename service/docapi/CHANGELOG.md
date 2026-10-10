@@ -2,6 +2,24 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-10: **1.24.0 — waterfalls and dams: `GET /api/v1/river/barriers/{guid}`, MCP tool `get_water_body_barriers`,
+  and both arrays in `get_water_body`. DEPLOYED 2026-10-10** (digest `sha256:75b1528c…`, rollback `1.23.1`; not committed).
+  Clean start, `restarts=0`, no startup errors; health 1.24.0; news 200; Exploits River `/river/barriers` 200 (Grand Falls,
+  Red Indian Falls, 3 dams), malformed 400, unknown 404. The `fn_lake_view_json` SQL was already on production (MCP
+  `get_water_body` showed `waterfalls`/`dams` before the image).
+  - **REST:** `GET /api/v1/river/barriers/{guid}` → `{guid, lakeName, waterfalls:[...], dams:[...]}`, each item
+    `{id, name, type, CGNDB, chnFeatureId, cabdId, lat, lon, province, linkMethod, linkDistanceM}`, named ones first;
+    empty arrays (never 404) when the water body has none. GUID validated first (malformed ⇒ 400, repository never
+    called), unknown ⇒ 404. Backed by `dbo.fn_lake_barriers_json` (envfish-db #70, already on production).
+  - **MCP:** new tool `get_water_body_barriers` (`guid`; Canadian water bodies only, like the other water-body tools;
+    visible to every role). `get_water_body` / `GET /river/description/{guid}` carry `waterfalls` and `dams` with no
+    Java change: envfish-db adds them to `dbo.fn_lake_view_json` (which also feeds the site's admin "Save JSON" export,
+    tab `view`). Its tool description now names them.
+  - **Tests:** `RiverControllerTest` +3, `McpControllerTest` +2 (tool counts 10 admin / 7 others); 336 green.
+  - **Deploy order:** `envfish-db/mssql/ADMIN_WRITE_fn_lake_view_json.sql` and this image in either order: the new
+    endpoint/tool only call `fn_lake_barriers_json`, which production has; the view change needs no Java. No cproxy
+    change (it fronts `/api/v1/river/*` reads by verb).
+
 - 2026-10-07: **1.23.1 — CGNDM handled like CGNDB everywhere. DEPLOYED 2026-10-07** (digest `sha256:38463055…`,
   rollback `1.23.0`; merged as #120 = 7cf5df3). Clean start, `restarts=0`, no WARN/ERROR; news, `?cgndb=HAINF`,
   `?stateId=39325` and tributaries 200; MCP `tools/list` carries the new `search_water_bodies` text. CGNDB keeps one record per province,

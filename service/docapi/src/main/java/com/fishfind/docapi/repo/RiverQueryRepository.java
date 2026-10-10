@@ -78,6 +78,17 @@ public interface RiverQueryRepository {
     JsonNode tributaries(String lakeId, int limit);
 
     /**
+     * The waterfalls and dams of one water body (1.24.0), from the CHN / NHN / FWA imports and CGNDB. Backed by
+     * {@code dbo.fn_lake_barriers_json}.
+     *
+     * @param lakeId the water body's canonical GUID
+     * @return {@code {guid, lakeName, waterfalls:[...], dams:[...]}} — each item {@code {id, name, type, CGNDB,
+     *         chnFeatureId, cabdId, lat, lon, province, linkMethod, linkDistanceM}}, named ones first; empty arrays
+     *         when there are none — or {@code null} if no water body exists for the id
+     */
+    JsonNode barriers(String lakeId);
+
+    /**
      * Water-body lookup by any combination of criteria; every non-null one must match (AND). Backed by
      * {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs; at least one
      * criterion is non-null.
