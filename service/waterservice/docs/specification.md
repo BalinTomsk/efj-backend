@@ -3,7 +3,7 @@ Recreate this project as a Java 21 Spring Boot background service named `water-s
 Goal
 - Poll supported Canadian and US water stations from MSSQL.
 - Download each CA station's hourly hydrometric CSV from Environment Canada.
-- Download each US station's WaterML payload from USGS.
+- Read each US station's latest values from one USGS Water Data API snapshot per cycle.
 - Parse readings and upsert them into `dbo.WaterData`.
 - After each worker cycle, synchronously run `dbo.sp_clean_old_water_data`.
 - When at least one station succeeds in a cycle, also run `dbo.spPushSpeciesFromLakeToStation`.
@@ -99,7 +99,7 @@ Worker behavior
     causing the same stored procedure to execute twice concurrently every hour.
 - `StationWorker.runOnce(country, requestedMli)`:
   - Load supported stations for the country, process matching stations one by one, sleeping
-    `pause-between-stations-ms` BETWEEN stations only (never after the final station) (interrupt-aware: stops the pass early if interrupted).
+    `pause-between-stations-ms` BETWEEN CA stations only (US stations come from one snapshot and never pause) (never after the final station) (interrupt-aware: stops the pass early if interrupted).
   - Returns the number of stations processed SUCCESSFULLY. Does NOT run post-processing.
 - `StationProcessorBase.process(...)` returns `boolean` — `true` on success, `false` when an exception was
   handled (failure or unpublished/skipped source) — so the cycle can decide whether to post-process.
@@ -147,15 +147,24 @@ CSV fetch rules (`CsvFetcherCA`)
 - HTTP 404 -> `FileNotFoundException` so the station is skipped (ignored by retry and breaker). The exception message names the feed, station, and state (self-sufficient without caller context).
 - Other non-2xx / network errors propagate (5xx and network errors are retried by `httpRetry`).
 
-US fetch rules (`XmlFetcherUS`)
-- URL pattern:
-  - `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
-- SECURITY: build the URL as a RestClient URI template with a `{mli}` variable so the value is strictly
-  URL-encoded; never concatenate DB values into the query string (parameter injection).
-- `fetch` returns the raw XML body as a `String`.
-- HTTP 404 -> `FileNotFoundException` so the station is skipped. The exception message names the feed, station, and state (self-sufficient without caller context).
-- Transient failures (premature EOF, socket timeouts, 5xx) are retried by `httpRetry` (the previous hand-rolled
-  retry loop was removed in favor of declarative Resilience4j retry).
+US fetch rules (`UsgsWaterDataClient`)
+- The legacy WaterServices `nwis/iv` feed is decommissioned on 2027-02-22 (slowed from 2026-11-16). US data
+  comes from the USGS Water Data API (OGC API), rate-limited per API key, so the service makes ONE snapshot
+  per US pass instead of one request per station.
+- `fetchLatest(mli)` pages `{usgs-base-url}/latest-continuous/items?f=json&skipGeometry=true&limit=50000
+  &properties=monitoring_location_id,parameter_code,statistic_id,time,value`, following each `rel=next` link
+  until a page is empty or has no `next` (hard stop at 20 pages). About 2-3 requests cover all ~25k US sites.
+  Returns observations keyed by bare site number (`USGS-` stripped = the `vwWaterStation` MLI). With `mli`
+  set (startup verification) it adds `&monitoring_location_id=USGS-{mli}` (URL-encoded).
+- `ensureTimeZones(mlis)` looks up `time_zone_abbreviation` + `uses_daylight_savings` from
+  `{usgs-base-url}/monitoring-locations/items?id=USGS-a,USGS-b,...` in batches of 200, ONCE per process
+  (cached; undescribed sites cached as UTC). `resolveTimeZone` maps EST/CST/MST/PST/AKST/AST to the IANA zone
+  when DST is observed, else a fixed offset; HST -10, SST -11, ChST/GST +10, anything else UTC.
+- Properties: `water.worker.usgs-base-url` (default `https://api.waterdata.usgs.gov/ogcapi/v1/collections`);
+  the key is the `USGS_API_KEY` secret (env / `.env`), sent as the `X-Api-Key` header when set. Keyed limit:
+  1,000 requests/hour, shared by the Java and C# services.
+- Both methods are `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`. HTTP 429 -> `IOException` naming
+  `USGS_API_KEY` (not retried); a body cut off mid-read -> `ResourceAccessException` (retried).
 
 CSV parse rules (`StationProcessorCA`, commons-csv)
 - Parse the raw CSV body with commons-csv (`CSVFormat.DEFAULT` with `setTrim(true)`), handling quoted fields.
@@ -172,20 +181,18 @@ CSV parse rules (`StationProcessorCA`, commons-csv)
 - Model each reading as:
   - `Reading(String stationId, OffsetDateTime stamp, Double waterLevel, Double discharge)`
 
-US parse rules
-- Parse USGS WaterML into one stored-procedure payload per variable
-- Preserve variable metadata and XML payload content in `UsSeriesReading`
-- Reduce values to daily entries before building the stored-procedure payload: for each day keep the
-  LATEST sample by timestamp (do not trust document order; USGS does not guarantee it)
-- SECURITY (XXE hardening): the WaterML payload is untrusted external input, so the `DocumentBuilderFactory`
-  and `XPathFactory` MUST be hardened before parsing:
-  - `FEATURE_SECURE_PROCESSING` = true (both factories)
-  - `http://apache.org/xml/features/disallow-doctype-decl` = true
-  - `http://xml.org/sax/features/external-general-entities` = false
-  - `http://xml.org/sax/features/external-parameter-entities` = false
-  - `http://apache.org/xml/features/nonvalidating/load-external-dtd` = false
-  - `setXIncludeAware(false)`, `setExpandEntityReferences(false)`, `setNamespaceAware(true)`
-  - A payload containing a DOCTYPE/external entity must be rejected (SAXParseException), never expanded.
+US parse rules (`StationProcessorUS`)
+- At the start of each US pass (and before the US startup verification) `StationWorker` calls
+  `prepareCycle(mlis, requestedMli)` (snapshot + time zones). An `IOException` there is rethrown as
+  `UncheckedIOException` and fails the US pass only.
+- Each station is a snapshot lookup; absent -> `FileNotFoundException` -> skipped.
+- `buildReadings` emits one `UsSeriesReading` per observation, keeping only instantaneous values
+  (`statistic_id` `00011` or null) with a numeric value and a parameter code known to `UsgsParameterMap`, which
+  maps the code to the EXACT legacy WaterML name/unit pair (`00060` -> `Streamflow` / `ft^3/s`, `00065` ->
+  `Gage height` / `ft`, ...; 128 codes harvested from live legacy responses) so `dbo.sp_push_us_water_data`
+  and its unit conversions behave as before.
+- The day is the observation time converted to the station's LOCAL date. Payload:
+  `<root><a d="yyyy-MM-dd" v="..." /></root>`.
 
 Failure handling
 - On any station processing exception:
@@ -356,7 +363,9 @@ Files to include
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
 - `src/main/java/com/fishfind/water/service/CsvFetcherCA.java`
-- `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
+- `src/main/java/com/fishfind/water/service/UsgsWaterDataClient.java`
+- `src/main/java/com/fishfind/water/service/UsgsParameterMap.java`
+- `src/main/java/com/fishfind/water/domain/UsgsObservation.java`
 - `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
 - `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
 - `src/main/java/com/fishfind/water/service/StationWorker.java`

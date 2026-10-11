@@ -4,7 +4,7 @@
 
 - reads supported Canadian and US water stations from SQL Server
 - downloads hourly hydrometric CSV files from Environment Canada for CA stations
-- downloads WaterML payloads from USGS for US stations
+- reads the latest US values from one USGS Water Data API snapshot per cycle (key: `USGS_API_KEY`)
 - parses the readings
 - upserts them into `dbo.WaterData`
 - runs post-processing stored procedures after each worker cycle
@@ -32,11 +32,13 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/StationProcessorCA.java`
   Fetches, parses, saves, and handles shared exception logging for Canadian stations.
 - `src/main/java/com/fishfind/water/service/StationProcessorUS.java`
-  Fetches, parses, saves, and handles shared exception logging for US stations.
+  Picks each US station out of the cycle's USGS snapshot, saves it, and handles shared exception logging.
 - `src/main/java/com/fishfind/water/service/CsvFetcherCA.java`
   Downloads CSV files from Environment Canada.
-- `src/main/java/com/fishfind/water/service/XmlFetcherUS.java`
-  Downloads WaterML payloads from USGS.
+- `src/main/java/com/fishfind/water/service/UsgsWaterDataClient.java`
+  Pages the USGS Water Data API `latest-continuous` snapshot and looks up site time zones.
+- `src/main/java/com/fishfind/water/service/UsgsParameterMap.java`
+  Maps USGS parameter codes to the legacy names/units `dbo.sp_push_us_water_data` expects.
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
   Loads supported stations from `vwWaterStation`.
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
@@ -103,8 +105,8 @@ Failure behavior during worker runs:
 - station processing failures are logged and the worker continues with the next station
 - stations are not disabled automatically after repeated failures
 - CA stations returning HTTP 404 are treated as "no published hydrometric CSV" and skipped
-- US stations returning HTTP 404 are treated as "no published WaterML" and skipped
-- transient USGS fetch failures such as timeouts, socket errors, or premature EOF are retried up to 3 attempts before surfacing the failure
+- US stations missing from the USGS snapshot are treated as "no current USGS series" and skipped
+- transient USGS snapshot failures such as timeouts, socket errors, or premature EOF are retried up to 3 attempts; a snapshot that still fails fails the US pass only
 
 ### Console mode
 
@@ -241,7 +243,7 @@ Recommended first breakpoint locations:
 - `StationProcessorCA.process`
 - `StationProcessorUS.process`
 - `CsvFetcherCA.fetch`
-- `XmlFetcherUS.fetch`
+- `UsgsWaterDataClient.fetchLatest`
 - `WaterDataRepository.saveStationData`
 
 Why `--console` is useful:

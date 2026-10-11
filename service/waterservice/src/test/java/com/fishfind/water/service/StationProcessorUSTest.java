@@ -1,227 +1,102 @@
 package com.fishfind.water.service;
 
 import com.fishfind.water.domain.UsSeriesReading;
+import com.fishfind.water.domain.UsgsObservation;
 import com.fishfind.water.repo.WaterDataRepository;
 import org.junit.jupiter.api.Test;
 
-import java.io.FileNotFoundException;
-import java.lang.reflect.Method;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class StationProcessorUSTest {
-    private static final String REAL_USGS_SAMPLE = """
-            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-              <ns1:timeSeries name="USGS:08313000:00010:00000">
-                <ns1:variable ns1:oid="45807042">
-                  <ns1:variableName>Temperature, water, &amp;#176;C</ns1:variableName>
-                </ns1:variable>
-                <ns1:values>
-                  <ns1:value qualifiers="P" dateTime="2026-03-22T19:45:00.000-06:00">14.5</ns1:value>
-                  <ns1:value qualifiers="P" dateTime="2026-03-23T19:00:00.000-06:00">15.1</ns1:value>
-                </ns1:values>
-              </ns1:timeSeries>
-              <ns1:timeSeries name="USGS:08313000:00060:00000">
-                <ns1:variable ns1:oid="45807197">
-                  <ns1:variableName>Streamflow, ft&amp;#179;/s</ns1:variableName>
-                </ns1:variable>
-                <ns1:values>
-                  <ns1:value qualifiers="P" dateTime="2026-03-22T19:45:00.000-06:00">617</ns1:value>
-                  <ns1:value qualifiers="P" dateTime="2026-03-23T19:00:00.000-06:00">652</ns1:value>
-                </ns1:values>
-              </ns1:timeSeries>
-              <ns1:timeSeries name="USGS:08313000:00065:00000">
-                <ns1:variable ns1:oid="45807202">
-                  <ns1:variableName>Gage height, ft</ns1:variableName>
-                </ns1:variable>
-                <ns1:values>
-                  <ns1:value qualifiers="P" dateTime="2026-03-22T19:45:00.000-06:00">3.26</ns1:value>
-                  <ns1:value qualifiers="P" dateTime="2026-03-23T19:00:00.000-06:00">3.32</ns1:value>
-                </ns1:values>
-              </ns1:timeSeries>
-              <ns1:timeSeries name="USGS:08313000:63680:00000">
-                <ns1:variable ns1:oid="51443524">
-                  <ns1:variableName>Turbidity, water, unfiltered, monochrome near infra-red LED light, 780-900 nm, detection angle 90 &amp;#177;2.5&amp;#176;, formazin nephelometric units (FNU)</ns1:variableName>
-                </ns1:variable>
-                <ns1:values>
-                  <ns1:value qualifiers="P" dateTime="2026-03-22T19:45:00.000-06:00">62.5</ns1:value>
-                  <ns1:value qualifiers="P" dateTime="2026-03-23T19:00:00.000-06:00">61.4</ns1:value>
-                </ns1:values>
-              </ns1:timeSeries>
-            </ns1:timeSeriesResponse>
-            """;
+    private static final ZoneId MOUNTAIN = UsgsWaterDataClient.resolveTimeZone("MST", "Y");
 
-    private final XmlFetcherUS fetcher = mock(XmlFetcherUS.class);
-    private final WaterDataRepository dataRepo = mock(WaterDataRepository.class);
-    private final StationProcessorUS processor = new StationProcessorUS(fetcher, dataRepo);
+    private static UsgsObservation obs(String code, String time, String value, String statistic) {
+        return new UsgsObservation(code, statistic, OffsetDateTime.parse(time), value);
+    }
 
-    @Test
-    void processFetchesParsesAndSavesSeriesOnSuccess() throws Exception {
-        when(fetcher.fetch("NM", "08313000")).thenReturn(REAL_USGS_SAMPLE);
-
-        processor.process("08313000", "NM", -7);
-
-        verify(dataRepo).saveUsStationData("08313000", "NM", List.of(
-                new UsSeriesReading(
-                        "Temperature",
-                        "water, &#176;C",
-                        "<root><a d=\"2026-03-22\" v=\"14.5\" /><a d=\"2026-03-23\" v=\"15.1\" /></root>"
-                ),
-                new UsSeriesReading(
-                        "Streamflow",
-                        "ft^3/s",
-                        "<root><a d=\"2026-03-22\" v=\"617\" /><a d=\"2026-03-23\" v=\"652\" /></root>"
-                ),
-                new UsSeriesReading(
-                        "Gage height",
-                        "ft",
-                        "<root><a d=\"2026-03-22\" v=\"3.26\" /><a d=\"2026-03-23\" v=\"3.32\" /></root>"
-                ),
-                new UsSeriesReading(
-                        "Turbidity",
-                        "water, unfiltered, monochrome near infra-red LED light, 780-900 nm, detection angle 90 &#177;2.5&#176;, formazin nephelometric units (FNU)",
-                        "<root><a d=\"2026-03-22\" v=\"62.5\" /><a d=\"2026-03-23\" v=\"61.4\" /></root>"
-                )
-        ));
+    private static UsgsObservation obs(String code, String time, String value) {
+        return obs(code, time, value, "00011");
     }
 
     @Test
-    void processDoesNotThrowWhenStationFetchFails() throws Exception {
-        doThrow(new RuntimeException("fetch failed")).when(fetcher).fetch("NM", "08313000");
+    void buildReadingsUsesLegacyNameAndUnit() {
+        // sp_push_us_water_data keys its unit conversion on the exact legacy unit string ('ft^3/s').
+        List<UsSeriesReading> series = StationProcessorUS.buildReadings(
+                List.of(obs("00060", "2026-10-11T18:00:00+00:00", "12.5")), MOUNTAIN);
 
-        processor.process("08313000", "NM", -7);
+        assertEquals(List.of(new UsSeriesReading("Streamflow", "ft^3/s",
+                "<root><a d=\"2026-10-11\" v=\"12.5\" /></root>")), series);
     }
 
     @Test
-    void processDoesNotThrowWhenSourceWaterMlIsMissing() throws Exception {
-        doThrow(new FileNotFoundException("HTTP error 404")).when(fetcher).fetch("NM", "08313000");
+    void buildReadingsDatesByTheStationsLocalDay() {
+        // 03:00 UTC on Oct 11 is still Oct 10 in New Mexico (MDT, UTC-6). Dating it by UTC would write a
+        // reading into tomorrow's row.
+        List<UsSeriesReading> series = StationProcessorUS.buildReadings(
+                List.of(obs("00065", "2026-10-11T03:00:00+00:00", "3.34")), MOUNTAIN);
 
-        processor.process("08313000", "NM", -7);
-    }
-
-
-    @Test
-    void parseBuildsPayloadsFromRealUsgsSample() throws Exception {
-        @SuppressWarnings("unchecked")
-        List<UsSeriesReading> series = (List<UsSeriesReading>) invokePrivate(
-                "parse",
-                new Class<?>[]{String.class},
-                REAL_USGS_SAMPLE
-        );
-
-        assertEquals(List.of(
-                new UsSeriesReading("Temperature", "water, &#176;C", "<root><a d=\"2026-03-22\" v=\"14.5\" /><a d=\"2026-03-23\" v=\"15.1\" /></root>"),
-                new UsSeriesReading("Streamflow", "ft^3/s", "<root><a d=\"2026-03-22\" v=\"617\" /><a d=\"2026-03-23\" v=\"652\" /></root>"),
-                new UsSeriesReading("Gage height", "ft", "<root><a d=\"2026-03-22\" v=\"3.26\" /><a d=\"2026-03-23\" v=\"3.32\" /></root>"),
-                new UsSeriesReading("Turbidity", "water, unfiltered, monochrome near infra-red LED light, 780-900 nm, detection angle 90 &#177;2.5&#176;, formazin nephelometric units (FNU)", "<root><a d=\"2026-03-22\" v=\"62.5\" /><a d=\"2026-03-23\" v=\"61.4\" /></root>")
-        ), series);
+        assertEquals("<root><a d=\"2026-10-10\" v=\"3.34\" /></root>", series.get(0).xmlDoc());
     }
 
     @Test
-    void parseSkipsNonNumericDailyValuesBeforeBuildingLegacyXml() throws Exception {
-        String xml = """
-                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
-                  <ns1:timeSeries name="USGS:01519200:00060:00000">
-                    <ns1:variable>
-                      <ns1:variableName>Discharge, ft&amp;#179;/s</ns1:variableName>
-                    </ns1:variable>
-                    <ns1:values>
-                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:00:00.000-04:00">152</ns1:value>
-                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:15:00.000-04:00">Ice</ns1:value>
-                      <ns1:value qualifiers="P" dateTime="2026-03-24T08:00:00.000-04:00">160</ns1:value>
-                    </ns1:values>
-                  </ns1:timeSeries>
-                </ns1:timeSeriesResponse>
-                """;
+    void buildReadingsDropsUnmappedNonInstantaneousAndNonNumeric() {
+        List<UsSeriesReading> series = StationProcessorUS.buildReadings(List.of(
+                obs("99999", "2026-10-11T18:00:00+00:00", "410"),          // not a legacy parameter
+                obs("00060", "2026-10-11T18:00:00+00:00", "12", "00003"),  // daily mean, not instantaneous
+                obs("00065", "2026-10-11T18:00:00+00:00", "Ice"),
+                obs("00010", "2026-10-11T18:00:00+00:00", "17.2", null)),  // no statistic: kept
+                MOUNTAIN);
 
-        @SuppressWarnings("unchecked")
-        List<UsSeriesReading> series = (List<UsSeriesReading>) invokePrivate(
-                "parse",
-                new Class<?>[]{String.class},
-                xml
-        );
-
-        assertEquals(List.of(
-                new UsSeriesReading(
-                        "Discharge",
-                        "ft^3/s",
-                        "<root><a d=\"2026-03-23\" v=\"152\" /><a d=\"2026-03-24\" v=\"160\" /></root>"
-                )
-        ), series);
+        assertEquals(1, series.size());
+        assertEquals("Temperature", series.get(0).name());
+        assertEquals("water, &#176;C", series.get(0).unit());
     }
 
     @Test
-    void parseKeepsLatestSampleOfEachDayRegardlessOfDocumentOrder() throws Exception {
-        // USGS does not guarantee document ordering; the daily value must be the latest sample by
-        // timestamp, not whichever happens to appear last in the payload.
-        String xml = """
-                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
-                  <ns1:timeSeries name="USGS:01519200:00060:00000">
-                    <ns1:variable>
-                      <ns1:variableName>Discharge, ft&amp;#179;/s</ns1:variableName>
-                    </ns1:variable>
-                    <ns1:values>
-                      <ns1:value qualifiers="P" dateTime="2026-03-23T20:00:00.000-04:00">999</ns1:value>
-                      <ns1:value qualifiers="P" dateTime="2026-03-23T08:00:00.000-04:00">111</ns1:value>
-                    </ns1:values>
-                  </ns1:timeSeries>
-                </ns1:timeSeriesResponse>
-                """;
+    void resolveTimeZoneHonoursTheDaylightSavingFlag() {
+        Instant july = Instant.parse("2026-07-01T12:00:00Z");
 
-        @SuppressWarnings("unchecked")
-        List<UsSeriesReading> series = (List<UsSeriesReading>) invokePrivate(
-                "parse",
-                new Class<?>[]{String.class},
-                xml
-        );
-
-        assertEquals(List.of(
-                new UsSeriesReading("Discharge", "ft^3/s", "<root><a d=\"2026-03-23\" v=\"999\" /></root>")
-        ), series);
+        assertEquals(ZoneOffset.ofHours(-6), UsgsWaterDataClient.resolveTimeZone("MST", "Y").getRules().getOffset(july));
+        assertEquals(ZoneOffset.ofHours(-7), UsgsWaterDataClient.resolveTimeZone("MST", "N").getRules().getOffset(july));
+        assertEquals(ZoneOffset.ofHours(-10), UsgsWaterDataClient.resolveTimeZone("HST", "N").getRules().getOffset(july));
+        assertEquals(ZoneOffset.UTC, UsgsWaterDataClient.resolveTimeZone(null, null));
     }
 
     @Test
-    void parseRejectsXxePayloadInsteadOfExpandingEntities() throws Exception {
-        // Classic XXE: a DOCTYPE declaring an external entity that, if expanded, would read a local file.
-        String maliciousXml = """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <!DOCTYPE timeSeriesResponse [
-                  <!ENTITY xxe SYSTEM "file:///etc/passwd">
-                ]>
-                <ns1:timeSeriesResponse xmlns:ns1="http://www.cuahsi.org/waterML/1.1/">
-                  <ns1:timeSeries name="USGS:00000000:00060:00000">
-                    <ns1:variable>
-                      <ns1:variableName>Discharge &xxe;, ft</ns1:variableName>
-                    </ns1:variable>
-                  </ns1:timeSeries>
-                </ns1:timeSeriesResponse>
-                """;
+    void stationMissingFromTheSnapshotIsSkipped() throws Exception {
+        UsgsWaterDataClient client = mock(UsgsWaterDataClient.class);
+        WaterDataRepository repo = mock(WaterDataRepository.class);
+        when(client.fetchLatest(null)).thenReturn(Map.of(
+                "08313000", List.of(obs("00060", "2026-10-11T18:00:00+00:00", "12.5"))));
+        when(client.timeZoneFor("08313000")).thenReturn(MOUNTAIN);
+        StationProcessorUS processor = new StationProcessorUS(client, repo);
 
-        Exception thrown = assertThrows(Exception.class, () -> invokePrivate(
-                "parse",
-                new Class<?>[]{String.class},
-                maliciousXml
-        ));
+        processor.prepareCycle(List.of("08313000", "05112000"), null);
 
-        Throwable cause = thrown instanceof java.lang.reflect.InvocationTargetException ite ? ite.getCause() : thrown;
-        // disallow-doctype-decl makes the parser reject the document outright (it never expands the entity).
-        assertTrue(cause instanceof org.xml.sax.SAXParseException,
-                "expected the hardened parser to reject the DOCTYPE, got: " + cause);
+        assertEquals(ProcessingOutcome.PROCESSED, processor.processWithOutcome("08313000", "NM", 0));
+        assertEquals(ProcessingOutcome.SKIPPED, processor.processWithOutcome("05112000", "MN", 0));
+        verify(client).ensureTimeZones(List.of("08313000"));
+        verify(repo).saveUsStationData(eq("08313000"), eq("NM"), any());
+        verify(repo, never()).saveUsStationData(eq("05112000"), any(), any());
     }
 
-    private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Method method = StationProcessorUS.class.getDeclaredMethod(name, parameterTypes);
-        method.setAccessible(true);
-        return method.invoke(processor, args);
+    @Test
+    void stationBeforeAnySnapshotIsSkipped() {
+        StationProcessorUS processor = new StationProcessorUS(mock(UsgsWaterDataClient.class), mock(WaterDataRepository.class));
+
+        assertEquals(ProcessingOutcome.SKIPPED, processor.processWithOutcome("08313000", "NM", 0));
     }
 }
