@@ -92,7 +92,8 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 
 - Poll supported Canadian and US water stations from MSSQL (`vwWaterStation`).
 - Download each **CA** station's hourly hydrometric CSV from Environment Canada.
-- Download each **US** station's WaterML payload from USGS.
+- Read each **US** station's latest values from one USGS Water Data API snapshot per cycle
+  (`latest-continuous`; key in `USGS_API_KEY`). The legacy WaterServices feed dies 2027-02-22.
 - Parse readings and upsert them into `dbo.WaterData`.
 - After each worker cycle, synchronously run stale-data cleanup:
   1. `dbo.sp_clean_old_water_data`
@@ -119,7 +120,8 @@ com.fishfind.water
 │   └── HttpClientConfig.java                 # pooled RestClient (JDK HttpClient) for source feeds
 ├── service
 │   ├── CsvFetcherCA.java
-│   ├── XmlFetcherUS.java
+│   ├── UsgsWaterDataClient.java    # USGS Water Data API snapshot + site time zones
+│   ├── UsgsParameterMap.java       # USGS parameter code -> legacy name/unit for the proc
 │   ├── StationProcessorCA.java
 │   ├── StationProcessorUS.java
 │   ├── StationProcessorBase.java   # shared exception handling; process() returns success boolean
@@ -143,7 +145,9 @@ src/main/java/com/fishfind/water/domain/UsSeriesReading.java
 src/main/java/com/fishfind/water/repo/WaterDataRepository.java
 src/main/java/com/fishfind/water/repo/WaterStationRepository.java
 src/main/java/com/fishfind/water/service/CsvFetcherCA.java
-src/main/java/com/fishfind/water/service/XmlFetcherUS.java
+src/main/java/com/fishfind/water/service/UsgsWaterDataClient.java
+src/main/java/com/fishfind/water/service/UsgsParameterMap.java
+src/main/java/com/fishfind/water/domain/UsgsObservation.java
 src/main/java/com/fishfind/water/service/StationProcessorCA.java
 src/main/java/com/fishfind/water/service/StationProcessorUS.java
 src/main/java/com/fishfind/water/service/StationWorker.java
@@ -296,15 +300,15 @@ water:
 
 ---
 
-## US fetch (`XmlFetcherUS`)
+## US fetch (`UsgsWaterDataClient`)
 
-- URL: `https://waterservices.usgs.gov/nwis/iv/?sites={MLI}&period=P3D&format=waterml`
-- SECURITY: built as a RestClient **URI template** — `mli` is strictly URL-encoded, so a DB value cannot
-  append or override query parameters.
-- `fetch` returns the raw XML body `String`. `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`.
-- HTTP 404 → `FileNotFoundException` → station skipped. The exception message names the feed, station, and state (self-sufficient without caller context).
-- Transient failures (premature EOF, socket timeouts, 5xx) retried by `httpRetry` — the old hand-rolled retry
-  loop was removed.
+- The legacy WaterServices `nwis/iv` feed is decommissioned 2027-02-22 (slowed from 2026-11-16). US data
+  comes from the USGS Water Data API, rate-limited per key (1,000/hour, shared with the C# service).
+- `fetchLatest(mli)` pages `{water.worker.usgs-base-url}/latest-continuous/items` (limit 50000, follow
+  `rel=next`) once per US pass: ~2-3 requests instead of ~9,500. `mli` restricts it to one site.
+- `ensureTimeZones(mlis)` caches each site's local zone (from `monitoring-locations`) once per process.
+- Key: `USGS_API_KEY` secret, sent as `X-Api-Key`. `@Retry("httpRetry")` + `@CircuitBreaker("usFeed")`;
+  HTTP 429 -> `IOException` naming the key.
 
 ---
 
@@ -321,14 +325,12 @@ water:
 
 ## US parse rules (`StationProcessorUS`)
 
-- Parse USGS WaterML into one stored-procedure payload per variable (`UsSeriesReading`).
-- Preserve variable metadata and XML payload content.
-- Reduce values to **daily entries** before building the stored-procedure payload: for each day, keep the
-  **latest sample by timestamp** (document order is not trusted — USGS does not guarantee it).
-- **SECURITY (XXE):** WaterML is untrusted input. Harden `DocumentBuilderFactory` + `XPathFactory` before
-  parsing — enable `FEATURE_SECURE_PROCESSING`, set `disallow-doctype-decl=true`, disable external
-  general/parameter entities and external DTD loading, `setXIncludeAware(false)`,
-  `setExpandEntityReferences(false)`. A DOCTYPE/entity payload must be rejected, never expanded.
+- `StationWorker` calls `prepareCycle(mlis, requestedMli)` before the US loop (and before the US startup
+  verification); a failed snapshot fails the US pass only. The US pass never pauses between stations.
+- Each station is a snapshot lookup; absent -> `FileNotFoundException` -> skipped.
+- `buildReadings` keeps instantaneous (`00011`/null), numeric values whose code `UsgsParameterMap` knows,
+  named/united exactly as the legacy WaterML was so `dbo.sp_push_us_water_data` is unchanged, dated by the
+  station's local day.
 
 ---
 

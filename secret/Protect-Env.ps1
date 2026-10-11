@@ -41,7 +41,7 @@ param(
     # an encrypt run, which flags secret-looking names that were left unencrypted.
     [string[]] $Encrypt = @(
         'DB_URL', 'DB_USERNAME', 'DB_PASSWORD',
-        'VISUAL_CROSSING_API_KEY', 'GOOGLE_WEATHER_API_KEY',
+        'VISUAL_CROSSING_API_KEY', 'GOOGLE_WEATHER_API_KEY', 'USGS_API_KEY',
         'SMTP_USERNAME', 'SMTP_PASSWORD', 'REPORT_EMAIL_FROM', 'REPORT_EMAIL_TO'
     ),
 

@@ -10,6 +10,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.concurrent.Executor;
 
@@ -17,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -329,5 +332,27 @@ class StationWorkerTest {
 
         assertEquals("species push failed", ex.getMessage());
         verify(postProcessingService, times(1)).cleanOldWaterData();
+    }
+
+    @Test
+    void usPassFetchesOneSnapshotBeforeItsStations() throws Exception {
+        when(repo.findSupported("US")).thenReturn(List.of(
+                new StationRef("08312000", "NM", -7), new StationRef("08313000", "NY", -5)));
+        when(processorUS.processWithOutcome(any(), any(), anyInt())).thenReturn(ProcessingOutcome.PROCESSED);
+
+        assertEquals(2, worker.runOnce("US", null));
+
+        var ordered = inOrder(processorUS);
+        ordered.verify(processorUS).prepareCycle(List.of("08312000", "08313000"), null);
+        ordered.verify(processorUS, times(2)).processWithOutcome(any(), any(), anyInt());
+    }
+
+    @Test
+    void failedUsSnapshotFailsThePassWithoutTouchingStations() throws Exception {
+        when(repo.findSupported("US")).thenReturn(List.of(new StationRef("08312000", "NM", -7)));
+        doThrow(new IOException("HTTP 429")).when(processorUS).prepareCycle(any(), any());
+
+        assertThrows(UncheckedIOException.class, () -> worker.runOnce("US", null));
+        verify(processorUS, never()).processWithOutcome(any(), any(), anyInt());
     }
 }

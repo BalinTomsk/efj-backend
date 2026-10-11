@@ -14,6 +14,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -123,6 +125,7 @@ public class StationWorker implements ApplicationRunner {
             }
 
             var station = stations.get(0);
+            prepareUsSnapshot(country, List.of(station.mli()), station.mli());
             ProcessingOutcome outcome = processSingleStation(country, station, today);
             if (outcome == ProcessingOutcome.PROCESSED) {
                 log.info("Startup station verification succeeded. country={} station={} state={}",
@@ -304,6 +307,9 @@ public class StationWorker implements ApplicationRunner {
                 country, stations.size(),
                 requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
+        // US stations are read from one USGS snapshot per pass rather than one request per station.
+        prepareUsSnapshot(country, stations.stream().map(StationRef::mli).toList(), requestedMli);
+
         int succeeded = 0;
         int failed = 0;
         String lastProcessedStation = null;
@@ -314,8 +320,9 @@ public class StationWorker implements ApplicationRunner {
                 continue;
             }
 
-            // Pause BETWEEN stations only — sleeping after the final station just delays the cycle.
-            if (anyProcessed && pauseBetweenStationsMs > 0) {
+            // Pause BETWEEN stations only — sleeping after the final station just delays the cycle. US
+            // stations make no request of their own (they come from the snapshot), so they never pause.
+            if (anyProcessed && !"US".equals(country) && pauseBetweenStationsMs > 0) {
                 try {
                     Thread.sleep(pauseBetweenStationsMs);
                 } catch (InterruptedException ex) {
@@ -369,6 +376,17 @@ public class StationWorker implements ApplicationRunner {
             case "US" -> processorUS.processWithOutcome(mli, state, tz);
             default -> throw new IllegalArgumentException("Unsupported country " + country);
         };
+    }
+
+    private void prepareUsSnapshot(String country, List<String> mlis, String requestedMli) {
+        if (!"US".equals(country)) {
+            return;
+        }
+        try {
+            processorUS.prepareCycle(mlis, requestedMli);
+        } catch (IOException ex) {
+            throw new UncheckedIOException("USGS snapshot could not be fetched", ex);
+        }
     }
 
     private String providerFor(String country) {
