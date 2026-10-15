@@ -228,19 +228,25 @@ spring:
 ### Lifecycle (Spring-managed — no hand-managed threads)
 
 - `WorkerConfig` provides two Spring beans (graceful shutdown on context close):
-  - `cycleScheduler` — single-thread `ThreadPoolTaskScheduler` (`water-cycle-`). Pool size 1 ⇒ an overrunning
-    cycle delays the next trigger instead of overlapping (no tight-loop).
-  - `countryPassExecutor` — 2-thread `ThreadPoolTaskExecutor` (`water-pass-`) for parallel CA/US passes.
-- `StationWorker` (`ApplicationRunner`): if `--console`, schedule nothing; otherwise register one recurring
-  cycle on `cycleScheduler` via a `CronTrigger` from `water.worker.cron` (default `0 0 * * * *`).
+  - `cycleScheduler` — 2-thread `ThreadPoolTaskScheduler` (`water-cycle-`), one thread per country task. A
+    cron task is rescheduled only after its run ends ⇒ an overrunning cycle delays that country's next
+    trigger instead of overlapping, and never blocks the other country.
+  - `countryPassExecutor` — 2-thread `ThreadPoolTaskExecutor` (`water-pass-`) for parallel CA/US passes in
+    console mode.
+- `StationWorker` (`ApplicationRunner`): if `--console`, schedule nothing; otherwise register **two
+  independent** recurring tasks on `cycleScheduler`, one per country, each via a `CronTrigger` from
+  `water.worker.cron` (default `0 0 * * * *`), running `runCountryCycle(country)`: that country's pass, then
+  post-processing. A slow CA pass must not hold back the US refresh (one task awaiting both passes once held
+  US data to a refresh per ~28 h). Post-processing is lock-serialised between the two tasks.
 
-### Cycle (`runCycle`, used by scheduler AND console)
+### Console cycle (`runCycle`)
 
 1. Run CA and US passes **in parallel** on `countryPassExecutor`; a failure of one country is isolated/logged.
 2. Each pass (`runOnce`) loads its stations, processes them one by one sleeping `pause-between-stations-ms`
    **between** stations only — never after the last (interrupt-aware), and returns the count processed **successfully**.
-3. Run species post-processing **exactly once per cycle**, and **only if ≥1 station succeeded**.
-4. Run stale-data cleanup **exactly once after every cycle** through `dbo.sp_clean_old_water_data`.
+3. Run species post-processing **once** for the combined result, and **only if ≥1 station succeeded**
+   (scheduled country cycles apply the same rule to their own pass).
+4. Run stale-data cleanup **after every cycle** (console or scheduled) through `dbo.sp_clean_old_water_data`.
    - `dbo.spPushSpeciesFromLakeToStation`
    - (Previously each worker thread ran this independently ⇒ the SP executed twice, concurrently. Fixed.)
 5. Failure semantics: a species post-processing failure never blocks cleanup; if cleanup **also** fails, the
