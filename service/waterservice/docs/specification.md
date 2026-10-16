@@ -74,21 +74,32 @@ Datasource config
 Worker behavior
 - Lifecycle is Spring-managed; no hand-managed `Thread`s.
   - `WorkerConfig` defines two Spring beans (so the container shuts them down gracefully on context close):
-    - `cycleScheduler`: a single-thread `ThreadPoolTaskScheduler` (prefix `water-cycle-`,
-      `waitForTasksToCompleteOnShutdown=true`, `awaitTerminationSeconds=60`). Pool size 1 means a cycle that
-      overruns its hour delays the next trigger instead of overlapping (no tight-loop hazard).
+    - `cycleScheduler`: a 2-thread `ThreadPoolTaskScheduler` (prefix `water-cycle-`,
+      `waitForTasksToCompleteOnShutdown=true`, `awaitTerminationSeconds=60`), one thread per country cron
+      task. A cron task is rescheduled only after its run finishes, so a cycle that overruns its hour delays
+      that country's next trigger instead of overlapping, and never blocks the other country.
     - `countryPassExecutor`: a 2-thread `ThreadPoolTaskExecutor` (prefix `water-pass-`) used to run the CA and
-      US passes in parallel within one cycle.
+      US passes in parallel within a console-mode `runCycle`.
 - `StationWorker` implements `ApplicationRunner`:
   - If started with `--console`, schedule nothing.
-  - Otherwise register one recurring cycle on `cycleScheduler` using a `CronTrigger` from `water.worker.cron`
-    (default `0 0 * * * *` — top of every hour, Spring 6-field cron).
-- `StationWorker.runCycle(requestedMli)` (used by BOTH the scheduler and console mode):
+  - Otherwise register TWO independent recurring tasks on `cycleScheduler`, one per country (`CA`, `US`),
+    each with a `CronTrigger` from `water.worker.cron` (default `0 0 * * * *` — top of every hour, Spring
+    6-field cron), running `runScheduledCycle(country)` -> `runCountryCycle(country)`. Independent tasks so a
+    slow CA pass (one HTTP request per station) cannot hold back the US refresh: with one task awaiting both
+    passes, a ~28 h CA pass held US data to one refresh per ~28 h.
+- `StationWorker.runCountryCycle(country)` (scheduled): run that country's pass on the scheduler thread (a
+  pass failure is logged and treated as an empty pass), then post-processing, then log
+  `Station cycle completed. country=...`.
+- Post-processing (`postProcess(succeeded)`), shared by both cycle kinds and serialised by a lock so the two
+  country tasks never run the procedures concurrently: species push only when at least one station
+  succeeded in the triggering cycle; stale-data cleanup always. With independent schedules each country
+  post-processes after its own pass (twice per hour when both fit); the procedures are idempotent.
+- `StationWorker.runCycle(requestedMli)` (console mode):
   - Run the CA and US passes in parallel on `countryPassExecutor`.
   - A failure of one country's pass is isolated (logged) and does not abort the other.
-  - Run species post-processing EXACTLY ONCE per cycle, and ONLY when at least one station was processed
-    successfully.
-  - Run stale-data cleanup EXACTLY ONCE after every cycle by executing `dbo.sp_clean_old_water_data`.
+  - Run species post-processing EXACTLY ONCE for the combined result, and ONLY when at least one station
+    was processed successfully.
+  - Run stale-data cleanup EXACTLY ONCE after the cycle by executing `dbo.sp_clean_old_water_data`.
   - Post-processing failure semantics: a species post-processing failure never prevents cleanup from running;
     if cleanup ALSO fails, the species exception propagates with the cleanup exception attached as suppressed
     (a cleanup failure must not mask the species failure). The cycle-completed summary log is always emitted.
@@ -113,7 +124,7 @@ Console mode
 - Add a console/debug runner activated by `--console` (`ConsoleDebugRunner`, `@Order(0)`).
 - Optional arg: `--station=<MLI>`.
 - Delegates to `StationWorker.runCycle(station)`, so console mode runs exactly one cycle: both countries in
-  parallel followed by a single post-processing run — identical to scheduled behavior.
+  parallel followed by a single post-processing run.
 
 WaterStation query rules
 - Read from view `vwWaterStation`
@@ -319,8 +330,9 @@ Observability and operations
     `water_station_processed_total{country,outcome}` (outcome = `success` | `failure`), incremented per station
     in `StationWorker.runOnce`.
   - `water_cycle_overrun_total`: incremented (with a WARN log) when a scheduled cycle finishes at or after
-    the next cron fire time — the pool-size-1 scheduler silently skips that trigger, so this is the only
-    signal that cycles are being dropped. Cycle duration is logged after every scheduled cycle.
+    the next cron fire time — the scheduler silently skips that country's trigger, so this is the only
+    signal that cycles are being dropped. Cycle duration is logged after every scheduled cycle. Both lines
+    carry `country`.
   - Recommended alert (in the monitoring stack, not this repo): sustained high failure ratio, e.g.
     `sum(rate(water_station_processed_total{outcome="failure"}[1h])) / sum(rate(water_station_processed_total[1h])) > 0.5`.
 - CI: `.github/workflows/waterservice-ci.yml` runs `mvn -B test` then `mvn -B -DskipTests package` on any change

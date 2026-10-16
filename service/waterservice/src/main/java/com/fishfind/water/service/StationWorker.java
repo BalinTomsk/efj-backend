@@ -26,10 +26,11 @@ import java.util.concurrent.Executor;
 /**
  * Schedules and runs the recurring station-processing cycle.
  *
- * <p>In normal mode an hourly cycle is registered on a Spring-managed scheduler. Each cycle processes the
- * CA and US stations in parallel and then runs post-processing <strong>exactly once</strong> — and only when
- * at least one station was processed successfully. The previous design ran two hand-managed threads that each
- * triggered post-processing, causing the same stored procedure to execute twice concurrently.
+ * <p>In normal mode the CA and US passes are registered as two independent cron tasks on a Spring-managed
+ * scheduler, so a slow CA pass (one request per station) cannot hold back the US refresh. Each scheduled pass
+ * is followed by post-processing — species push only when at least one station succeeded, cleanup always —
+ * serialised between the two countries so the procedures never run concurrently. Console mode
+ * ({@link #runCycle(String)}) still processes both countries in parallel and post-processes exactly once.
  */
 @Component
 public class StationWorker implements ApplicationRunner {
@@ -50,6 +51,8 @@ public class StationWorker implements ApplicationRunner {
     private final Executor countryPassExecutor;
     private final MeterRegistry meterRegistry;
     private final StationHttp503BackoffService http503BackoffService;
+    // The CA and US cron tasks each post-process after their pass; never let the two run the procs at once.
+    private final Object postProcessingLock = new Object();
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -79,7 +82,8 @@ public class StationWorker implements ApplicationRunner {
     }
 
     /**
-     * Registers the recurring cycle on the scheduler, unless the app was started with {@code --console}.
+     * Registers one recurring cycle per country on the scheduler, unless the app was started with
+     * {@code --console}.
      *
      * @param args parsed application arguments
      */
@@ -95,8 +99,12 @@ public class StationWorker implements ApplicationRunner {
         }
 
         verifyWorkersOnStartup();
-        cycleScheduler.schedule(this::runScheduledCycle, new CronTrigger(cron));
-        log.info("Scheduled hourly station cycle. cron=\"{}\"", cron);
+        // Independent tasks: one task running both passes meant a ~28 h CA pass also held the US refresh
+        // to once per ~28 h.
+        for (String country : WORKER_COUNTRIES) {
+            cycleScheduler.schedule(() -> runScheduledCycle(country), new CronTrigger(cron));
+        }
+        log.info("Scheduled hourly station cycle. cron=\"{}\" countries={}", cron, WORKER_COUNTRIES);
     }
 
     /**
@@ -140,35 +148,37 @@ public class StationWorker implements ApplicationRunner {
     }
 
     /**
-     * Wraps {@link #runCycle(String)} so a failed cycle is logged rather than killing the scheduler thread.
+     * Wraps {@link #runCountryCycle(String)} so a failed cycle is logged rather than killing the scheduler task.
      */
-    private void runScheduledCycle() {
+    void runScheduledCycle(String country) {
         java.time.Instant start = java.time.Instant.now();
         try {
-            runCycle(null);
+            runCountryCycle(country);
         } catch (Exception ex) {
-            log.error("Station cycle failed.", ex);
+            log.error("Station cycle failed. country={}", country, ex);
         } finally {
-            recordCycleOutcome(start, java.time.Instant.now());
+            recordCycleOutcome(start, java.time.Instant.now(), country);
         }
     }
 
     /**
-     * Makes a cycle that overran its cron period observable: the single-threaded scheduler silently skips
-     * the next trigger in that case, so without this a slowly degrading cycle time produces data gaps with
-     * no signal. Increments {@code water.cycle.overrun} and logs a warning when the cycle finished at or
-     * after the next scheduled fire time.
+     * Makes a cycle that overran its cron period observable: the scheduler silently skips that country's
+     * next trigger in that case, so without this a slowly degrading cycle time produces data gaps with no
+     * signal. Increments {@code water.cycle.overrun} and logs a warning when the cycle finished at or after
+     * the next scheduled fire time.
+     *
+     * @param country the country whose scheduled cycle this was
      */
-    void recordCycleOutcome(java.time.Instant start, java.time.Instant end) {
+    void recordCycleOutcome(java.time.Instant start, java.time.Instant end, String country) {
         long durationSeconds = java.time.Duration.between(start, end).toSeconds();
         java.time.ZonedDateTime nextFire = org.springframework.scheduling.support.CronExpression.parse(cron)
                 .next(start.atZone(java.time.ZoneId.systemDefault()));
         if (nextFire != null && !end.isBefore(nextFire.toInstant())) {
             meterRegistry.counter("water.cycle.overrun").increment();
             log.warn("Station cycle overran its cron period; the next scheduled cycle was skipped. "
-                    + "durationSeconds={} cron=\"{}\"", durationSeconds, cron);
+                    + "country={} durationSeconds={} cron=\"{}\"", country, durationSeconds, cron);
         } else {
-            log.info("Station cycle duration. durationSeconds={}", durationSeconds);
+            log.info("Station cycle duration. country={} durationSeconds={}", country, durationSeconds);
         }
     }
 
@@ -194,6 +204,70 @@ public class StationWorker implements ApplicationRunner {
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
+            RuntimeException postProcessingFailure = postProcess(succeeded);
+            log.info("Station cycle completed. successfulStations={} failedStations={} "
+                            + "caLastProcessedStation={} usLastProcessedStation={} "
+                            + "caLastFailedStation={} usLastFailedStation={}",
+                    succeeded,
+                    failed,
+                    logValue(caStats.lastProcessedStation()),
+                    logValue(usStats.lastProcessedStation()),
+                    logValue(caStats.lastFailedStation()),
+                    logValue(usStats.lastFailedStation()));
+            if (postProcessingFailure != null) {
+                throw postProcessingFailure;
+            }
+        } finally {
+            MDC.remove(MDC_CORRELATION_ID);
+        }
+        return succeeded;
+    }
+
+    /**
+     * Runs one country's scheduled cycle: its pass on the calling (scheduler) thread, then post-processing.
+     *
+     * @param country country code to process
+     * @return the number of stations processed successfully
+     */
+    public int runCountryCycle(String country) {
+        String correlationId = UUID.randomUUID().toString().substring(0, 8);
+        PassStats stats;
+        try {
+            stats = runPass(country, null, correlationId);
+        } catch (RuntimeException ex) {
+            log.error("Station pass failed. country={}", country, ex);
+            stats = PassStats.empty(country);
+        }
+
+        MDC.put(MDC_CORRELATION_ID, correlationId);
+        try {
+            RuntimeException postProcessingFailure = postProcess(stats.succeeded());
+            log.info("Station cycle completed. country={} successfulStations={} failedStations={} "
+                            + "lastProcessedStation={} lastFailedStation={}",
+                    country,
+                    stats.succeeded(),
+                    stats.failed(),
+                    logValue(stats.lastProcessedStation()),
+                    logValue(stats.lastFailedStation()));
+            if (postProcessingFailure != null) {
+                throw postProcessingFailure;
+            }
+        } finally {
+            MDC.remove(MDC_CORRELATION_ID);
+        }
+        return stats.succeeded();
+    }
+
+    /**
+     * Runs species post-processing (only when {@code succeeded > 0}) and then old-data cleanup, one caller at
+     * a time. A species-push failure never blocks cleanup.
+     *
+     * @param succeeded stations processed successfully by the triggering cycle
+     * @return the failure for the caller to rethrow after its summary log (cleanup failure suppressed into the
+     *         species failure when both fail), or {@code null}
+     */
+    private RuntimeException postProcess(int succeeded) {
+        synchronized (postProcessingLock) {
             RuntimeException postProcessingFailure = null;
             try {
                 if (succeeded > 0) {
@@ -216,22 +290,8 @@ public class StationWorker implements ApplicationRunner {
                     log.error("Old-data cleanup also failed.", ex);
                 }
             }
-            log.info("Station cycle completed. successfulStations={} failedStations={} "
-                            + "caLastProcessedStation={} usLastProcessedStation={} "
-                            + "caLastFailedStation={} usLastFailedStation={}",
-                    succeeded,
-                    failed,
-                    logValue(caStats.lastProcessedStation()),
-                    logValue(usStats.lastProcessedStation()),
-                    logValue(caStats.lastFailedStation()),
-                    logValue(usStats.lastFailedStation()));
-            if (postProcessingFailure != null) {
-                throw postProcessingFailure;
-            }
-        } finally {
-            MDC.remove(MDC_CORRELATION_ID);
+            return postProcessingFailure;
         }
-        return succeeded;
     }
 
     /**

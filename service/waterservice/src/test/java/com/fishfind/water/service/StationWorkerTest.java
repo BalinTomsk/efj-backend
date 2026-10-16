@@ -66,7 +66,8 @@ class StationWorkerTest {
 
         worker.run(new DefaultApplicationArguments());
 
-        verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+        // One independent cron task per country, so a slow CA pass cannot hold back the US refresh.
+        verify(scheduler, times(2)).schedule(any(Runnable.class), any(CronTrigger.class));
     }
 
     @Test
@@ -87,7 +88,7 @@ class StationWorkerTest {
         var ordered = inOrder(processorCA, processorUS, scheduler);
         ordered.verify(processorCA).processWithOutcome("A", "QC", -5);
         ordered.verify(processorUS).processWithOutcome("08312000", "NM", -7);
-        ordered.verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+        ordered.verify(scheduler, times(2)).schedule(any(Runnable.class), any(CronTrigger.class));
         verify(processorCA, never()).processWithOutcome("B", "ON", -5);
         verify(processorUS, never()).processWithOutcome("08313000", "NY", -5);
     }
@@ -99,7 +100,7 @@ class StationWorkerTest {
 
         worker.run(new DefaultApplicationArguments());
 
-        verify(scheduler).schedule(any(Runnable.class), any(CronTrigger.class));
+        verify(scheduler, times(2)).schedule(any(Runnable.class), any(CronTrigger.class));
     }
 
     @Test
@@ -301,12 +302,77 @@ class StationWorkerTest {
     }
 
     @Test
+    void scheduledCountryTasksEachRunOnlyTheirOwnCountry() {
+        when(repo.findSupported("CA")).thenReturn(List.of());
+        when(repo.findSupported("US")).thenReturn(List.of());
+        worker.run(new DefaultApplicationArguments());
+        var tasks = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler, times(2)).schedule(tasks.capture(), any(CronTrigger.class));
+        org.mockito.Mockito.clearInvocations(repo, processorCA, processorUS, postProcessingService);
+        when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("02JE025", "QC", -5)));
+        when(repo.findSupported("US")).thenReturn(List.of(new StationRef("08313000", "NY", -5)));
+        when(processorCA.processWithOutcome("02JE025", "QC", -5)).thenReturn(ProcessingOutcome.PROCESSED);
+        when(processorUS.processWithOutcome("08313000", "NY", -5)).thenReturn(ProcessingOutcome.PROCESSED);
+
+        tasks.getAllValues().get(1).run(); // the US task alone
+
+        verify(processorUS).processWithOutcome("08313000", "NY", -5);
+        verify(processorCA, never()).processWithOutcome(any(), any(), anyInt());
+        verify(postProcessingService).runAfterStationProcessing();
+        verify(postProcessingService).cleanOldWaterData();
+    }
+
+    @Test
+    void slowCaCycleDoesNotHoldBackTheUsSchedule() throws Exception {
+        // The bug this pins: one task awaited both passes, so a ~28 h CA pass meant US data refreshed once
+        // per ~28 h. With a CA pass that never finishes, the US task must keep firing.
+        var realScheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler();
+        realScheduler.setPoolSize(2);
+        realScheduler.initialize();
+        var caStarted = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var usRuns = new java.util.concurrent.atomic.AtomicInteger();
+        var caCalls = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            StationWorker live = new StationWorker(repo, processorCA, processorUS, postProcessingService,
+                    realScheduler, inlineExecutor, meterRegistry, http503BackoffService);
+            ReflectionTestUtils.setField(live, "pauseBetweenStationsMs", 0L);
+            ReflectionTestUtils.setField(live, "cron", "* * * * * *");
+            ReflectionTestUtils.setField(live, "enabled", true);
+            when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("02JE025", "QC", -5)));
+            when(repo.findSupported("US")).thenReturn(List.of(new StationRef("08313000", "NY", -5)));
+            when(processorCA.processWithOutcome("02JE025", "QC", -5)).thenAnswer(inv -> {
+                if (caCalls.incrementAndGet() > 1) { // call 1 is the synchronous startup verification
+                    caStarted.countDown();
+                    release.await();
+                }
+                return ProcessingOutcome.PROCESSED;
+            });
+            when(processorUS.processWithOutcome("08313000", "NY", -5)).thenAnswer(inv -> {
+                usRuns.incrementAndGet();
+                return ProcessingOutcome.PROCESSED;
+            });
+
+            live.run(new DefaultApplicationArguments());
+            int afterStartup = usRuns.get(); // startup verification processes one US station
+            assertTrue(caStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            Thread.sleep(3500);
+
+            assertTrue(usRuns.get() - afterStartup >= 2,
+                    "US cycles while CA was stuck: " + (usRuns.get() - afterStartup));
+        } finally {
+            release.countDown();
+            realScheduler.shutdown();
+        }
+    }
+
+    @Test
     void cycleOverrunningItsCronPeriodIsCountedAndVisible() {
         // Cycle started at the top of the hour and finished after the next trigger should have fired:
         // the pool-size-1 scheduler silently skipped a cycle, which must be observable.
         worker.recordCycleOutcome(
                 java.time.Instant.parse("2026-07-13T10:00:00Z"),
-                java.time.Instant.parse("2026-07-13T11:30:00Z"));
+                java.time.Instant.parse("2026-07-13T11:30:00Z"), "CA");
 
         assertEquals(1.0, meterRegistry.counter("water.cycle.overrun").count());
     }
@@ -315,7 +381,7 @@ class StationWorkerTest {
     void cycleFinishingWithinItsCronPeriodDoesNotCountAnOverrun() {
         worker.recordCycleOutcome(
                 java.time.Instant.parse("2026-07-13T10:00:00Z"),
-                java.time.Instant.parse("2026-07-13T10:10:00Z"));
+                java.time.Instant.parse("2026-07-13T10:10:00Z"), "US");
 
         assertEquals(0.0, meterRegistry.counter("water.cycle.overrun").count());
     }

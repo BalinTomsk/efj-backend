@@ -17,17 +17,18 @@ import java.util.concurrent.Executor;
 public class WorkerConfig {
 
     /**
-     * Single-threaded scheduler that fires the hourly station cycle.
+     * Scheduler that fires the CA and US station cycles, one cron task per country.
      *
-     * <p>A pool size of one means a cycle that overruns its hour simply delays the next trigger rather
-     * than running two cycles concurrently — removing the previous tight-loop/overlap hazard.
+     * <p>Two threads, one per country task, so a slow CA pass cannot hold back the US one. A cron task is
+     * only rescheduled once its run has finished, so a cycle that overruns its hour delays that country's
+     * next trigger instead of running two of its cycles concurrently.
      *
      * @return the cycle scheduler
      */
     @Bean
     public ThreadPoolTaskScheduler cycleScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
+        scheduler.setPoolSize(2);
         scheduler.setThreadNamePrefix("water-cycle-");
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(60);
