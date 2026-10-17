@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -14,11 +13,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -29,8 +25,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -60,13 +54,6 @@ class McpControllerTest {
 
     @MockBean
     private FishQueryRepository fishRepository;
-
-    /** Unless a test says otherwise every water body is Canadian, so the older tests keep their meaning. */
-    @BeforeEach
-    void everyWaterBodyIsCanadianByDefault() {
-        when(riverRepository.canadianIds(any())).thenAnswer(inv -> ((Collection<String>) inv.getArgument(0))
-                .stream().map(id -> id.toUpperCase(Locale.ROOT)).collect(Collectors.toSet()));
-    }
 
     /** As cproxy sends it for an admin's key; the default, so the pre-1.21.0 tests still reach every tool. */
     private ResultActions rpc(String body) throws Exception {
@@ -191,7 +178,7 @@ class McpControllerTest {
 
     @Test
     void searchPassesNormalizedCriteriaAndCapsTheLimit() throws Exception {
-        when(riverRepository.search("Ottawa", null, "FEFUL", null, null, RiverController.SEARCH_MAX_LIMIT))
+        when(riverRepository.search("Ottawa", null, "FEFUL", null, null, McpToolCatalog.SEARCH_MAX_LIMIT))
                 .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Ottawa River\"}]"));
 
         call("search_water_bodies", "{\"name\":\" Ottawa \",\"cgndb\":\"feful\",\"limit\":500}")
@@ -205,7 +192,7 @@ class McpControllerTest {
 
     @Test
     void searchByStateIdPassesItToTheRepository() throws Exception {
-        when(riverRepository.search(null, null, null, "39325", null, RiverController.SEARCH_MAX_LIMIT))
+        when(riverRepository.search(null, null, null, "39325", null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
                 .thenReturn(objectMapper.readTree(
                         "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Fraser River\",\"stateId\":\"39325\"}]"));
 
@@ -342,8 +329,9 @@ class McpControllerTest {
     private static final String TRIB_A = "22222222-2222-2222-2222-222222222222";
     private static final String TRIB_B = "33333333-3333-3333-3333-333333333333";
 
-    private void humberWithThreeTributaries(int sqlTotal) throws Exception {
-        when(riverRepository.tributaries(GUID, RiverController.SEARCH_MAX_LIMIT)).thenReturn(objectMapper.readTree(
+    private void humberWithThreeTributaries(int limit) throws Exception {
+        int sqlTotal = 3;
+        when(riverRepository.tributaries(GUID, limit)).thenReturn(objectMapper.readTree(
                 "{\"guid\":\"" + GUID + "\",\"lakeName\":\"Humber River\",\"total\":" + sqlTotal + ",\"limit\":200,"
                         + "\"tributaries\":["
                         + "{\"lakeId\":\"" + TRIB_A.toUpperCase() + "\",\"lakeName\":\"East Humber River\",\"link\":\"mouth\"},"
@@ -352,42 +340,26 @@ class McpControllerTest {
     }
 
     @Test
-    void tributariesKeepOnlyCanadianOnesThenApplyTheLimit() throws Exception {
-        humberWithThreeTributaries(3);
-        doAnswer(inv -> ((Collection<String>) inv.getArgument(0)).stream()
-                .map(id -> id.toUpperCase(Locale.ROOT)).filter(id -> !id.equals(TRIB_US))
-                .collect(Collectors.toSet())).when(riverRepository).canadianIds(any());
+    void tributariesIncludeUsWaterBodiesAndPassTheLimitThrough() throws Exception {
+        humberWithThreeTributaries(McpToolCatalog.SEARCH_DEFAULT_LIMIT);
 
         callAs("user", "get_water_body_tributaries", "{\"guid\":\"" + GUID.toUpperCase() + "\"}")
                 .andExpect(jsonPath("$.result.isError").value(false))
                 .andExpect(jsonPath("$.result.structuredContent.lakeName").value("Humber River"))
-                .andExpect(jsonPath("$.result.structuredContent.total").value(2))
-                .andExpect(jsonPath("$.result.structuredContent.limit").value(20))
-                .andExpect(jsonPath("$.result.structuredContent.totalIsLowerBound").doesNotExist())
-                .andExpect(jsonPath("$.result.structuredContent.tributaries", hasSize(2)))
-                .andExpect(jsonPath("$.result.structuredContent.tributaries[0].lakeName").value("East Humber River"))
-                .andExpect(jsonPath("$.result.structuredContent.tributaries[1].link").value("inflow"))
-                .andExpect(jsonPath("$.result.content[0].text", not(containsString("Over The Border"))))
-                .andExpect(jsonPath("$.result.content[0].text", not(containsString("QUJD"))));
-        callAs("user", "get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":1}")
-                .andExpect(jsonPath("$.result.structuredContent.total").value(2))
-                .andExpect(jsonPath("$.result.structuredContent.tributaries", hasSize(1)));
-    }
-
-    @Test
-    void tributariesSayWhenTheTotalIsOnlyALowerBound() throws Exception {
-        humberWithThreeTributaries(250);
-
-        call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":500}")
                 .andExpect(jsonPath("$.result.structuredContent.total").value(3))
-                .andExpect(jsonPath("$.result.structuredContent.totalIsLowerBound").value(true))
-                .andExpect(jsonPath("$.result.structuredContent.limit").value(McpToolCatalog.SEARCH_MAX_LIMIT));
+                .andExpect(jsonPath("$.result.structuredContent.tributaries", hasSize(3)))
+                .andExpect(jsonPath("$.result.structuredContent.tributaries[1].lakeName").value("Over The Border Creek"))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("QUJD"))));
+        humberWithThreeTributaries(McpToolCatalog.SEARCH_MAX_LIMIT);
+        call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\",\"limit\":500}")
+                .andExpect(jsonPath("$.result.isError").value(false));
+        verify(riverRepository).tributaries(GUID, McpToolCatalog.SEARCH_MAX_LIMIT);   // clamped to 50
     }
 
     // ---- 1.24.0: get_water_body_barriers ------------------------------------------------------
 
     @Test
-    void barriersReturnTheWaterfallsAndDamsOfACanadianWaterBody() throws Exception {
+    void barriersReturnTheWaterfallsAndDamsOfAWaterBody() throws Exception {
         when(riverRepository.barriers(GUID)).thenReturn(objectMapper.readTree(
                 "{\"guid\":\"" + GUID + "\",\"lakeName\":\"Exploits River\","
                         + "\"waterfalls\":[{\"name\":\"Grand Falls\",\"type\":\"Falls\",\"lat\":48.93,\"lon\":-55.67}],"
@@ -414,7 +386,7 @@ class McpControllerTest {
 
     @Test
     void tributariesOfAnUnknownWaterBodyOrABadArgumentAreToolErrors() throws Exception {
-        when(riverRepository.tributaries(GUID, RiverController.SEARCH_MAX_LIMIT)).thenReturn(null);
+        when(riverRepository.tributaries(GUID, McpToolCatalog.SEARCH_DEFAULT_LIMIT)).thenReturn(null);
         call("get_water_body_tributaries", "{\"guid\":\"" + GUID + "\"}")
                 .andExpect(jsonPath("$.result.isError").value(true));
 
@@ -465,7 +437,7 @@ class McpControllerTest {
 
         call("find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"min_probability\":500,\"limit\":999}")
                 .andExpect(jsonPath("$.result.isError").value(false));
-        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), "CA", null, null, 100, 50);
+        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), null, null, null, 100, 50);   // no country = both
     }
 
     @Test
@@ -527,55 +499,50 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.structuredContent.fish[0].fishName").value("Walleye"));
     }
 
-    // ---- 1.21.0: Canadian water bodies only ----------------------------------------------------
+    // ---- 1.25.0: Canada and the USA (the 1.21.0 Canada-only block is gone) -------------------
 
     @Test
-    void aNonCanadianWaterBodyIsAnsweredLikeAnUnknownOne() throws Exception {
-        doReturn(Set.of()).when(riverRepository).canadianIds(any());
+    void aUsWaterBodyIsAnsweredLikeAnyOther() throws Exception {
+        when(riverRepository.description(GUID)).thenReturn(objectMapper.readTree(
+                "{\"lakeName\":\"Red River of the North\",\"country\":\"US\"}"));
 
-        for (String tool : List.of("get_water_body", "get_water_body_links", "get_water_body_tributaries", "get_water_body_barriers",
-                "get_water_body_regulations",
-                "get_water_body_fish")) {
-            callAs("admin", tool, "{\"guid\":\"" + GUID + "\"}")
-                    .andExpect(jsonPath("$.result.isError").value(true))
-                    .andExpect(jsonPath("$.result.content[0].text", containsString("Canadian")));
-        }
-        verify(riverRepository, never()).description(any());
-        verify(riverRepository, never()).source(any());
-        verify(riverRepository, never()).tributaries(any(), anyInt());
-        verify(riverRepository, never()).barriers(any());
-        verify(riverRepository, never()).fish(any());
-        verify(regulationRepository, never()).lakeRegulation(any());
+        callAs("user", "get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.lakeName").value("Red River of the North"));
     }
 
     @Test
-    void searchKeepsOnlyCanadianMatchesAndThenAppliesTheLimit() throws Exception {
-        String us = "11111111-1111-1111-1111-111111111111", on = "22222222-2222-2222-2222-222222222222",
-               qc = "33333333-3333-3333-3333-333333333333";
-        when(riverRepository.search("Red", null, null, null, null, RiverController.SEARCH_MAX_LIMIT))
+    void searchReturnsUsMatchesToo() throws Exception {
+        String us = "11111111-1111-1111-1111-111111111111", on = "22222222-2222-2222-2222-222222222222";
+        when(riverRepository.search("Red", null, null, null, null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
                 .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + us + "\",\"lakeName\":\"Red River US\"},"
-                        + "{\"lakeId\":\"" + on + "\",\"lakeName\":\"Red River ON\"},"
-                        + "{\"lakeId\":\"" + qc + "\",\"lakeName\":\"Red River QC\"}]"));
-        doReturn(Set.of(on, qc)).when(riverRepository).canadianIds(any());
+                        + "{\"lakeId\":\"" + on + "\",\"lakeName\":\"Red River ON\"}]"));
 
         callAs("user", "search_water_bodies", "{\"name\":\"Red\"}")
                 .andExpect(jsonPath("$.result.structuredContent.total").value(2))
-                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Red River ON"))
-                .andExpect(jsonPath("$.result.content[0].text", not(containsString("Red River US"))));
-        callAs("user", "search_water_bodies", "{\"name\":\"Red\",\"limit\":1}")
-                .andExpect(jsonPath("$.result.structuredContent.items", hasSize(1)))
-                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Red River ON"));
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Red River US"));
     }
 
     @Test
-    void regulationsAndTheSpeciesToolAreCanadaOnly() throws Exception {
-        callAs("user", "get_region_regulations", "{\"country\":\"US\",\"state\":\"MN\"}")
+    void regulationsAndTheSpeciesToolTakeCaOrUs() throws Exception {
+        when(regulationRepository.region("US", "MN"))
+                .thenReturn(objectMapper.readTree("{\"country\":\"US\",\"state\":\"MN\",\"regulations\":[]}"));
+        when(fishRepository.waterBodies(anyString(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(objectMapper.readTree("{\"total\":0,\"limit\":20,\"items\":[]}"));
+
+        callAs("user", "get_region_regulations", "{\"country\":\"us\",\"state\":\"mn\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.state").value("MN"));
+        callAs("admin", "find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"country\":\"us\"}")
+                .andExpect(jsonPath("$.result.isError").value(false));
+        verify(fishRepository).waterBodies(WALLEYE.toLowerCase(), "US", null, null, 0, 20);
+
+        callAs("user", "get_region_regulations", "{\"country\":\"MX\"}")
                 .andExpect(jsonPath("$.result.isError").value(true))
-                .andExpect(jsonPath("$.result.content[0].text", containsString("Canada")));
-        callAs("admin", "find_water_bodies_by_fish", "{\"fishId\":\"" + WALLEYE + "\",\"country\":\"US\"}")
+                .andExpect(jsonPath("$.result.content[0].text", containsString("CA or US")));
+        callAs("user", "get_region_regulations", "{\"state\":\"ON\"}")
                 .andExpect(jsonPath("$.result.isError").value(true));
-        verify(regulationRepository, never()).region(anyString(), any());
-        verify(fishRepository, never()).waterBodies(any(), any(), any(), any(), anyInt(), anyInt());
+        verify(regulationRepository, org.mockito.Mockito.times(1)).region(anyString(), any());
     }
 
     @Test

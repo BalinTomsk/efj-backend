@@ -18,4 +18,9 @@ public class InMemoryRiverLinkCommandRepository implements RiverLinkCommandRepos
     public JsonNode patchMouth(String lakeId, String patchJson) {
         return null;
     }
+
+    @Override
+    public JsonNode assignPoint(String lakeId, int side, String pointId) {
+        return null;
+    }
 }

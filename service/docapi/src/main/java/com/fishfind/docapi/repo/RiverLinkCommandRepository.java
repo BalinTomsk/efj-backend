@@ -28,4 +28,24 @@ public interface RiverLinkCommandRepository {
 
     /** Same contract as {@link #patchSource}, but for the Mouth-tab fields. */
     JsonNode patchMouth(String lakeId, String patchJson);
+
+    /**
+     * Re-points one water body's source ({@code side} 16) or mouth ({@code side} 32) to another water body —
+     * the "Point" relink of {@code Editor/EditLakeLink.aspx}, backed by {@code dbo.sp_lake_link_assign}.
+     *
+     * @param lakeId  the water body's canonical GUID
+     * @param side    {@link #SOURCE} or {@link #MOUTH}
+     * @param pointId the canonical GUID of the water body that becomes the source/mouth
+     * @return {@code {lakeId, side, pointId, pointName, previousPointId, previousPointName, changed, error}} —
+     *         {@code error} is {@code null} on success, else {@code pointNotFound} / {@code selfPoint} /
+     *         {@code invalidSide} and nothing was written — or {@code null} if no water body exists for
+     *         {@code lakeId}
+     */
+    JsonNode assignPoint(String lakeId, int side, String pointId);
+
+    /** {@code dbo.Tributaries.side} of a source row. */
+    int SOURCE = 16;
+
+    /** {@code dbo.Tributaries.side} of a mouth row. */
+    int MOUTH = 32;
 }
