@@ -19,6 +19,8 @@ import com.fishfind.weather.repo.WeatherStationRepository;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -272,8 +274,20 @@ class StationWorkerTest {
     }
 
     @Test
-    void backgroundModeStartsWeatherGovUsOpenMeteoCaVisualCrossingUsGoogleWeatherUsWeatherCanadaCaAndWundergroundUsWorkers() {
+    void backgroundModeStartsWeatherGovUsOpenMeteoCaVisualCrossingUsGoogleWeatherUsWeatherCanadaCaAndWundergroundUsWorkers()
+            throws InterruptedException {
         when(stationRepository.countSupportedStations(anyString())).thenReturn(0);
+        // WeatherApiUsageTracker.snapshot is synchronized, and the inline mock keeps the modifier, so
+        // verify(usageTracker, timeout(..)).snapshot(..) would hold the mock's monitor for the whole
+        // poll and block the workers from ever reaching snapshot. Wait outside the mock instead.
+        CountDownLatch meteredSnapshots = new CountDownLatch(3);
+        when(usageTracker.snapshot(anyString(), any(LocalDate.class), anyInt())).thenAnswer(invocation -> {
+            if (List.of("google-weather", "weather-canada", "wunderground").contains(invocation.getArgument(0))) {
+                meteredSnapshots.countDown();
+            }
+            return new WeatherApiUsageTracker.UsageSnapshot(
+                    0, invocation.getArgument(2), invocation.getArgument(2), true);
+        });
         StationWorker backgroundWorker = new StationWorker(
                 stationRepository,
                 processor,
@@ -311,9 +325,10 @@ class StationWorkerTest {
                         "weather-data-worker-weather-canada-ca",
                         "weather-data-worker-wunderground-us");
 
-        verify(usageTracker, timeout(5000)).snapshot(eq("google-weather"), any(LocalDate.class), eq(161));
-        verify(usageTracker, timeout(5000)).snapshot(eq("weather-canada"), any(LocalDate.class), eq(900));
-        verify(usageTracker, timeout(5000)).snapshot(eq("wunderground"), any(LocalDate.class), eq(450));
+        assertThat(meteredSnapshots.await(5, TimeUnit.SECONDS)).isTrue();
+        verify(usageTracker).snapshot(eq("google-weather"), any(LocalDate.class), eq(161));
+        verify(usageTracker).snapshot(eq("weather-canada"), any(LocalDate.class), eq(900));
+        verify(usageTracker).snapshot(eq("wunderground"), any(LocalDate.class), eq(450));
 
         backgroundWorker.shutdown();
     }

@@ -2,6 +2,12 @@
 
 All notable changes for this service must be recorded in this file.
 
+## [Unreleased]
+
+- **`STATUS_INTERVAL_SECONDS` (env file): heartbeat period, minimum 60 s** (was a 10 s floor). Lower values are raised
+  to 60, so a service never reports to RabbitMQ more often than once a minute; larger values cut traffic further (then
+  raise the page's `ServiceStatusDeadAfterSeconds` to at least 3x). Default unchanged: 60.
+
 > Version drift: image tags ran ahead of this file between 1.8.7 and 1.15.2 — releases shipped to
 > GHCR without an entry here. 1.15.2 resumes the record; the gap is not reconstructed.
 

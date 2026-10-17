@@ -41,6 +41,13 @@ public class ServiceStatusReporter implements SmartLifecycle {
 
     public static final String MESSAGE_TYPE = "fishfind.service-status.v1";
     public static final String QUEUE = "fishfind.servicestatus.events";
+    /**
+     * Floor for {@code STATUS_INTERVAL_SECONDS}: never more often than once a minute, whatever the env file says, which
+     * bounds RabbitMQ traffic. Larger values report less often; then raise the page's {@code ServiceStatusDeadAfterSeconds}
+     * to at least 3x the interval, or healthy services read as dead.
+     */
+    public static final long MIN_INTERVAL_SECONDS = 60;
+
     static final String SERVICE = "docapi";
 
     private static final Logger log = LoggerFactory.getLogger(ServiceStatusReporter.class);
@@ -76,7 +83,11 @@ public class ServiceStatusReporter implements SmartLifecycle {
                         (username.trim() + ":" + password.trim()).getBytes(StandardCharsets.UTF_8))
                 : null;
         this.machine = (machine.isBlank() ? hostName() : machine.trim()).toLowerCase(Locale.ROOT);
-        this.intervalSeconds = Math.max(10, intervalSeconds);
+        this.intervalSeconds = Math.max(MIN_INTERVAL_SECONDS, intervalSeconds);
+    }
+
+    long intervalSeconds() {
+        return intervalSeconds;
     }
 
     public boolean enabled() {
