@@ -48,6 +48,16 @@ class ServiceStatusReporterTest {
     }
 
     @Test
+    void intervalIsNeverBelowOneMinute() {
+        Properties props = new Properties();
+        props.setProperty("version", "1.0.0");
+        ServiceActivity a = new ServiceActivity();
+        assertEquals(60, new ServiceStatusReporter(a, new BuildProperties(props), "https://mq", "u", "p", "h", 10).intervalSeconds());
+        assertEquals(60, new ServiceStatusReporter(a, new BuildProperties(props), "https://mq", "u", "p", "h", 60).intervalSeconds());
+        assertEquals(300, new ServiceStatusReporter(a, new BuildProperties(props), "https://mq", "u", "p", "h", 300).intervalSeconds());
+    }
+
+    @Test
     void disabledWithoutBrokerSettings() {
         ServiceStatusReporter off = reporter(new ServiceActivity(), " ");
         assertFalse(off.enabled());
