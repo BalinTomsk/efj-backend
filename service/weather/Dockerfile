@@ -18,7 +18,8 @@ RUN apt-get update && \
 RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --no-create-home appuser
 
-COPY --from=build /app/target/weather-station-pusher-1.0.0.jar /app/weather-station-pusher.jar
+# Glob, not a versioned name: a hard-coded jar name breaks the build on every version bump (as in docapi).
+COPY --from=build /app/target/weather-station-pusher-*.jar /app/weather-station-pusher.jar
 
 RUN mkdir -p /app/logs && \
     chown appuser:appgroup /app/weather-station-pusher.jar /app/logs

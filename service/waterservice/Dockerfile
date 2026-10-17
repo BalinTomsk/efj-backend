@@ -12,7 +12,8 @@ RUN mvn -B -DskipTests package
 FROM eclipse-temurin@sha256:8ec353b20d3aab0758572236b81b967c7077c40c4d0819ce97f9a1329d684603
 WORKDIR /app
 
-COPY --from=build /app/target/water-station-pusher-1.0.0.jar /app/water-station-pusher.jar
+# Glob, not a versioned name: a hard-coded jar name breaks the build on every version bump (as in docapi).
+COPY --from=build /app/target/water-station-pusher-*.jar /app/water-station-pusher.jar
 
 # The temurin JRE image ships without wget/curl; install wget so HEALTHCHECK can actually run.
 RUN apt-get update \

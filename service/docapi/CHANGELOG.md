@@ -2,6 +2,16 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-16: **1.25.0 (not deployed) — service status for the admin page.** `status/ServiceStatusReporter` (a `SmartLifecycle`)
+  publishes `fishfind.service-status.v1` (`start`, a `heartbeat` every 60 s, `stop` on a clean shutdown) to
+  `fishfind.servicestatus.events` through the RabbitMQ management HTTP API; efcs-backend `adminservice` stores it in
+  `dbo.ServiceStatus` for fishfind-frontend `stats/Default.aspx`. `ServiceActivityFilter` records each `/api/` request
+  as method + route pattern (`GET /api/v1/river/{guid}`, never ids or query strings); it is registered through
+  `ServiceStatusConfig`, not as a `@Component`, because every `@WebMvcTest` slice would otherwise load it without
+  `ServiceActivity` (199 test errors). On when `RABBITMQ_MANAGEMENT_URL` / `_USERNAME` / `_PASSWORD` are set;
+  `STATUS_MACHINE` names the host. Tests: `ServiceStatusReporterTest` (3); suite 339/339. Verified end to end locally
+  against a stand-in broker + adminservice + CTRL envionx. Not deployed, not committed.
+
 - 2026-10-10: **1.24.0 — waterfalls and dams: `GET /api/v1/river/barriers/{guid}`, MCP tool `get_water_body_barriers`,
   and both arrays in `get_water_body`. DEPLOYED 2026-10-10** (digest `sha256:75b1528c…`, rollback `1.23.1`; not committed).
   Clean start, `restarts=0`, no startup errors; health 1.24.0; news 200; Exploits River `/river/barriers` 200 (Grand Falls,
