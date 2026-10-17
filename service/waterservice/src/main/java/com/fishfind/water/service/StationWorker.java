@@ -1,11 +1,13 @@
 package com.fishfind.water.service;
 
+import com.fishfind.water.status.ServiceActivity;
 import com.fishfind.water.domain.StationRef;
 import com.fishfind.water.repo.WaterStationRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -53,6 +55,14 @@ public class StationWorker implements ApplicationRunner {
     private final StationHttp503BackoffService http503BackoffService;
     // The CA and US cron tasks each post-process after their pass; never let the two run the procs at once.
     private final Object postProcessingLock = new Object();
+
+    /** Admin status page: the station in flight (efcs-backend adminservice). Absent in tests and console runs. */
+    private ServiceActivity serviceActivity;
+
+    @Autowired(required = false)
+    void setServiceActivity(ServiceActivity serviceActivity) {
+        this.serviceActivity = serviceActivity;
+    }
 
     @Value("${water.worker.pause-between-stations-ms:1000}")
     private long pauseBetweenStationsMs;
@@ -431,6 +441,9 @@ public class StationWorker implements ApplicationRunner {
     }
 
     private ProcessingOutcome processStation(String country, String mli, String state, int tz) {
+        if (serviceActivity != null) {
+            serviceActivity.record("station " + mli);
+        }
         return switch (country) {
             case "CA" -> processorCA.processWithOutcome(mli, state, tz);
             case "US" -> processorUS.processWithOutcome(mli, state, tz);

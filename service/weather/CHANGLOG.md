@@ -5,6 +5,15 @@ All notable changes for this service must be recorded in this file.
 > Version drift: image tags ran ahead of this file between 1.8.7 and 1.15.2 — releases shipped to
 > GHCR without an entry here. 1.15.2 resumes the record; the gap is not reconstructed.
 
+## [1.16.0] - 2026-10-16 (not deployed)
+
+- **Service status for the admin page.** `status/ServiceStatusReporter` publishes `fishfind.service-status.v1`
+  (`start`, `heartbeat` every 60 s with the last `<provider> station <mli>`, `stop`) to `fishfind.servicestatus.events`
+  via the RabbitMQ management API; efcs-backend adminservice stores it for `stats/Default.aspx`. On when
+  `RABBITMQ_MANAGEMENT_URL` / `_USERNAME` / `_PASSWORD` are set; off for `--console`. `STATUS_MACHINE` names the host.
+- The pom now carries the real version (was 1.0.0 while images were tagged 1.15.x) and generates `build-info`, so the
+  reported version is right.
+
 ## [1.15.2] - 2026-09-18
 
 - **Fixes a startup crash that made 1.15.1 unrunnable.** Every `@Component` converter

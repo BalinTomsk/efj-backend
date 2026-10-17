@@ -5,7 +5,7 @@
 
     <groupId>com.fishfind</groupId>
     <artifactId>weather-station-pusher</artifactId>
-    <version>1.0.0</version>
+    <version>1.16.0</version>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -93,6 +93,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <!-- build-info.properties -> BuildProperties: the version the status page shows. -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- SBOM: generates a CycloneDX BOM at target/bom.json on every package build -->

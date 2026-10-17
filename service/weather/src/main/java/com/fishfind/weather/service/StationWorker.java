@@ -1,5 +1,6 @@
 package com.fishfind.weather.service;
 
+import com.fishfind.weather.status.ServiceActivity;
 import com.fishfind.weather.domain.StationRef;
 import com.fishfind.weather.repo.WeatherStationCoverageRepository;
 import com.fishfind.weather.repo.WeatherStationRepository;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -140,6 +142,14 @@ public class StationWorker implements ApplicationRunner {
 
     private volatile boolean running = true;
     private final List<Thread> workerThreads = new ArrayList<>();
+
+    /** Admin status page: the station in flight (efcs-backend adminservice). Absent in tests and console runs. */
+    private ServiceActivity serviceActivity;
+
+    @Autowired(required = false)
+    void setServiceActivity(ServiceActivity serviceActivity) {
+        this.serviceActivity = serviceActivity;
+    }
 
     public StationWorker(WeatherStationRepository stationRepository,
                          StationProcessorOpen stationProcessorOpen,
@@ -292,6 +302,9 @@ public class StationWorker implements ApplicationRunner {
             }
 
             long startedAt = currentTimeMillis();
+            if (serviceActivity != null) {
+                serviceActivity.record(worker.provider() + " station " + station.mli());
+            }
             ProcessingOutcome outcome = processorFor(worker).process(station, country);
             recordCoverage(worker, station, outcome);
             switch (outcome) {

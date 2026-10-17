@@ -1311,3 +1311,15 @@ DB_PASSWORD=your_password
 # DOTENV_PATH=/app/.env
 # JAVA_OPTS=-Xms256m -Xmx512m
 ```
+
+## Service status (admin page)
+
+`status/ServiceStatusReporter` (`SmartLifecycle`, lowest phase so it stops last) publishes `fishfind.service-status.v1`
+to the RabbitMQ queue `fishfind.servicestatus.events` through the management HTTP API (`java.net.http`, 5 s timeouts,
+non-persistent): `start`, a `heartbeat` every `STATUS_INTERVAL_SECONDS` (60, minimum 10) on a daemon thread, `stop` on
+shutdown. Service name `docapi`; machine = `STATUS_MACHINE`, else the host name (lower-cased); version from
+`BuildProperties`. On only when `RABBITMQ_MANAGEMENT_URL`, `RABBITMQ_USERNAME` and `RABBITMQ_PASSWORD` are set (env or
+the dotenv file). `status/ServiceActivityFilter` (registered for `/api/*` by `status/ServiceStatusConfig`, deliberately
+not a `@Component` so `@WebMvcTest` slices do not load it) records each request as method + matched route pattern,
+e.g. `GET /api/v1/river/{guid}` — never ids or query strings. A failed publish logs one warning per outage. Consumer and
+contract: `efcs-backend/service/adminservice/docs/specification.md`.
