@@ -1034,7 +1034,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
       <h2 class="display">River</h2>
       <span class="tag">RiverController · /api/v1/river</span>
     </div>
-    <p class="prose" style="margin-bottom:22px;">A water-body search (by name part, either GUID, either CGNDB code or station MLI), five native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, its assigned-species document, and its Source/Mouth link documents (all four backing the admin "Save JSON" export — View, Fishing, Source and Mouth tabs respectively) — plus the writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>, and a JSON merge patch of the Source/Mouth tabs' editable fields duplicating <code>EditLakeLink.aspx</code> (one shared PATCH mechanism, two paths — <code>side=16</code> vs <code>side=32</code> of the same <code>Tributaries</code> row). The five GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; every PATCH is gated by cproxy's <strong>Bearer token</strong> credential — an HS512 JWT carrying the rotating day-key in its <code>server</code> claim, plus a <code>user</code> claim that must resolve to a live account (see the cproxy API guide) — a wrong, missing or unresolvable one answers a generic <code>500</code>.</p>
+    <p class="prose" style="margin-bottom:22px;">A water-body search (by name part, either GUID, either CGNDB code or station MLI), five native GET duplicates of frontend admin/tooling endpoints — the next un-processed water body (backing the add-fish skill), a water body's full description document, its assigned-species document, and its Source/Mouth link documents (all four backing the admin "Save JSON" export — View, Fishing, Source and Mouth tabs respectively) — plus the writes: a batch upsert of assigned species duplicating the Fishing tab's "Add" form, a JSON merge patch of the General tab's editable fields duplicating <code>LakeEditor.aspx</code>, and a JSON merge patch of the Source/Mouth tabs' editable fields duplicating <code>EditLakeLink.aspx</code> (one shared PATCH mechanism, two paths — <code>side=16</code> vs <code>side=32</code> of the same <code>Tributaries</code> row), plus the relink of that row to another water body (<code>PATCH …/source|mouth/{guid}/point</code>, 1.25.0). The five GETs are public, unauthenticated, and read the same content anonymous visitors already see on <code>Resources/wfRiverViewer.aspx</code>; every PATCH is gated by cproxy's <strong>Bearer token</strong> credential — an HS512 JWT carrying the rotating day-key in its <code>server</code> claim, plus a <code>user</code> claim that must resolve to a live account (see the cproxy API guide) — a wrong, missing or unresolvable one answers a generic <code>500</code>.</p>
 
     <div class="endpoint">
       <div class="specimen-tag">
@@ -1408,6 +1408,38 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
         </div>
       </div>
     </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/source/<span class="param">{guid}</span>/point</span></div>
+        <div class="path-row"><span class="verb verb-put">PATCH</span><span class="path mono">/api/v1/river/mouth/<span class="param">{guid}</span>/point</span></div>
+        <span class="specimen-label">Assign the source or mouth &mdash; the EditLakeLink.aspx &ldquo;Point&rdquo; relink</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;"><strong>docapi 1.25.0, not deployed yet.</strong> Makes another water body the source (<code>side=16</code>) or mouth (<code>side=32</code>) of a river or creek &mdash; the one change the two merge patches above refuse (<code>pointId</code> is protected there). Body <code>{"pointId": "&lt;guid&gt;"}</code>; both GUIDs accept the 36-char, 32-hex or braced form and are validated before any SQL. Backed by <code>dbo.sp_lake_link_assign</code>, which does what the page's Save does: re-points the <code>Tributaries</code> row, runs <code>sp_assign_border</code>, and <code>TR_UPD_Tributaries</code> updates <code>lake.source</code>/<code>lake.mouth</code>. A legacy water body with no source/mouth row gets one. The coordinates and location fields of the row are kept; change them with the merge patch.</p>
+        <table class="params">
+          <tr><td class="pname">pointId</td><td>body, required &mdash; the water body that becomes the source/mouth. Missing, not a string, not a GUID or the water body itself &rArr; <code>400</code>; no such water body &rArr; <code>400</code> &ldquo;is not a water body&rdquo;</td></tr>
+        </table>
+        <p class="prose" style="margin:2px 0 14px;">Response <code>{lakeId, side, pointId, pointName, previousPointId, previousPointName, changed, error}</code>; <code>changed:false</code> when that point was already assigned (nothing written). Unknown <code>{guid}</code> &rArr; <code>404</code>. <strong>Fronted through cproxy automatically</strong> &mdash; every PATCH needs the Bearer token, no cproxy change.</p>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Assign the mouth</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/mouth/a1cc30df-2892-e811-9104-00155d007b12/point</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="k">Body:</span> <span class="p">{</span> <span class="k">"pointId"</span><span class="p">:</span> <span class="s">"0b7f3c1e-5d55-e811-80f0-00155d007b12"</span> <span class="p">}</span>
+<span class="k">Response:</span> <span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"a1cc30df-…"</span><span class="p">,</span> <span class="k">"side"</span><span class="p">:</span> <span class="n">32</span><span class="p">,</span> <span class="k">"pointId"</span><span class="p">:</span> <span class="s">"0b7f3c1e-…"</span><span class="p">,</span> <span class="k">"pointName"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">,</span> <span class="k">"previousPointId"</span><span class="p">:</span> <span class="s">"a1cc30df-…"</span><span class="p">,</span> <span class="k">"previousPointName"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">,</span> <span class="k">"changed"</span><span class="p">:</span> <span class="z">true</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown point</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">PATCH</span>/api/v1/river/source/a1cc30df-2892-e811-9104-00155d007b12/point</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"pointId … is not a water body"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ============================= REGULATION ============================= -->
@@ -1595,16 +1627,16 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
             <tr><td class="pname">get_water_body</td><td><code>guid</code></td><td>the <code>/river/description</code> document, with its <code>waterfalls</code> and <code>dams</code> (1.24.0 SQL)</td></tr>
             <tr><td class="pname">get_water_body_fish <em>(admin)</em></td><td><code>guid</code></td><td>the <code>/river/fish</code> document with <strong>each species once</strong> (1.20.1, deployed 2026&#8209;10&#8209;01): the highest-probability entry of each. <code>lake_fish</code>&rsquo;s key is (water body, species, probability), so REST returns one row per probability level.</td></tr>
             <tr><td class="pname">get_water_body_links</td><td><code>guid</code></td><td><code>{source, mouth}</code> &mdash; the two link documents</td></tr>
-            <tr><td class="pname">get_water_body_tributaries</td><td><code>guid</code>; <code>limit</code> 1&ndash;50, default 20</td><td><code>{guid, lakeName, total, limit, tributaries}</code> from <code>/river/tributaries</code>, Canadian items only; <code>totalIsLowerBound: true</code> when the water body has over 200 inflows (1.22.0, live 2026&#8209;10&#8209;05)</td></tr>
+            <tr><td class="pname">get_water_body_tributaries</td><td><code>guid</code>; <code>limit</code> 1&ndash;50, default 20</td><td><code>{guid, lakeName, total, limit, tributaries}</code> from <code>/river/tributaries</code> (1.22.0, live 2026&#8209;10&#8209;05)</td></tr>
             <tr><td class="pname">get_water_body_barriers</td><td><code>guid</code></td><td><code>{guid, lakeName, waterfalls, dams}</code> from <code>/river/barriers</code> (1.24.0, live 2026&#8209;10&#8209;10)</td></tr>
             <tr><td class="pname">get_water_body_regulations</td><td><code>guid</code></td><td>the <code>/river/regulation</code> document</td></tr>
-            <tr><td class="pname">get_region_regulations</td><td><code>country</code> (CA only), optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
+            <tr><td class="pname">get_region_regulations</td><td><code>country</code> (CA or US), optional <code>state</code></td><td>the <code>/region/regulation</code> document</td></tr>
             <tr><td class="pname">search_fish <em>(admin)</em></td><td><code>query</code></td><td>the <code>/fish/search</code> page</td></tr>
-            <tr><td class="pname">find_water_bodies_by_fish <em>(admin)</em></td><td><code>fishId</code>; optional <code>country</code> (CA only), <code>state</code>, <code>types</code> (<code>lake</code>, <code>river</code>, <code>creek</code>, &hellip;), <code>min_probability</code>, <code>limit</code></td><td><code>{total, limit, items, query}</code>: the water bodies holding that species, each once at its highest probability (1.20.2, <code>dbo.fn_fish_water_bodies_json</code>; MCP only)</td></tr>
+            <tr><td class="pname">find_water_bodies_by_fish <em>(admin)</em></td><td><code>fishId</code>; optional <code>country</code> (CA or US; omit for both), <code>state</code>, <code>types</code> (<code>lake</code>, <code>river</code>, <code>creek</code>, &hellip;), <code>min_probability</code>, <code>limit</code></td><td><code>{total, limit, items, query}</code>: the water bodies holding that species, each once at its highest probability (1.20.2, <code>dbo.fn_fish_water_bodies_json</code>; MCP only)</td></tr>
           </tbody>
         </table>
         <ul class="notes">
-          <li><strong>Canadian water bodies only (1.21.0).</strong> A water body is shown when it has a CGNDB or CGNDM code or its source or mouth is in Canada. Search and tributary results are filtered; a non-Canadian GUID is answered like an unknown one.</li>
+          <li><strong>Canada and the USA (1.25.0, not deployed).</strong> The 1.21.0 Canada-only filter is removed: search, tributaries and every GUID tool cover US water bodies too, and the regulation and species tools take <code>CA</code> or <code>US</code>.</li>
           <li><strong>Fish information for admins only (1.21.0).</strong> cproxy sends <code>X-Fish-Role</code> from the MCP key&rsquo;s owning account. For anyone but <code>admin</code> the tools marked <em>(admin)</em> are not listed and are an unknown tool if called, and <code>get_water_body</code> has no <code>fish</code> list.</li>
           <li><strong>No photos.</strong> Every result has every photo field removed at any depth (<code>pic</code>, <code>images</code>, <code>photo*</code>, &hellip;) &mdash; the description&rsquo;s gallery and the source/mouth <code>pic</code> never leave through this endpoint.</li>
           <li><strong>Arguments are checked before any SQL runs.</strong> A malformed GUID is a tool error, so a model retrying a bad call cannot trip the shared <code>sqlBreaker</code>.</li>
@@ -1708,6 +1740,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">River</td><td class="qpath">GET /api/v1/river/fish/00000000-…</td><td>404</td><td>not_found</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">PATCH /api/v1/river/description/a55caadf-…</td><td>200</td><td>description + reviewed updated, lakeName protected</td></tr>
           <tr><td class="qctrl">River</td><td class="qpath">PATCH /api/v1/river/description/a55caadf-… {}</td><td>400</td><td>invalid_document</td></tr>
+          <tr><td class="qctrl">River</td><td class="qpath">PATCH /api/v1/river/mouth/{guid}/point {"pointId":…}</td><td>200</td><td>mouth re-pointed (1.25.0, not deployed)</td></tr>
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>

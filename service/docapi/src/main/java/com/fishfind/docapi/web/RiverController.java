@@ -76,6 +76,11 @@ import java.util.regex.Pattern;
  * reporting them back as {@code protectedFields} rather than silently dropping or applying them, same
  * as {@code description}.
  *
+ * <p>{@code PATCH /api/v1/river/source/{guid}/point} and {@code PATCH /api/v1/river/mouth/{guid}/point} (1.25.0)
+ * are the relink those two refuse: body {@code {"pointId": "<guid>"}} makes that water body the source/mouth,
+ * via {@code dbo.sp_lake_link_assign} (the {@code EditLakeLink.aspx} "Point" save, {@code sp_assign_border}
+ * included).
+ *
  * <p>{@code GET /api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&limit=} finds water bodies by part of a
  * name, either GUID ({@code lake_id} / {@code secondary_id}), either CGNDB code ({@code CGNDB} /
  * {@code CGNDM}), the province's/state's own id ({@code state_id}, 1.23.0) or the MLI of a linked water
@@ -478,6 +483,59 @@ public class RiverController {
         JsonNode document = linkCommandRepository.patchMouth(guid, patch.toString());
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * Assigns another water body as this one's source (1.25.0): the "Point" relink of
+     * {@code Editor/EditLakeLink.aspx?Type=16}, which {@link #patchSource} deliberately refuses. Both GUIDs are
+     * validated before the repository is called, as for {@code /tributaries}.
+     *
+     * @param guid the water body's GUID (36-char, 32-hex or braced)
+     * @param body {@code {"pointId": "<guid>"}} — the water body that becomes the source
+     * @return {@code {lakeId, side, pointId, pointName, previousPointId, previousPointName, changed, error}} nested
+     *         in the response envelope; {@code changed:false} when that point was already the source
+     * @throws InvalidDocumentException  if a GUID is malformed, {@code pointId} is missing, does not exist, or is
+     *                                    the water body itself (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for {@code guid} (→ 404)
+     */
+    @PatchMapping(value = "/source/{guid}/point", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> assignSource(@PathVariable String guid, @RequestBody(required = false) String body) {
+        return assignPoint(guid, RiverLinkCommandRepository.SOURCE, body);
+    }
+
+    /** Same as {@link #assignSource}, for the mouth ({@code EditLakeLink.aspx?Type=32}). */
+    @PatchMapping(value = "/mouth/{guid}/point", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JsonNode> assignMouth(@PathVariable String guid, @RequestBody(required = false) String body) {
+        return assignPoint(guid, RiverLinkCommandRepository.MOUTH, body);
+    }
+
+    private ApiResponse<JsonNode> assignPoint(String guid, int side, String body) {
+        String id = normalizeGuid(guid);
+        JsonNode pointNode = requireMergePatch(body).get("pointId");
+        if (pointNode == null || !pointNode.isTextual() || pointNode.asText().isBlank()) {
+            throw new InvalidDocumentException("Request body must be {\"pointId\": \"<guid>\"}");
+        }
+        String pointId;
+        try {
+            pointId = normalizeGuid(pointNode.asText());
+        } catch (InvalidDocumentException ex) {
+            throw new InvalidDocumentException("pointId is not a valid GUID");
+        }
+        if (pointId.equals(id)) {
+            throw new InvalidDocumentException("pointId must be a different water body");
+        }
+        JsonNode document = linkCommandRepository.assignPoint(id, side, pointId);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
+        }
+        String error = document.path("error").asText(null);
+        if ("pointNotFound".equals(error)) {
+            throw new InvalidDocumentException("pointId " + pointId + " is not a water body");
+        }
+        if (error != null) {
+            throw new InvalidDocumentException("Point not assigned: " + error);
         }
         return ApiResponse.ok(document);
     }

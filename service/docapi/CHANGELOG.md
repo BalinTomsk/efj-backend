@@ -2,6 +2,26 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-17: **[Unreleased, in 1.25.0]** **MCP: the Canada-only block is removed — US water bodies are served.**
+  User: "remove block on USA data". 1.21.0 filtered every MCP tool to Canadian water bodies; now `search_water_bodies`
+  and `get_water_body_tributaries` return every match (the repository is asked for exactly `limit`, so
+  `totalIsLowerBound` is gone and `total` is the REST total), the GUID tools no longer refuse a US water body,
+  `get_region_regulations` takes `country` `CA` or `US` (required), and `find_water_bodies_by_fish` takes `CA`/`US`
+  with no country meaning both (was: defaulted to CA). Tool descriptions and the server instructions say Canada and the
+  USA. `RiverQueryRepository.canadianIds` is deleted (unused); `dbo.fn_lake_canadian_ids_json` stays in the database,
+  unused. The REST endpoints never had the filter. Tests: `McpControllerTest` Canada-only cases replaced by US cases;
+  suite 344/344. No SQL and no cproxy change. Not deployed, not committed.
+
+- 2026-10-17: **[Unreleased, in 1.25.0]** **Assign a river's/creek's source or mouth: `PATCH /api/v1/river/source/{guid}/point`
+  and `PATCH /api/v1/river/mouth/{guid}/point`**, body `{"pointId":"<guid>"}`. The relink `PATCH /river/source|mouth/{guid}`
+  deliberately refuse (`pointId` protected), duplicating the `Editor/EditLakeLink.aspx` "Point" save: new
+  `dbo.sp_lake_link_assign` (envfish-db, `unit_test@LakeLinkAssign.sql` 8 tests, failing first) re-points the
+  `Tributaries` row, runs `sp_assign_border`, and the trigger sets `lake.source`/`lake.mouth`; a legacy water body with
+  no row gets one. 400 for a malformed GUID/body, `pointId` = the water body or not a water body; 404 for an unknown
+  `{guid}`; `changed:false` when already assigned. No cproxy change (PATCH is gated by verb). Tests:
+  `RiverControllerTest` +5; suite 345/345. **Deploy order:** the proc (ADMIN_WRITE) before the image — the routes
+  500 without it (and count on the shared `sqlBreaker`). Not deployed, not committed.
+
 - 2026-10-17: **[Unreleased]** **`STATUS_INTERVAL_SECONDS` (env file): heartbeat period, minimum 60 s** (was a 10 s floor). Lower values are raised
   to 60, so a service never reports to RabbitMQ more often than once a minute; larger values cut traffic further (then
   raise the page's `ServiceStatusDeadAfterSeconds` to at least 3x). Default unchanged: 60.

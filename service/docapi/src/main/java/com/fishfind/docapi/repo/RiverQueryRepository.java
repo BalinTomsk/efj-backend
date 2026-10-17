@@ -2,9 +2,6 @@ package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-import java.util.Collection;
-import java.util.Set;
-
 /**
  * Query repository for river/water-body lookups, backed by SQL functions in the DB. Same repository
  * pattern as {@link NewsQueryRepository} / {@link FishQueryRepository}.
@@ -103,14 +100,4 @@ public interface RiverQueryRepository {
      *         frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[...]}}, exact name first
      */
     JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit);
-
-    /**
-     * Which of the given water bodies are Canadian, backed by {@code dbo.fn_lake_canadian_ids_json}: a CGNDB / CGNDM
-     * code, or a source or mouth in country {@code CA}. Used by the MCP tools (docapi 1.21.0), which show
-     * Canadian water bodies only.
-     *
-     * @param lakeIds canonical GUIDs (any case); empty yields an empty set without a query
-     * @return the qualifying ids, UPPER-case; never {@code null}
-     */
-    Set<String> canadianIds(Collection<String> lakeIds);
 }

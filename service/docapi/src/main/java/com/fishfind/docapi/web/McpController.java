@@ -63,7 +63,7 @@ public class McpController {
     static final String SERVER_NAME = "fishfind-docapi";
 
     static final String INSTRUCTIONS =
-            "FishFind water-body data for CANADA: lakes, rivers and other Canadian water bodies, where "
+            "FishFind water-body data for CANADA and the USA: lakes, rivers and other water bodies, where "
                     + "they start and end, and fishing regulations. Start with search_water_bodies to get a "
                     + "water body's lakeId GUID, then pass it to the get_water_body* tools. Fish species "
                     + "information is available to administrators only. Read-only; no photos are provided.";

@@ -523,6 +523,75 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
     }
 
+    // ---- PATCH source/mouth point (relink, 1.25.0) ----
+
+    private static final String LAKE = "0c5343a8-849c-20c3-f4d1-0003eb237498";
+    private static final String POINT = "0b7f3c1e-5d55-e811-80f0-00155d007b12";
+
+    @Test
+    void assignSourceNormalizesBothGuidsAndReturnsTheResult() throws Exception {
+        when(linkCommandRepository.assignPoint(LAKE, 16, POINT)).thenReturn(objectMapper.readTree(
+                "{\"lakeId\":\"" + LAKE + "\",\"side\":16,\"pointId\":\"" + POINT + "\",\"pointName\":\"Bear Lake\","
+                        + "\"previousPointId\":\"" + LAKE + "\",\"previousPointName\":\"Bear Creek\",\"changed\":true,\"error\":null}"));
+
+        mockMvc.perform(patch("/api/v1/river/source/" + LAKE.toUpperCase().replace("-", "") + "/point")
+                        .contentType("application/json").content("{\"pointId\":\"" + POINT.replace("-", "") + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pointName").value("Bear Lake"))
+                .andExpect(jsonPath("$.data.changed").value(true))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void assignMouthUsesSide32() throws Exception {
+        when(linkCommandRepository.assignPoint(LAKE, 32, POINT)).thenReturn(objectMapper.readTree(
+                "{\"lakeId\":\"" + LAKE + "\",\"side\":32,\"pointId\":\"" + POINT + "\",\"changed\":false,\"error\":null}"));
+
+        mockMvc.perform(patch("/api/v1/river/mouth/" + LAKE + "/point")
+                        .contentType("application/json").content("{\"pointId\":\"" + POINT + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.side").value(32))
+                .andExpect(jsonPath("$.data.changed").value(false));
+    }
+
+    @Test
+    void assignPointUnknownLakeReturns404() throws Exception {
+        when(linkCommandRepository.assignPoint(LAKE, 16, POINT)).thenReturn(null);
+
+        mockMvc.perform(patch("/api/v1/river/source/" + LAKE + "/point")
+                        .contentType("application/json").content("{\"pointId\":\"" + POINT + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void assignPointUnknownPointReturns400() throws Exception {
+        when(linkCommandRepository.assignPoint(LAKE, 32, POINT)).thenReturn(objectMapper.readTree(
+                "{\"lakeId\":\"" + LAKE + "\",\"side\":32,\"changed\":false,\"error\":\"pointNotFound\"}"));
+
+        mockMvc.perform(patch("/api/v1/river/mouth/" + LAKE + "/point")
+                        .contentType("application/json").content("{\"pointId\":\"" + POINT + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"))
+                .andExpect(jsonPath("$.error.message", containsString("is not a water body")));
+    }
+
+    @Test
+    void assignPointBadBodiesReturn400WithoutCallingTheRepository() throws Exception {
+        for (String body : new String[] {"{}", "{\"pointId\":null}", "{\"pointId\":42}", "{\"pointId\":\"nope\"}",
+                "{\"pointId\":\"" + LAKE + "\"}", "[\"" + POINT + "\"]"}) {
+            mockMvc.perform(patch("/api/v1/river/source/" + LAKE + "/point")
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("invalid_document"));
+        }
+        mockMvc.perform(patch("/api/v1/river/source/not-a-guid/point")
+                        .contentType("application/json").content("{\"pointId\":\"" + POINT + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(linkCommandRepository, never()).assignPoint(anyString(), anyInt(), anyString());
+    }
+
     @Test
     void searchByNameWrapsTheItemsWithTheEchoedQuery() throws Exception {
         when(queryRepository.search("Humber", null, null, null, null, 50)).thenReturn(objectMapper.readTree(
