@@ -2,6 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-17: **[Unreleased, in 1.25.0]** **`cgndb` takes 1–10 letters/digits** (was 1–5), in `GET /api/v1/river/search`
+  and the MCP tool `search_water_bodies` (schema `maxLength` 10): `Lake.CGNDB` / `CGNDM` hold the national non-GUID id,
+  the 5-letter CGNDB key in Canada or the GNIS feature id (6–7 digits) of a US water body (the Maine import,
+  `us_import/maine.md`). The pattern lives in `RiverController.CGNDB_PATTERN`, shared by `McpToolCatalog`. SQL:
+  `ADMIN_WRITE_cgndb_widen.sql` (envfish-db) makes the columns `varchar(10)` — apply it before the US data scripts; the
+  image works with either width. Tests: `RiverControllerTest.searchByAGnisIdAsCgndbPassesItThrough`, the malformed case
+  now 11 chars / a hyphen; `McpControllerTest` +2; suite 347/347. Not deployed, not committed.
+
 - 2026-10-17: **[Unreleased, in 1.25.0]** **MCP: the Canada-only block is removed — US water bodies are served.**
   User: "remove block on USA data". 1.21.0 filtered every MCP tool to Canadian water bodies; now `search_water_bodies`
   and `get_water_body_tributaries` return every match (the repository is asked for exactly `limit`, so

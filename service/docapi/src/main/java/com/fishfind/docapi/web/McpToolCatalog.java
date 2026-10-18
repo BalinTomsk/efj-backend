@@ -82,7 +82,6 @@ public class McpToolCatalog {
             Map.entry("drain", 1024), Map.entry("ditch", 2048), Map.entry("wetland", 4096),
             Map.entry("reservoir", 8192));
 
-    private static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,5}");
 
     /** Output keys that hold a photo or a gallery, at any depth (matched case-insensitively). */
     private static final Set<String> PHOTO_KEYS = Set.of("pic", "pics", "image", "images", "picture", "pictures");
@@ -140,8 +139,8 @@ public class McpToolCatalog {
                 {"type":"object","properties":{
                   "name":{"type":"string","minLength":2,"maxLength":64,
                           "description":"Part of the English, alternative or French name"},
-                  "cgndb":{"type":"string","maxLength":5,
-                           "description":"Canadian Geographical Names Database code, e.g. FEFUL"},
+                  "cgndb":{"type":"string","maxLength":10,
+                           "description":"National non-GUID id: Canadian Geographical Names Database code (e.g. FEFUL) or US GNIS feature id (e.g. 566885)"},
                   "stateId":{"type":"string","maxLength":32,
                              "description":"The province's own id for the water body, e.g. 39325 (BC Geographical Names id of the Fraser River)"},
                   "mli":{"type":"string","maxLength":64,
@@ -286,8 +285,8 @@ public class McpToolCatalog {
         }
         if (cgndb != null) {
             cgndb = cgndb.toUpperCase(Locale.ROOT);
-            if (!CGNDB_PATTERN.matcher(cgndb).matches()) {
-                throw new InvalidDocumentException("cgndb must be 1 to 5 letters or digits");
+            if (!RiverController.CGNDB_PATTERN.matcher(cgndb).matches()) {
+                throw new InvalidDocumentException("cgndb must be 1 to 10 letters or digits");
             }
         }
         if (stateId != null) {

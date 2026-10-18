@@ -635,6 +635,18 @@ class RiverControllerTest {
     }
 
     @Test
+    void searchByAGnisIdAsCgndbPassesItThrough() throws Exception {
+        // a US water body's national id (GNIS feature id, 6-7 digits) lives in CGNDB, which is varchar(10)
+        when(queryRepository.search(null, null, "2081287", null, null, 50)).thenReturn(objectMapper.readTree(
+                "[{\"lakeId\":\"abc\",\"lakeName\":\"Moosehead Lake\",\"CGNDB\":\"2081287\"}]"));
+
+        mockMvc.perform(get("/api/v1/river/search").param("cgndb", " 2081287 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].CGNDB").value("2081287"))
+                .andExpect(jsonPath("$.data.query.cgndb").value("2081287"));
+    }
+
+    @Test
     void searchRejectsMalformedStateId() throws Exception {
         mockMvc.perform(get("/api/v1/river/search").param("stateId", "39 325"))
                 .andExpect(status().isBadRequest())
@@ -656,7 +668,9 @@ class RiverControllerTest {
     void searchRejectsMalformedCriteria() throws Exception {
         mockMvc.perform(get("/api/v1/river/search").param("guid", "932853209432094"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/river/search").param("cgndb", "FEFULX"))
+        mockMvc.perform(get("/api/v1/river/search").param("cgndb", "12345678901"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("cgndb", "FEF-UL"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/river/search").param("name", "a"))
                 .andExpect(status().isBadRequest());

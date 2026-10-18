@@ -116,7 +116,7 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 - `GET /api/v1/river/search` (1.19.0) — water-body lookup via `dbo.fn_river_search_json`. `name` (2–64
   chars) is a substring of `lake_name`/`alt_name`/`french_name`; `guid` matches `lake_id` **or**
   `secondary_id` (36-char, 32-hex or braced — normalized to canonical lower case, else 400); `cgndb`
-  matches `CGNDB` **or** `CGNDM` (1–5 letters/digits, upper-cased, else 400); `stateId` (1.23.0) matches
+  matches `CGNDB` **or** `CGNDM` (1–10 letters/digits — a CGNDB key or a US GNIS feature id — upper-cased, else 400); `stateId` (1.23.0) matches
   `state_id`, the province's/state's own id, exactly (1–32 letters, digits or `. _ / -`, else 400); `mli`
   (≤ 64) matches the water body a `WaterStation` with that MLI is linked to. At least one is required
   (else 400); several are ANDed. Parameter names are case-insensitive (`CGNDB=`, `MLI=`, `stateid=`). `limit` defaults to 50, capped at
@@ -380,7 +380,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 
 | Tool | Arguments | Backing |
 |------|-----------|---------|
-| `search_water_bodies` | `name` (2–64) / `cgndb` (1–5 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (`limit`) → `{items, total, limit}` |
+| `search_water_bodies` | `name` (2–64) / `cgndb` (1–10 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (`limit`) → `{items, total, limit}` |
 | `get_water_body` | `guid` | `RiverQueryRepository.description` (carries `waterfalls` / `dams` since the 1.24.0 SQL) |
 | `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
 | `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |

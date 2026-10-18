@@ -120,8 +120,11 @@ public class RiverController {
     /** {@code lake_name} is {@code nvarchar(64)}; so is {@code WaterStation.MLI}'s {@code varchar(64)}. */
     static final int SEARCH_MAX_TERM = 64;
 
-    /** CGNDB / CGNDM are {@code char(5)} alphanumeric codes. */
-    private static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,5}");
+    /**
+     * CGNDB / CGNDM are {@code varchar(10)}: a water body's national non-GUID id -- the 5-letter CGNDB key in Canada,
+     * the GNIS feature id (6-7 digits) in the USA.
+     */
+    static final Pattern CGNDB_PATTERN = Pattern.compile("[A-Z0-9]{1,10}");
 
     /**
      * {@code lake.state_id} is {@code varchar(32)}: a province's/state's own id (BC GNIS id {@code 39325},
@@ -178,7 +181,7 @@ public class RiverController {
      *
      * @param params {@code name} (≥ {@value #SEARCH_MIN_NAME} chars, substring of the primary/alt/French
      *               name), {@code guid} (36-char, 32-hex or braced; matches {@code lake_id} or
-     *               {@code secondary_id}), {@code cgndb} (1–5 letters/digits; matches {@code CGNDB} or
+     *               {@code secondary_id}), {@code cgndb} (1–10 letters/digits; matches {@code CGNDB} or
      *               {@code CGNDM}), {@code stateId} (1–32 letters/digits/{@code . _ / -}; matches
      *               {@code state_id} exactly), {@code mli} (station id), {@code limit} (null/&lt;1 →
      *               {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT})
@@ -205,7 +208,7 @@ public class RiverController {
         if (cgndb != null) {
             cgndb = cgndb.toUpperCase(Locale.ROOT);
             if (!CGNDB_PATTERN.matcher(cgndb).matches()) {
-                throw new InvalidDocumentException("cgndb must be 1 to 5 letters or digits");
+                throw new InvalidDocumentException("cgndb must be 1 to 10 letters or digits");
             }
         }
         if (stateId != null) {
