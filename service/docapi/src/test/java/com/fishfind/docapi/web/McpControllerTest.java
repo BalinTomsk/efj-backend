@@ -203,6 +203,24 @@ class McpControllerTest {
     }
 
     @Test
+    void searchByAGnisIdAsCgndbPassesItToTheRepository() throws Exception {
+        when(riverRepository.search(null, null, "566885", null, null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
+                .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Goodell Brook\"}]"));
+
+        call("search_water_bodies", "{\"cgndb\":\"566885\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lakeName").value("Goodell Brook"));
+    }
+
+    @Test
+    void searchWithATooLongCgndbIsAToolError() throws Exception {
+        call("search_water_bodies", "{\"cgndb\":\"12345678901\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("cgndb")));
+        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
     void searchWithAMalformedStateIdIsAToolError() throws Exception {
         call("search_water_bodies", "{\"stateId\":\"39 325\"}")
                 .andExpect(jsonPath("$.result.isError").value(true))
