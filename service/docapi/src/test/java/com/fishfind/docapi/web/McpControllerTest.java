@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.repo.RiverSearchCriteria;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -78,6 +79,17 @@ class McpControllerTest {
     private ResultActions call(String tool, String arguments) throws Exception {
         return rpc("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool
                 + "\",\"arguments\":" + arguments + "}}");
+    }
+
+    /** A name/key search as search_water_bodies builds it: no region, any type, name order, first page. */
+    private static RiverSearchCriteria byKey(String name, String cgndb, String stateId, int limit) {
+        return new RiverSearchCriteria(name, null, cgndb, stateId, null, null, null, null, "name", 0, limit);
+    }
+
+    /** What dbo.fn_river_search_json returns: {total, limit, offset, items}. */
+    private com.fasterxml.jackson.databind.JsonNode page(int total, int limit, int offset, String items) throws Exception {
+        return objectMapper.readTree("{\"total\":" + total + ",\"limit\":" + limit + ",\"offset\":" + offset
+                + ",\"items\":" + items + "}");
     }
 
     @Test
@@ -178,8 +190,8 @@ class McpControllerTest {
 
     @Test
     void searchPassesNormalizedCriteriaAndCapsTheLimit() throws Exception {
-        when(riverRepository.search("Ottawa", null, "FEFUL", null, null, McpToolCatalog.SEARCH_MAX_LIMIT))
-                .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Ottawa River\"}]"));
+        when(riverRepository.search(byKey("Ottawa", "FEFUL", null, McpToolCatalog.SEARCH_MAX_LIMIT)))
+                .thenReturn(page(1, 50, 0, "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Ottawa River\"}]"));
 
         call("search_water_bodies", "{\"name\":\" Ottawa \",\"cgndb\":\"feful\",\"limit\":500}")
                 .andExpect(jsonPath("$.result.isError").value(false))
@@ -192,8 +204,8 @@ class McpControllerTest {
 
     @Test
     void searchByStateIdPassesItToTheRepository() throws Exception {
-        when(riverRepository.search(null, null, null, "39325", null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
-                .thenReturn(objectMapper.readTree(
+        when(riverRepository.search(byKey(null, null, "39325", McpToolCatalog.SEARCH_DEFAULT_LIMIT)))
+                .thenReturn(page(1, 20, 0,
                         "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Fraser River\",\"stateId\":\"39325\"}]"));
 
         call("search_water_bodies", "{\"stateId\":\" 39325 \"}")
@@ -204,8 +216,8 @@ class McpControllerTest {
 
     @Test
     void searchByAGnisIdAsCgndbPassesItToTheRepository() throws Exception {
-        when(riverRepository.search(null, null, "566885", null, null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
-                .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Goodell Brook\"}]"));
+        when(riverRepository.search(byKey(null, "566885", null, McpToolCatalog.SEARCH_DEFAULT_LIMIT)))
+                .thenReturn(page(1, 20, 0, "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Goodell Brook\"}]"));
 
         call("search_water_bodies", "{\"cgndb\":\"566885\"}")
                 .andExpect(jsonPath("$.result.isError").value(false))
@@ -217,7 +229,7 @@ class McpControllerTest {
         call("search_water_bodies", "{\"cgndb\":\"12345678901\"}")
                 .andExpect(jsonPath("$.result.isError").value(true))
                 .andExpect(jsonPath("$.result.content[0].text", containsString("cgndb")));
-        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(riverRepository, never()).search(any());
     }
 
     @Test
@@ -225,7 +237,7 @@ class McpControllerTest {
         call("search_water_bodies", "{\"stateId\":\"39 325\"}")
                 .andExpect(jsonPath("$.result.isError").value(true))
                 .andExpect(jsonPath("$.result.content[0].text", containsString("stateId")));
-        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(riverRepository, never()).search(any());
     }
 
     @Test
@@ -234,7 +246,85 @@ class McpControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.isError").value(true))
                 .andExpect(jsonPath("$.result.content[0].text", containsString("at least one")));
-        verify(riverRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(riverRepository, never()).search(any());
+    }
+
+    @Test
+    void rankingSearchPassesRegionTypesSortAndOffsetInOneCall() throws Exception {
+        RiverSearchCriteria longestInMaine = new RiverSearchCriteria(null, null, null, null, null,
+                null, "ME", 2 | 64, "length_desc", 5, 1);
+        when(riverRepository.search(longestInMaine)).thenReturn(page(288, 1, 5,
+                "[{\"lakeId\":\"" + GUID + "\",\"lakeName\":\"Kennebec River\",\"length\":270,\"lengthM\":268114}]"));
+
+        call("search_water_bodies",
+                "{\"state\":\" me \",\"types\":[\"river\",\"creek\"],\"sort\":\"LENGTH_DESC\",\"offset\":5,\"limit\":1}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.total").value(288))
+                .andExpect(jsonPath("$.result.structuredContent.offset").value(5))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].length").value(270))
+                .andExpect(jsonPath("$.result.structuredContent.items[0].lengthM").value(268114))
+                .andExpect(jsonPath("$.result.structuredContent.query.state").value("ME"))
+                .andExpect(jsonPath("$.result.structuredContent.query.locType").value(66))
+                .andExpect(jsonPath("$.result.structuredContent.query.sort").value("length_desc"));
+        verify(riverRepository).search(longestInMaine);
+    }
+
+    @Test
+    void aCountryAloneIsASearchAndOffsetIsClampedAtZero() throws Exception {
+        RiverSearchCriteria criteria = new RiverSearchCriteria(null, null, null, null, null,
+                "US", null, 1, "area_desc", 0, McpToolCatalog.SEARCH_DEFAULT_LIMIT);
+        when(riverRepository.search(criteria)).thenReturn(page(0, 20, 0, "[]"));
+
+        call("search_water_bodies", "{\"country\":\"us\",\"types\":[\"lake\"],\"sort\":\"area_desc\",\"offset\":-3}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.total").value(0));
+        verify(riverRepository).search(criteria);
+    }
+
+    @Test
+    void typesOrSortAloneAreNotASearch() throws Exception {
+        call("search_water_bodies", "{\"types\":[\"river\"],\"sort\":\"length_desc\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("at least one")));
+        verify(riverRepository, never()).search(any());
+    }
+
+    @Test
+    void aBadSortStateCountryOrTypeIsAToolErrorAndNeverQueries() throws Exception {
+        call("search_water_bodies", "{\"state\":\"ME\",\"sort\":\"longest\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("length_desc")));
+        call("search_water_bodies", "{\"state\":\"Maine\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("state")));
+        call("search_water_bodies", "{\"country\":\"MX\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("country")));
+        call("search_water_bodies", "{\"state\":\"ME\",\"types\":[\"ocean\"]}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("ocean")));
+        verify(riverRepository, never()).search(any());
+    }
+
+    @Test
+    void searchSchemaOffersRegionTypesSortAndOffset() throws Exception {
+        rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
+                .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
+                .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.country.enum", hasSize(4)))
+                .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.state.pattern").value("^[A-Za-z]{2}$"))
+                .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.types.items.enum",
+                        hasSize(McpToolCatalog.WATER_BODY_TYPES.size())))
+                .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.sort.enum",
+                        hasSize(RiverSearchCriteria.SORTS.size())))
+                .andExpect(jsonPath("$.result.tools[0].inputSchema.properties.offset.minimum").value(0))
+                .andExpect(jsonPath("$.result.tools[0].description", containsString("longest river in Maine")));
+    }
+
+    @Test
+    void initializePointsRankingQuestionsAtOneSearch() throws Exception {
+        rpc("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}")
+                .andExpect(jsonPath("$.result.instructions", containsString("search_water_bodies ONCE")))
+                .andExpect(jsonPath("$.result.instructions", containsString("sort")));
     }
 
     @Test
@@ -517,6 +607,15 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.structuredContent.fish[0].fishName").value("Walleye"));
     }
 
+    @Test
+    void getWaterBodyCarriesTheMouthRoadToEveryone() throws Exception {
+        when(riverRepository.description(GUID)).thenAnswer(inv -> objectMapper.readTree(
+                "{\"lakeName\":\"Wilton Creek\",\"mouthRoad\":\"Big Creek Road\"}"));
+
+        callAs(null, "get_water_body", "{\"guid\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.mouthRoad").value("Big Creek Road"));
+    }
+
     // ---- 1.25.0: Canada and the USA (the 1.21.0 Canada-only block is gone) -------------------
 
     @Test
@@ -532,8 +631,8 @@ class McpControllerTest {
     @Test
     void searchReturnsUsMatchesToo() throws Exception {
         String us = "11111111-1111-1111-1111-111111111111", on = "22222222-2222-2222-2222-222222222222";
-        when(riverRepository.search("Red", null, null, null, null, McpToolCatalog.SEARCH_DEFAULT_LIMIT))
-                .thenReturn(objectMapper.readTree("[{\"lakeId\":\"" + us + "\",\"lakeName\":\"Red River US\"},"
+        when(riverRepository.search(byKey("Red", null, null, McpToolCatalog.SEARCH_DEFAULT_LIMIT)))
+                .thenReturn(page(2, 20, 0, "[{\"lakeId\":\"" + us + "\",\"lakeName\":\"Red River US\"},"
                         + "{\"lakeId\":\"" + on + "\",\"lakeName\":\"Red River ON\"}]"));
 
         callAs("user", "search_water_bodies", "{\"name\":\"Red\"}")

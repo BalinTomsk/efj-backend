@@ -62,9 +62,9 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
         return null;
     }
 
-    /** No database: nothing to find, so every search is an empty list. */
+    /** No database: nothing to find, so every search is an empty page. */
     @Override
-    public JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit) {
-        return objectMapper.createArrayNode();
+    public JsonNode search(RiverSearchCriteria criteria) {
+        return JdbcRiverQueryRepository.emptySearch(objectMapper, criteria);
     }
 }

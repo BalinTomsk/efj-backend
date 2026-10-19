@@ -2,6 +2,25 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-19: **[Unreleased, in 1.26.0]** **`mouthRoad` in the water-body document.** `GET /api/v1/river/description/{guid}`
+  and the MCP tool `get_water_body` carry `mouthRoad`: the nearest named road to the mouth within 10 km
+  (`dbo.Tributaries.road` of the side-32 row, NRN / TIGER; `null` when none). SQL only: `dbo.fn_lake_view_json`
+  (envfish-db `unit_test@LakeMouthRoad.sql`, 2 tests, failing first; `ADMIN_WRITE_lake_view_mouth_road.sql`). The
+  document is passed through, so docapi 1.25.0 already shows the field once the SQL is applied; this image only
+  says so in the `get_water_body` description. Tests: `McpControllerTest` +1.
+- 2026-10-18: **1.26.0 (LIVE 2026-10-19, digest 4e2624e0…a1b5, rollback 1.25.0 + the 6-argument function) — rank water bodies in one call.** Asking the MCP for the longest
+  and shortest river in Maine took one `get_water_body` per candidate: `search_water_bodies` matched only by
+  name/CGNDB/stateId/MLI, with no region, type or sort. `GET /api/v1/river/search` and the MCP tool now take
+  `country` / `state` (the source OR mouth is there; enough on their own), a type filter (`locType` bitmask on REST,
+  `types` names on MCP, as `find_water_bodies_by_fish`), `sort` (`name` | `length_desc` | `length_asc` | `area_desc` |
+  `depth_desc`; the measure sorts leave out NULL and 0) and `offset`; `total` counts every match (it was the number
+  returned), and every item carries `length` (km), `lengthM` (the `Lake_Shape` centre line, m — orders equal whole
+  km, since short rivers all tie at 1), `area` (km²) and `depth` (m). The MCP server instructions point ranking
+  questions at one `search_water_bodies` call. The repository takes a `RiverSearchCriteria` record instead of six
+  positional arguments. SQL: `dbo.fn_river_search_json` 6 → 11 parameters + index `IDX_Tributaries_region`
+  (envfish-db; `ADMIN_WRITE_river_search_rank.sql` for CTRL/prod) — **the signature change is incompatible both ways,
+  so the SQL and this image go out back to back** (old image + new function, or the reverse, 500s every search and
+  counts on the shared `sqlBreaker`). Tests: `RiverControllerTest` +4, `McpControllerTest` +6; suite 357/357.
 - 2026-10-17: **[Unreleased, in 1.25.0]** **`cgndb` takes 1–10 letters/digits** (was 1–5), in `GET /api/v1/river/search`
   and the MCP tool `search_water_bodies` (schema `maxLength` 10): `Lake.CGNDB` / `CGNDM` hold the national non-GUID id,
   the 5-letter CGNDB key in Canada or the GNIS feature id (6–7 digits) of a US water body (the Maine import,

@@ -186,7 +186,8 @@ state), and a bad `country`/`state` falls back to the default (CA/ON), a bad `ri
 the page (no 400s).
 
 `GET /api/v1/river/description/{guid}` — the full description document for one water body (name/alt
-names, description text, physical stats, source/mouth detail, assigned fish, photo gallery as base64).
+names, description text, physical stats, source/mouth detail incl. `mouthRoad` — the nearest named road to the mouth within 10 km, or
+null — assigned fish, photo gallery as base64).
 A native duplicate of the admin "Save JSON" View-tab export
 (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already live
 in prod, no new DB object. Unknown guid ⇒ 404.

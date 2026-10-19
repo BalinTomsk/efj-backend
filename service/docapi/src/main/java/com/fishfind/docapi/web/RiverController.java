@@ -3,11 +3,13 @@ package com.fishfind.docapi.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.repo.RiverSearchCriteria;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import org.springframework.http.MediaType;
@@ -85,7 +87,10 @@ import java.util.regex.Pattern;
  * name, either GUID ({@code lake_id} / {@code secondary_id}), either CGNDB code ({@code CGNDB} /
  * {@code CGNDM}), the province's/state's own id ({@code state_id}, 1.23.0) or the MLI of a linked water
  * station, via {@code dbo.fn_river_search_json}. Every supplied criterion must match; parameter names are
- * case-insensitive ({@code CGNDB=}, {@code MLI=}, {@code stateid=}).
+ * case-insensitive ({@code CGNDB=}, {@code MLI=}, {@code stateid=}). Since 1.26.0 it also ranks:
+ * {@code &country=&state=} (the source or mouth is there; enough on their own), {@code &locType=} (bitmask filter),
+ * {@code &sort=name|length_desc|length_asc|area_desc|depth_desc} and {@code &offset=}, and {@code total} counts
+ * every match — {@code ?state=ME&locType=2&sort=length_desc&limit=1} is the longest river in Maine.
  *
  * <p>{@code GET /api/v1/river/tributaries/{guid}?limit=} (1.22.0) lists the water bodies that flow INTO one
  * water body — the reverse of {@code /source} and {@code /mouth} — via {@code dbo.fn_lake_inflows_json}.
@@ -113,6 +118,12 @@ public class RiverController {
 
     static final int SEARCH_DEFAULT_LIMIT = 50;
     static final int SEARCH_MAX_LIMIT = 200;
+
+    /** Deepest page a search may ask for (1.26.0); the largest country-wide ranking is ~33k water bodies. */
+    static final int SEARCH_MAX_OFFSET = 100_000;
+
+    /** Every {@code locType} bit set: the 14 water-body types of {@link #VALID_RIVER}. */
+    static final int LOC_TYPE_ALL = 16383;
 
     /** A name part shorter than this would match a large share of ~196k water bodies. */
     static final int SEARCH_MIN_NAME = 2;
@@ -173,8 +184,9 @@ public class RiverController {
     }
 
     /**
-     * Finds water bodies by any combination of: part of a name, either GUID, either CGNDB code, or the
-     * MLI of a linked water station. Every supplied criterion must match (AND).
+     * Finds and ranks water bodies by any combination of: part of a name, either GUID, either CGNDB code, the
+     * province's/state's own id, the MLI of a linked water station, or the country/state of the source or
+     * mouth (1.26.0) — filtered by type, sorted and paged. Every supplied criterion must match (AND).
      *
      * <p>Parameter names are matched case-insensitively, so {@code ?CGNDB=FEFUL} and {@code ?MLI=02HC024}
      * work as well as the lower-case forms.
@@ -183,9 +195,13 @@ public class RiverController {
      *               name), {@code guid} (36-char, 32-hex or braced; matches {@code lake_id} or
      *               {@code secondary_id}), {@code cgndb} (1–10 letters/digits; matches {@code CGNDB} or
      *               {@code CGNDM}), {@code stateId} (1–32 letters/digits/{@code . _ / -}; matches
-     *               {@code state_id} exactly), {@code mli} (station id), {@code limit} (null/&lt;1 →
-     *               {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT})
-     * @return {@code {items, total, limit, query}} — {@code items} is empty (never 404) when nothing matches
+     *               {@code state_id} exactly), {@code mli} (station id), {@code country} / {@code state}
+     *               (two letters; the source OR mouth is there), {@code locType} (bitmask 1..{@value #LOC_TYPE_ALL};
+     *               a filter only), {@code sort} (one of {@link RiverSearchCriteria#SORTS}, default
+     *               {@code name}), {@code offset} (null/garbage/&lt;0 → 0; capped at {@value #SEARCH_MAX_OFFSET}),
+     *               {@code limit} (null/&lt;1 → {@value #SEARCH_DEFAULT_LIMIT}; capped at {@value #SEARCH_MAX_LIMIT})
+     * @return {@code {items, total, limit, offset, query}} — {@code total} counts every match; {@code items} is
+     *         empty (never 404) when nothing matches
      * @throws InvalidDocumentException if no criterion is given or one is malformed (→ 400)
      */
     @GetMapping("/search")
@@ -195,8 +211,12 @@ public class RiverController {
         String cgndb = trimToNull(param(params, "cgndb"));
         String stateId = trimToNull(param(params, "stateId"));
         String mli = trimToNull(param(params, "mli"));
-        if (name == null && guid == null && cgndb == null && stateId == null && mli == null) {
-            throw new InvalidDocumentException("At least one of name, guid, cgndb, stateId, mli is required");
+        String country = trimToNull(param(params, "country"));
+        String state = trimToNull(param(params, "state"));
+        if (name == null && guid == null && cgndb == null && stateId == null && mli == null
+                && country == null && state == null) {
+            throw new InvalidDocumentException(
+                    "At least one of name, guid, cgndb, stateId, mli, country, state is required");
         }
         if (name != null && (name.length() < SEARCH_MIN_NAME || name.length() > SEARCH_MAX_TERM)) {
             throw new InvalidDocumentException(
@@ -217,15 +237,59 @@ public class RiverController {
         if (mli != null && mli.length() > SEARCH_MAX_TERM) {
             throw new InvalidDocumentException("mli must not exceed " + SEARCH_MAX_TERM + " characters");
         }
+        country = country == null ? null : RegulationController.requireCode(country, "country");
+        state = state == null ? null : RegulationController.requireCode(state, "state");
+        Integer locType = parseLocType(trimToNull(param(params, "locType")));
+        String sort = requireSort(trimToNull(param(params, "sort")));
+        int offset = parseOffset(param(params, "offset"));
         int limit = parseLimit(param(params, "limit"));
 
-        JsonNode items = queryRepository.search(name, guid, cgndb, stateId, mli, limit);
-        return ApiResponse.ok(new RiverSearchPage(items, items.size(), limit,
-                new RiverSearchQuery(name, guid, cgndb, stateId, mli)));
+        JsonNode found = queryRepository.search(new RiverSearchCriteria(name, guid, cgndb, stateId, mli,
+                country, state, locType, sort, offset, limit));
+        JsonNode items = found.path("items");
+        if (!items.isArray()) {
+            items = JsonNodeFactory.instance.arrayNode();
+        }
+        return ApiResponse.ok(new RiverSearchPage(items, found.path("total").asInt(items.size()), limit, offset,
+                new RiverSearchQuery(name, guid, cgndb, stateId, mli, country, state, locType, sort)));
     }
 
     /** The echoed, normalized criteria of a search ({@code null} for any not supplied). */
-    public record RiverSearchQuery(String name, String guid, String cgndb, String stateId, String mli) {
+    public record RiverSearchQuery(String name, String guid, String cgndb, String stateId, String mli,
+                                   String country, String state, Integer locType, String sort) {
+    }
+
+    /** {@code sort}, lower-cased: one of {@link RiverSearchCriteria#SORTS}, absent = {@code name}; shared with MCP. */
+    static String requireSort(String sort) {
+        if (sort == null) return RiverSearchCriteria.SORT_NAME;
+        String s = sort.trim().toLowerCase(Locale.ROOT);
+        if (!RiverSearchCriteria.SORTS.contains(s)) {
+            throw new InvalidDocumentException("sort must be one of " + String.join(", ", RiverSearchCriteria.SORTS));
+        }
+        return s;
+    }
+
+    /** {@code locType}: absent = any type; otherwise a bitmask 1..{@value #LOC_TYPE_ALL}, else 400. */
+    private static Integer parseLocType(String value) {
+        if (value == null) return null;
+        try {
+            int n = Integer.parseInt(value);
+            if (n >= 1 && n <= LOC_TYPE_ALL) return n;
+        } catch (NumberFormatException ignored) {
+            // falls through to the 400
+        }
+        throw new InvalidDocumentException("locType must be a water-body type bitmask from 1 to " + LOC_TYPE_ALL);
+    }
+
+    /** A missing, non-numeric or negative offset is 0; a deeper one is capped (same leniency as limit). */
+    private static int parseOffset(String value) {
+        if (value == null) return 0;
+        try {
+            int n = Integer.parseInt(value.trim());
+            return n < 0 ? 0 : Math.min(n, SEARCH_MAX_OFFSET);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 
     /** Rejects a {@code stateId} that cannot be a {@code lake.state_id}; shared with the MCP search tool. */
@@ -238,12 +302,13 @@ public class RiverController {
     /**
      * The result of a river search.
      *
-     * @param items the matches as returned by {@code dbo.fn_river_search_json}, best name match first
-     * @param total how many items were returned (not a count beyond {@code limit})
-     * @param limit the effective limit
-     * @param query the normalized criteria that were searched
+     * @param items  one page of matches as returned by {@code dbo.fn_river_search_json}, in the requested order
+     * @param total  how many water bodies match in all (1.26.0; before, how many items were returned)
+     * @param limit  the effective limit
+     * @param offset the effective offset (1.26.0)
+     * @param query  the normalized criteria that were searched
      */
-    public record RiverSearchPage(JsonNode items, int total, int limit, RiverSearchQuery query) {
+    public record RiverSearchPage(JsonNode items, int total, int limit, int offset, RiverSearchQuery query) {
     }
 
     /** Case-insensitive lookup of a query parameter. */

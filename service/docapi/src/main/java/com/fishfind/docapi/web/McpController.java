@@ -66,7 +66,11 @@ public class McpController {
             "FishFind water-body data for CANADA and the USA: lakes, rivers and other water bodies, where "
                     + "they start and end, and fishing regulations. Start with search_water_bodies to get a "
                     + "water body's lakeId GUID, then pass it to the get_water_body* tools. Fish species "
-                    + "information is available to administrators only. Read-only; no photos are provided.";
+                    + "information is available to administrators only. Read-only; no photos are provided. "
+                    + "For ranking questions (the longest or shortest river, the largest or deepest lake of a "
+                    + "province, state or country) call search_water_bodies ONCE with country/state, types and "
+                    + "sort (e.g. state ME, types [river], sort length_desc, limit 1) instead of looking water "
+                    + "bodies up one by one.";
 
     // JSON-RPC 2.0 error codes.
     static final int PARSE_ERROR = -32700;
