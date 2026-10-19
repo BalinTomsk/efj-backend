@@ -93,8 +93,8 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 | Verb | Path | Success status | Response `data` |
 |------|------|----------------|-----------------|
 | `GET` | `/api/v1/river/unfished?country=&state=&river=` | 200 | `{ found, country, state, river, lake_id, lake_name, mouth_name, CGNDB, CGNDM, throwing }` (fields null when `found:false`) |
-| `GET` | `/api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&limit=` | 200 | `{ items:[{lakeId, secondaryId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[…]}], total, limit, query:{name, guid, cgndb, mli} }`; empty `items` when nothing matches; 400 when no criterion is given or one is malformed |
-| `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth, fish, base64 photo gallery); 404 if the guid is unknown |
+| `GET` | `/api/v1/river/search?name=&guid=&cgndb=&stateId=&mli=&country=&state=&locType=&sort=&offset=&limit=` | 200 | `{ items:[{lakeId, secondaryId, lakeName, altName, frenchName, locType, CGNDB, CGNDM, stateId, country, state, length, lengthM, area, depth, mli:[…]}], total, limit, offset, query:{name, guid, cgndb, stateId, mli, country, state, locType, sort} }` — `total` counts every match (1.26.0); empty `items` when nothing matches; 400 when no criterion is given or one is malformed |
+| `GET` | `/api/v1/river/description/{guid}` | 200 | the full description document (name/alt names, description, stats, source/mouth incl. `mouthRoad`, fish, base64 photo gallery); 404 if the guid is unknown |
 | `GET` | `/api/v1/river/fish/{guid}` | 200 | the assigned-species document (every `lake_fish` row: name, latin, conservation status, last-catch, external link); 404 if the guid is unknown |
 | `PATCH` | `/api/v1/river/fish/{guid}` | 200 | one result per input entry, in order: `[{fishId, fishName, action}, …]`, `action` one of `inserted`/`updated`/`skipped`/`unknown_fish`/`invalid_fish_id`; 400 on an invalid body, 404 if the guid is unknown |
 | `PATCH` | `/api/v1/river/description/{guid}` | 200 | `{ lakeId, updated:[{field}], ignored:[{field,reason}], protectedFields:[{field,reason}] }`; 400 on an invalid body, 404 if the guid is unknown |
@@ -124,6 +124,20 @@ already exists in `envfish-db`; see [Data access](#data-access)):
   then the rest, by `lake_name`. The function drives the lookup from the most selective key supplied
   (guid → CGNDB → state id → MLI → name), so only a name-only search scans `lake`. `mli` in each item lists
   every station linked to that water body. Covered by `unit_test@RiverSearch.sql` (9 tests).
+  **Ranking (1.26.0).** `country` / `state` (two letters, upper-cased, else 400) match a water body whose source
+  (`Tributaries` side 16) OR mouth (side 32) is there — the rule of `fn_fish_water_bodies_json` without its
+  "a CGNDB code means Canada" clause, since US water bodies carry GNIS ids in `CGNDB` — and are criteria on
+  their own (no name needed; the region-only lookup reads the new filtered index `IDX_Tributaries_region`).
+  `locType` (bitmask 1..16383, else 400) only filters: alone it is a 400. `sort` = `name` (default, the order
+  above) | `length_desc` | `length_asc` | `area_desc` | `depth_desc` (case-insensitive, else 400); the measure
+  sorts leave out water bodies whose `lake.length` / `surface` / `depth` is NULL or 0. `length` is whole km, so
+  equal km are ordered by the river centre line (`Lake_Shape` type 1) in metres — measured only for rows at or
+  above the page's last key, and with `FORCESEEK`: without both, a Canada-wide ranking scanned all of
+  `Lake_Shape` (~5 s on CTRL). `offset` (missing/garbage/<0 → 0, capped at 100000) pages; `total` now counts
+  every match (it was the number returned). Items carry `length` (km), `lengthM` (centre line, m, null when
+  not mapped), `area` (km², `lake.surface`) and `depth` (m). Covered by `unit_test@RiverSearchRank.sql`
+  (10 tests). The SQL signature went from 6 to 11 parameters (`JdbcRiverQueryRepository.SEARCH_SQL`), so
+  the function and this image deploy together.
 - `GET /api/v1/river/description/{guid}` — a native duplicate of the admin "Save JSON" View-tab export
   (`Editor/HandlerImage.ashx?lakejson=<guid>&tab=view`), backed by `dbo.fn_lake_view_json` — already
   live in prod (added 2026-08-14 for the admin Save-JSON tabs), so no new DB object. Unknown/NULL guid
@@ -269,10 +283,9 @@ portal's `/WebService/Fish/` endpoint.
   and the same code names different species in different provinces; omitting it ⇒ 400
   `invalid_document`. With no `codes` the **whole province** is published, ordered by code. `country` is
   optional and defaults to any (only `CA` exists today, but country is part of the key).
-  **One element per match, not per requested code**: a code may legitimately name several species — on
-  the live database BC `RB` is both Rock Bass and Rainbow Trout, `LS` both Lake Sturgeon and Largescale
-  Sucker — so an ambiguous code returns several elements sharing the code rather than an arbitrary
-  single winner. A code matching nothing still yields exactly one element with `latin` null, so the
+  **One element per match, not per requested code** — no `TOP 1`. Since 2026-08-18
+  `UK_fish_code (state, code)` allows one species per code per province (BC `RB` used to be both Rock
+  Bass and Rainbow Trout; it is Rainbow Trout only now), so a code normally yields one element. A code matching nothing still yields exactly one element with `latin` null, so the
   array never silently shrinks relative to the request. An **unknown province is not an error**: the
   codes come back unresolved, which cannot be mistaken for a larger result set. `code` echoes the
   requested spelling; matching is exact and case-insensitive by DB collation.
@@ -380,7 +393,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 
 | Tool | Arguments | Backing |
 |------|-----------|---------|
-| `search_water_bodies` | `name` (2–64) / `cgndb` (1–10 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) — at least one; `limit` default 20, clamped 1..50 | `RiverQueryRepository.search` (`limit`) → `{items, total, limit}` |
+| `search_water_bodies` | `name` (2–64) / `cgndb` (1–10 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) / `country` (`CA`/`US`) / `state` (two letters) — at least one; `types` (names → `locType` bitmask, as `find_water_bodies_by_fish`), `sort` (`name`, `length_desc`, `length_asc`, `area_desc`, `depth_desc`), `offset` 0..100000 (1.26.0); `limit` default 20, clamped 1..50 | `RiverQueryRepository.search(RiverSearchCriteria)` → `{total, limit, offset, items, query:{country, state, locType, sort}}`; `total` counts every match, so a ranking ("the longest river in Maine") is one call — the server `instructions` say so (1.26.0) |
 | `get_water_body` | `guid` | `RiverQueryRepository.description` (carries `waterfalls` / `dams` since the 1.24.0 SQL) |
 | `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
 | `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |
@@ -1292,7 +1305,7 @@ build artifacts. Never bake a real `.env` into the image.
 - `NewsCacheTest` (42 tests) — both news caches: US/CA bucketing, LRU of other requests, deep pages cached after their first load, clear/eviction, `/import` evicting **every** cached entry, plus the "only on a cold entry" guarantees — 16 concurrent requests produce one query for `/list`, `/default`, a document, `/export`, `/search` and `/photo`, and unknown ids are remembered, bounded, TTL-expiring and dropped on update. **Since 2026-09-17** it also pins the five new LRUs: each bounded at its configured size (default 25), export/photo keyed case-insensitively, the search term keyed case-**sensitively** (the response echoes `query` verbatim), species-id order not splitting one search across two entries, `limit` being part of the lake/fish key, and a miss NOT being stored. The four tests that used to pin those endpoints as deliberate read-throughs were replaced by their opposites. **Since 1.15.2** one more test sets three *different* non-default bounds and asserts each reaches its own cache, since every other test here runs on the defaults and would still pass if the properties were ignored.
 - `NewsCachePropertiesTest` (3, 1.15.2) — defaults still equal the constants they replaced; every `docapi.cache.*` key binds to its own field (distinct values, so a field wired to the wrong key fails rather than coincidentally matching); and the environment-variable forms the runbook tells an operator to use actually bind, notably `docapi.cache.water-body` reached as `DOCAPI_CACHE_WATERBODY`.
 - `FishControllerTest` — `@WebMvcTest(FishController.class)`, `@MockBean` service and `FishQueryRepository` (22 tests): the CRUD envelope (GET 200 doc / 404) plus `/fish/search` — result mapping into the envelope, term trimming before the query, empty-result echo, and blank/missing `q` ⇒ 400. The two base-path lookups are covered too: envelope shape, the `{"BURB", "WALL"}` literal, bracket/semicolon lists, repeated parameters staying un-split, blank entries dropped, province/country trimming, whole-province mode, a quoted name keeping its comma, `fishes` taking precedence, and the 400s (codes without province, no parameter at all, over-limit batches).
-- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (49 tests): `/river/tributaries/{guid}` (GUID normalized, limit default/cap, 404 unknown, 400 malformed with the repository never called), `/river/barriers/{guid}` (1.24.0: GUID normalized, both arrays, 404 unknown, 400 malformed with the repository never called), `/river/search` (items/total/limit/echoed query; GUID and CGNDB normalization, upper-case parameter names, limit cap; 400 with no criterion or a malformed guid/cgndb/name/mli, repository never called), `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), `PATCH /river/source|mouth/{guid}/point` (1.25.0, 5 tests: both GUIDs normalized, side 16 vs 32, 404 unknown lake, 400 for an unknown point and for every bad body with the repository never called), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
+- `RiverControllerTest` — `@WebMvcTest(RiverController.class)`, `@MockBean` `RiverQueryRepository` + `RiverFishCommandRepository` + `RiverDescriptionCommandRepository` + `RiverLinkCommandRepository` (56 tests; 1.26.0 the region/sort/offset search cases): `/river/tributaries/{guid}` (GUID normalized, limit default/cap, 404 unknown, 400 malformed with the repository never called), `/river/barriers/{guid}` (1.24.0: GUID normalized, both arrays, 404 unknown, 400 malformed with the repository never called), `/river/search` (items/total/limit/echoed query; GUID and CGNDB normalization, upper-case parameter names, limit cap; 400 with no criterion or a malformed guid/cgndb/name/mli, repository never called), `/river/unfished` result mapping into the envelope, default fallback (missing params → CA/ON/2), bad-code/river cleaning (never rejected), lower-case state upper-casing, `GET /river/description/{guid}` (200 doc / 404 on an unknown guid), `GET /river/fish/{guid}` (200 doc / 404 on an unknown guid), `PATCH /river/fish/{guid}` (200 result envelope, 404 unknown lake, 400 empty array, 400 non-array body, 400 missing body, 400 over-`MAX_FISH_BATCH`), `PATCH /river/description/{guid}` (200 result envelope, 404 unknown lake, 400 empty object, 400 array body, 400 missing body, 400 over-`MAX_PATCH_FIELDS`), `PATCH /river/source|mouth/{guid}/point` (1.25.0, 5 tests: both GUIDs normalized, side 16 vs 32, 404 unknown lake, 400 for an unknown point and for every bad body with the repository never called), and `GET`/`PATCH /river/source/{guid}` + `GET`/`PATCH /river/mouth/{guid}` (200 doc / 404 unknown guid for the GETs; 200 result envelope incl. a protected-fields case, 404 unknown lake, 400 empty object, 400 missing/array body for the PATCHes — the 400 cases across every PATCH endpoint also assert the repository is never invoked).
 - `RegulationControllerTest` — `@WebMvcTest(RegulationController.class)`, `@MockBean`
   `RegulationQueryRepository` + `RegulationCommandRepository` (11 tests): `GET /river/regulation/{guid}`
   (200 doc / 404 unknown), `PATCH /river/regulation/{guid}` (200 result envelope, asserts via an
@@ -1307,7 +1320,7 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (38 tests; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
+  regulation/fish query repositories (47 tests; 1.26.0 the ranking search cases, the search schema and the instructions line; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
   `find_water_bodies_by_fish` cases, 1.21.0 the role cases, 1.22.0 the tributaries cases, 1.24.0 the barriers cases, 1.25.0 the US cases that replaced
   the Canada-only ones; requests run as admin unless a test says otherwise): initialize (version echo, newest offered for an unknown one, no
   session header), 202 for a notification, ping, `tools/list` (10 tools for admin, 7 for anyone else, all read-only), `-32601`/`-32602`/

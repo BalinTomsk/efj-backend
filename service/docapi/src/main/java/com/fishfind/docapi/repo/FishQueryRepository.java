@@ -26,9 +26,9 @@ public interface FishQueryRepository {
      * Resolves regional fish codes to Latin names for one province, backed by
      * {@code dbo.fn_fish_code_latin_json}.
      *
-     * <p>Returns <b>one element per match, not per requested code</b>: {@code dbo.fish_code} is keyed on
-     * (fish_id, country, state, code), so a code may legitimately name several species — on the live
-     * database BC {@code RB} is both Rock Bass and Rainbow Trout. A code matching nothing still yields
+     * <p>Returns <b>one element per match, not per requested code</b> (no {@code TOP 1}); since 2026-08-18
+     * {@code UK_fish_code (state, code)} allows one species per code per province, so a code normally
+     * yields one element (BC {@code RB}, once Rock Bass and Rainbow Trout, is Rainbow Trout only). A code matching nothing still yields
      * exactly one element with a null {@code latin}, so the array never silently shrinks relative to the
      * request.
      *

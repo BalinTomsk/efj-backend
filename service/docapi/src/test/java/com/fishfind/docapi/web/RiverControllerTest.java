@@ -5,6 +5,7 @@ import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
 import com.fishfind.docapi.repo.RiverLinkCommandRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.repo.RiverSearchCriteria;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -17,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -594,7 +596,7 @@ class RiverControllerTest {
 
     @Test
     void searchByNameWrapsTheItemsWithTheEchoedQuery() throws Exception {
-        when(queryRepository.search("Humber", null, null, null, null, 50)).thenReturn(objectMapper.readTree(
+        when(queryRepository.search(byKey("Humber", null, null, null, null, 50))).thenReturn(page(1, 50, 0,
                 "[{\"lakeId\":\"abc\",\"lakeName\":\"Humber River\",\"CGNDB\":\"FEFUL\",\"mli\":[\"02HC024\"]}]"));
 
         mockMvc.perform(get("/api/v1/river/search").param("name", "  Humber "))
@@ -603,14 +605,15 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.data.items[0].mli[0]").value("02HC024"))
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.limit").value(50))
+                .andExpect(jsonPath("$.data.offset").value(0))
                 .andExpect(jsonPath("$.data.query.name").value("Humber"))
+                .andExpect(jsonPath("$.data.query.sort").value("name"))
                 .andExpect(jsonPath("$.data.query.guid").doesNotExist());
     }
 
     @Test
     void searchNormalizesGuidCgndbAndAcceptsUpperCaseParamNames() throws Exception {
-        when(queryRepository.search(any(), any(), any(), any(), any(), anyInt()))
-                .thenReturn(objectMapper.createArrayNode());
+        when(queryRepository.search(any())).thenReturn(page(0, 200, 0, "[]"));
 
         mockMvc.perform(get("/api/v1/river/search")
                         .param("guid", "{0C5210DB849C20C357F421FF96A2047B}")
@@ -619,12 +622,12 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.total").value(0))
                 .andExpect(jsonPath("$.data.limit").value(200));
-        verify(queryRepository).search(null, "0c5210db-849c-20c3-57f4-21ff96a2047b", "FEFUL", null, "02HC024", 200);
+        verify(queryRepository).search(byKey(null, "0c5210db-849c-20c3-57f4-21ff96a2047b", "FEFUL", null, "02HC024", 200));
     }
 
     @Test
     void searchByStateIdPassesItThroughAndEchoesIt() throws Exception {
-        when(queryRepository.search(null, null, null, "39325", null, 50)).thenReturn(objectMapper.readTree(
+        when(queryRepository.search(byKey(null, null, null, "39325", null, 50))).thenReturn(page(1, 50, 0,
                 "[{\"lakeId\":\"abc\",\"lakeName\":\"Fraser River\",\"stateId\":\"39325\"}]"));
 
         mockMvc.perform(get("/api/v1/river/search").param("stateid", " 39325 "))
@@ -637,7 +640,7 @@ class RiverControllerTest {
     @Test
     void searchByAGnisIdAsCgndbPassesItThrough() throws Exception {
         // a US water body's national id (GNIS feature id, 6-7 digits) lives in CGNDB, which is varchar(10)
-        when(queryRepository.search(null, null, "2081287", null, null, 50)).thenReturn(objectMapper.readTree(
+        when(queryRepository.search(byKey(null, null, "2081287", null, null, 50))).thenReturn(page(1, 50, 0,
                 "[{\"lakeId\":\"abc\",\"lakeName\":\"Moosehead Lake\",\"CGNDB\":\"2081287\"}]"));
 
         mockMvc.perform(get("/api/v1/river/search").param("cgndb", " 2081287 "))
@@ -653,7 +656,7 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.message", containsString("stateId")));
         mockMvc.perform(get("/api/v1/river/search").param("stateId", "1".repeat(33)))
                 .andExpect(status().isBadRequest());
-        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(queryRepository, never()).search(any());
     }
 
     @Test
@@ -661,7 +664,7 @@ class RiverControllerTest {
         mockMvc.perform(get("/api/v1/river/search").param("name", " ").param("limit", "5"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
-        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(queryRepository, never()).search(any());
     }
 
     @Test
@@ -676,6 +679,83 @@ class RiverControllerTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/river/search").param("mli", "x".repeat(65)))
                 .andExpect(status().isBadRequest());
-        verify(queryRepository, never()).search(any(), any(), any(), any(), any(), anyInt());
+        verify(queryRepository, never()).search(any());
+    }
+
+    @Test
+    void searchRanksByRegionTypeAndSortWithTheTotalOfEveryMatch() throws Exception {
+        RiverSearchCriteria longestInMaine = new RiverSearchCriteria(null, null, null, null, null,
+                "US", "ME", 2, "length_desc", 10, 5);
+        when(queryRepository.search(longestInMaine)).thenReturn(page(288, 5, 10,
+                "[{\"lakeId\":\"abc\",\"lakeName\":\"Kennebec River\",\"length\":270,\"lengthM\":268114}]"));
+
+        mockMvc.perform(get("/api/v1/river/search").param("country", "us").param("STATE", " me ")
+                        .param("locType", "2").param("sort", "Length_Desc").param("offset", "10").param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(288))
+                .andExpect(jsonPath("$.data.offset").value(10))
+                .andExpect(jsonPath("$.data.limit").value(5))
+                .andExpect(jsonPath("$.data.items[0].length").value(270))
+                .andExpect(jsonPath("$.data.query.country").value("US"))
+                .andExpect(jsonPath("$.data.query.state").value("ME"))
+                .andExpect(jsonPath("$.data.query.locType").value(2))
+                .andExpect(jsonPath("$.data.query.sort").value("length_desc"));
+        verify(queryRepository).search(longestInMaine);
+    }
+
+    @Test
+    void searchTreatsAGarbageOrNegativeOffsetAsZeroAndCapsADeepOne() throws Exception {
+        when(queryRepository.search(any())).thenReturn(page(0, 50, 0, "[]"));
+
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("offset", "-4"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("offset", "x"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("offset", "999999999"))
+                .andExpect(status().isOk());
+        verify(queryRepository, times(2)).search(new RiverSearchCriteria(null, null, null, null, null,
+                null, "ME", null, "name", 0, 50));
+        verify(queryRepository).search(new RiverSearchCriteria(null, null, null, null, null,
+                null, "ME", null, "name", RiverController.SEARCH_MAX_OFFSET, 50));
+    }
+
+    @Test
+    void searchByTypeOrSortAloneIs400() throws Exception {
+        mockMvc.perform(get("/api/v1/river/search").param("locType", "2").param("sort", "length_desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.message", containsString("country, state")));
+        verify(queryRepository, never()).search(any());
+    }
+
+    @Test
+    void searchRejectsABadSortCountryStateOrType() throws Exception {
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("sort", "longest"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.message", containsString("length_desc")));
+        mockMvc.perform(get("/api/v1/river/search").param("state", "Maine"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("country", "USA"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("locType", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("locType", "16384"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/river/search").param("state", "ME").param("locType", "river"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.message", containsString("locType")));
+        verify(queryRepository, never()).search(any());
+    }
+
+    /** A name/key search as the controller builds it: no region, any type, name order, first page. */
+    private static RiverSearchCriteria byKey(String name, String guid, String cgndb, String stateId, String mli,
+                                             int limit) {
+        return new RiverSearchCriteria(name, guid, cgndb, stateId, mli, null, null, null, "name", 0, limit);
+    }
+
+    /** What dbo.fn_river_search_json returns: {total, limit, offset, items}. */
+    private com.fasterxml.jackson.databind.JsonNode page(int total, int limit, int offset, String items)
+            throws Exception {
+        return objectMapper.readTree("{\"total\":" + total + ",\"limit\":" + limit + ",\"offset\":" + offset
+                + ",\"items\":" + items + "}");
     }
 }

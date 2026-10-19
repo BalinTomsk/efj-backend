@@ -86,18 +86,16 @@ public interface RiverQueryRepository {
     JsonNode barriers(String lakeId);
 
     /**
-     * Water-body lookup by any combination of criteria; every non-null one must match (AND). Backed by
-     * {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs; at least one
-     * criterion is non-null.
+     * Water-body lookup and ranking by any combination of criteria; every non-null one must match (AND).
+     * Backed by {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs, and at
+     * least one criterion ({@link RiverSearchCriteria#hasCriterion}) is set. Region, type, sort and paging
+     * 1.26.0; {@code stateId} 1.23.0.
      *
-     * @param name  part of the name — matched against {@code lake_name}, {@code alt_name}, {@code french_name}
-     * @param guid  canonical GUID — matched against {@code lake_id} OR {@code secondary_id}
-     * @param cgndb   upper-cased code — matched against {@code CGNDB} OR {@code CGNDM}
-     * @param stateId the province's/state's own id — matched exactly against {@code state_id} (1.23.0)
-     * @param mli     a {@code WaterStation.MLI} — matches the water body that station is linked to
-     * @param limit   maximum number of hits (1..200)
-     * @return a JSON array (empty when nothing matches) of {@code {lakeId, secondaryId, lakeName, altName,
-     *         frenchName, locType, CGNDB, CGNDM, stateId, country, state, mli:[...]}}, exact name first
+     * @param criteria the normalized search
+     * @return {@code {total, limit, offset, items}} — {@code total} counts every match, {@code items} (empty when
+     *         nothing matches) holds one page of {@code {lakeId, secondaryId, lakeName, altName, frenchName,
+     *         locType, CGNDB, CGNDM, stateId, country, state, length, lengthM, area, depth, mli:[...]}} in the
+     *         requested order
      */
-    JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit);
+    JsonNode search(RiverSearchCriteria criteria);
 }

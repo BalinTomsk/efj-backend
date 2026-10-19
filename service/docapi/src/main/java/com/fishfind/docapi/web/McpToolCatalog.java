@@ -9,6 +9,7 @@ import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
+import com.fishfind.docapi.repo.RiverSearchCriteria;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import org.springframework.stereotype.Component;
@@ -126,15 +127,20 @@ public class McpToolCatalog {
         this.fishRepository = fishRepository;
         this.objectMapper = objectMapper;
 
-        add("search_water_bodies", "Search water bodies",
+        add("search_water_bodies", "Search and rank water bodies",
                 "Finds lakes, rivers and other water bodies in Canada and the USA by part of a name, by CGNDB code "
                         + "(a water body in two provinces has one per province, both searchable), "
                         + "by the province's own id for the water body (`stateId`, e.g. a BC Geographical "
-                        + "Names id or an Alberta FWMIS waterbody id), or by the MLI id of a linked "
-                        + "hydrometric station. Every criterion given must match. Items carry both codes "
-                        + "(`CGNDB`, `CGNDM`). Returns up to `limit` "
-                        + "matches, exact name first, each with its `lakeId` GUID — pass that GUID to the "
-                        + "other water-body tools.",
+                        + "Names id or an Alberta FWMIS waterbody id), by the MLI id of a linked "
+                        + "hydrometric station, or by the country/province/state its source or mouth is in "
+                        + "(no name needed). Every criterion given must match; `types` narrows the result. "
+                        + "`sort` ranks it in this one call: length_desc / length_asc (length, km), area_desc "
+                        + "(area, km2), depth_desc (depth, m) — each leaves out water bodies with no value, so "
+                        + "{state:ME, types:[river], sort:length_desc, limit:1} is the longest river in Maine. "
+                        + "`length` is whole km; equal km are ordered by `lengthM`, the mapped centre line in "
+                        + "metres (null when not mapped). Returns `total` (every match) and up to `limit` items "
+                        + "from `offset`, each with both codes (`CGNDB`, `CGNDM`) and its `lakeId` GUID — pass "
+                        + "that GUID to the other water-body tools.",
                 """
                 {"type":"object","properties":{
                   "name":{"type":"string","minLength":2,"maxLength":64,
@@ -145,6 +151,16 @@ public class McpToolCatalog {
                              "description":"The province's own id for the water body, e.g. 39325 (BC Geographical Names id of the Fraser River)"},
                   "mli":{"type":"string","maxLength":64,
                          "description":"Id of a water station linked to the water body, e.g. 02HC024"},
+                  "country":{"type":"string","enum":["CA","US","ca","us"],
+                             "description":"CA (Canada) or US (USA): water bodies whose source or mouth is there"},
+                  "state":{"type":"string","pattern":"^[A-Za-z]{2}$",
+                           "description":"Province/territory/state code, e.g. ME, ON or BC: water bodies whose source or mouth is there"},
+                  "types":{"type":"array","items":{"type":"string","enum":["lake","river","stream","pond","marsh",
+                           "backwater","creek","canal","estuary","shore","drain","ditch","wetland","reservoir"]},
+                           "description":"Water-body types to include; omit for all"},
+                  "sort":{"type":"string","enum":["name","length_desc","length_asc","area_desc","depth_desc"],"default":"name",
+                          "description":"name: best name match first. The others rank by length, area or depth and leave out water bodies without that value"},
+                  "offset":{"type":"integer","minimum":0,"default":0,"description":"Items to skip, for the next page"},
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
                 },"additionalProperties":false}""",
                 false, (args, role) -> searchWaterBodies(args));
@@ -152,7 +168,8 @@ public class McpToolCatalog {
         add("get_water_body", "Water body details",
                 "The description of one water body: names, type, description text, physical "
                         + "statistics (length, depth, area, volume), location (lat/lon, province/state, "
-                        + "region), source and mouth, and its waterfalls and dams.",
+                        + "region), source and mouth (with the nearest named road to the mouth, within 10 km), "
+                        + "and its waterfalls and dams.",
                 guidSchema(), false, this::description);
 
         add("get_water_body_fish", "Fish species in a water body",
@@ -275,8 +292,11 @@ public class McpToolCatalog {
         String cgndb = optionalText(args, "cgndb");
         String stateId = optionalText(args, "stateId");
         String mli = optionalText(args, "mli");
-        if (name == null && cgndb == null && stateId == null && mli == null) {
-            throw new InvalidDocumentException("Give at least one of name, cgndb, stateId, mli");
+        String country = requireCountry(optionalText(args, "country"));
+        String state = optionalText(args, "state");
+        state = state == null ? null : RegulationController.requireCode(state, "state");
+        if (name == null && cgndb == null && stateId == null && mli == null && country == null && state == null) {
+            throw new InvalidDocumentException("Give at least one of name, cgndb, stateId, mli, country, state");
         }
         if (name != null && (name.length() < RiverController.SEARCH_MIN_NAME
                 || name.length() > RiverController.SEARCH_MAX_TERM)) {
@@ -295,14 +315,21 @@ public class McpToolCatalog {
         if (mli != null && mli.length() > RiverController.SEARCH_MAX_TERM) {
             throw new InvalidDocumentException("mli must not exceed " + RiverController.SEARCH_MAX_TERM + " characters");
         }
+        Integer locType = waterBodyTypes(args.get("types"));
+        String sort = RiverController.requireSort(optionalText(args, "sort"));
+        int offset = boundedInt(args, "offset", 0, 0, RiverController.SEARCH_MAX_OFFSET);
         int limit = limit(args);
-        JsonNode found = riverRepository.search(name, null, cgndb, stateId, mli, limit);
-        ArrayNode items = found instanceof ArrayNode a ? a : objectMapper.createArrayNode();
-        ObjectNode out = objectMapper.createObjectNode();
-        out.set("items", items);
-        out.put("total", items.size());
-        out.put("limit", limit);
-        return out;
+
+        JsonNode result = riverRepository.search(new RiverSearchCriteria(name, null, cgndb, stateId, mli,
+                country, state, locType, sort, offset, limit));
+        if (result instanceof ObjectNode out) {
+            ObjectNode query = out.putObject("query");
+            query.put("country", country);
+            query.put("state", state);
+            query.put("locType", locType);
+            query.put("sort", sort);
+        }
+        return result;
     }
 
     private JsonNode description(JsonNode args, ViewerRole role) {

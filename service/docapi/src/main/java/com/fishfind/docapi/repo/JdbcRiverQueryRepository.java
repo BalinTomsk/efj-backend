@@ -3,10 +3,12 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Types;
 import java.util.List;
 
 /**
@@ -44,10 +46,11 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     static final String MOUTH_SQL = "SELECT dbo.fn_lake_mouth_json(?)";
 
     /**
-     * Water-body search by name part / either GUID / either CGNDB code / station MLI, as one JSON
-     * array. The function picks the most selective supplied key to drive the lookup.
+     * Water-body search and ranking by name part / either GUID / either CGNDB code / state id / station MLI /
+     * country / state, filtered by type, sorted and paged, as one {@code {total, limit, offset, items}} document.
+     * The function picks the most selective supplied key to drive the lookup.
      */
-    static final String SEARCH_SQL = "SELECT dbo.fn_river_search_json(?, ?, ?, ?, ?, ?)";
+    static final String SEARCH_SQL = "SELECT dbo.fn_river_search_json(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -184,26 +187,44 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "searchFallback")
-    public JsonNode search(String name, String guid, String cgndb, String stateId, String mli, int limit) {
+    public JsonNode search(RiverSearchCriteria c) {
         List<String> rows = jdbc.query(
                 SEARCH_SQL,
                 ps -> {
-                    ps.setString(1, name);
-                    ps.setString(2, guid);
-                    ps.setString(3, cgndb);
-                    ps.setString(4, stateId);
-                    ps.setString(5, mli);
-                    ps.setInt(6, limit);
+                    ps.setString(1, c.name());
+                    ps.setString(2, c.guid());
+                    ps.setString(3, c.cgndb());
+                    ps.setString(4, c.stateId());
+                    ps.setString(5, c.mli());
+                    ps.setString(6, c.country());
+                    ps.setString(7, c.state());
+                    if (c.locType() == null) {
+                        ps.setNull(8, Types.INTEGER);
+                    } else {
+                        ps.setInt(8, c.locType());
+                    }
+                    ps.setString(9, c.sort());
+                    ps.setInt(10, c.offset());
+                    ps.setInt(11, c.limit());
                 },
                 (rs, i) -> rs.getString(1));
         String json = rows.isEmpty() ? null : rows.get(0);
-        return (json == null || json.isBlank()) ? objectMapper.createArrayNode() : parse(json);
+        return (json == null || json.isBlank()) ? emptySearch(objectMapper, c) : parse(json);
+    }
+
+    /** The {@link #search} document for no matches. */
+    static JsonNode emptySearch(ObjectMapper objectMapper, RiverSearchCriteria c) {
+        ObjectNode out = objectMapper.createObjectNode();
+        out.put("total", 0);
+        out.put("limit", c.limit());
+        out.put("offset", c.offset());
+        out.putArray("items");
+        return out;
     }
 
     /** Circuit-breaker fallback for {@link #search}. */
     @SuppressWarnings("unused")
-    public JsonNode searchFallback(String name, String guid, String cgndb, String stateId, String mli, int limit,
-                                   Throwable ex) {
+    public JsonNode searchFallback(RiverSearchCriteria criteria, Throwable ex) {
         throw new RuntimeException("SQL river-search query failed", ex);
     }
 
