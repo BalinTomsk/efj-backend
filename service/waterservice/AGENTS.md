@@ -262,7 +262,7 @@ spring:
 water:
   worker:
     cron: "0 0 * * * *"               # default — top of every hour (Spring 6-field cron)
-    pause-between-stations-ms: 1000   # default
+    pause-between-stations-ms: 500    # default (1000 made the CA pass overrun the hour)
     connect-timeout-ms: 15000         # default
     read-timeout-ms: 30000            # default
 ```

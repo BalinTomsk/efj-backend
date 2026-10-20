@@ -136,7 +136,7 @@ Console mode is the easiest way to debug one station without waiting for the ful
 
 Defined in `src/main/resources/application.yml`:
 
-- `water.worker.pause-between-stations-ms=1000`
+- `water.worker.pause-between-stations-ms=500`
 - `water.worker.connect-timeout-ms=15000`
 - `water.worker.read-timeout-ms=30000`
 
