@@ -116,7 +116,7 @@ Worker behavior
   handled (failure or unpublished/skipped source) — so the cycle can decide whether to post-process.
 - Configurable properties:
   - `water.worker.cron` default `0 0 * * * *`
-  - `water.worker.pause-between-stations-ms` default `1000`
+  - `water.worker.pause-between-stations-ms` default `500` (at `1000` the CA pass took ~66 min and overran the hour)
   - `water.worker.connect-timeout-ms` default `15000`
   - `water.worker.read-timeout-ms` default `30000`
 

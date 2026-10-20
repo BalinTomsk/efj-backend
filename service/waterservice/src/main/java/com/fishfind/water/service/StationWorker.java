@@ -64,7 +64,9 @@ public class StationWorker implements ApplicationRunner {
         this.serviceActivity = serviceActivity;
     }
 
-    @Value("${water.worker.pause-between-stations-ms:1000}")
+    // 500, not 1000: at 1000 ms the CA pass took ~66 min (3,937 s on 1.9.0) and overran the hourly cron,
+    // so CA refreshed every 2 h. application.yml is git-ignored, so the default is what main records.
+    @Value("${water.worker.pause-between-stations-ms:500}")
     private long pauseBetweenStationsMs;
 
     @Value("${water.worker.cron:0 0 * * * *}")
