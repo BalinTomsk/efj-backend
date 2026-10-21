@@ -417,7 +417,7 @@
     <div class="status-strip" style="margin-top:24px;">
       <div class="status-tile"><span class="ctrl-name">Health</span><span class="ctrl-state live">Live</span><span class="ctrl-note">liveness probe, no envelope</span></div>
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
-      <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; GET /{guid} species document in 1.28.0 (not deployed); POST/PUT not yet</span></div>
+      <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; GET /{guid} species document (1.28.0, live 2026&#8209;10&#8209;21); POST/PUT not yet</span></div>
       <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed; 5 PATCH writes fronted (Bearer-token gated); source/mouth GET+PATCH deployed and verified live 2026‑09‑09</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
@@ -901,7 +901,7 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
     <div class="endpoint">
       <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish/{guid}</span></div>
-        <span class="specimen-label">one species, everything but images &mdash; 1.28.0, not deployed</span>
+        <span class="specimen-label">one species, everything but images &mdash; 1.28.0, live 2026&#8209;10&#8209;21</span>
       </div>
       <div class="endpoint-body">
         <p class="prose" style="margin:2px 0 14px;">Backed by <code>dbo.fn_fish_info_json</code> through <code>FishQueryRepository.info</code> &mdash; the same document the MCP tool <code>get_fish</code> returns (one helper, <code>FishController.species</code>). It replaces the inherited document read, whose <code>dbo.fn_fish_doc</code> never existed. Sections: names, family, description, types / water types / abilities, habitat and its water conditions, zoology (<code>maxLengthCm</code>, <code>maxWeightKg</code>, <code>longevityYears</code>&hellip;), spawn, food, regional <code>codes</code>, <code>topRanks</code>, <code>catchByMonth</code>, <code>catchByMoonDay</code>, <code>moonSensitive</code> / <code>migrates</code>, <code>predators</code> / <code>prey</code>, <code>records</code> (<code>weightLb</code>, <code>lengthIn</code>), <code>documents</code> (label only). No image of any kind. A non-GUID <code>{guid}</code> is <code>400</code> before any SQL; an unknown species is <code>404</code>. The species&rsquo; news stays on <code>/api/v1/news/fish/{guid}</code>.</p>

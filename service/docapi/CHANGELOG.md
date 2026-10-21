@@ -2,7 +2,7 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
-- 2026-10-21: **1.28.0 (not deployed) — `GET /api/v1/fish/{guid}` is the species document.** FishController overrides the
+- 2026-10-21: **1.28.0 (LIVE 2026-10-21, digest f65adedd…4c71, rollback docapi-prev = 1.27.0) — `GET /api/v1/fish/{guid}` is the species document.** FishController overrides the
   inherited document read (its `dbo.fn_fish_doc` never existed, every call a 500) with `dbo.fn_fish_info_json`: everything
   about one species except images, the same document as the MCP tool `get_fish` (one helper, `FishController.species`).
   Non-GUID ⇒ 400 before SQL, unknown species ⇒ 404. Species news is unchanged on `/api/v1/news/fish/{guid}`;
