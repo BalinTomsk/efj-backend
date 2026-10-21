@@ -58,7 +58,11 @@ class DocumentRoundTripTest {
 
     @Test
     void unknownIdReturns404() throws Exception {
-        mockMvc.perform(get("/api/v1/fish/does-not-exist"))
+        mockMvc.perform(get("/api/v1/waterbody/does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+        // GET /fish/{guid} is the species document since 1.28.0: an unknown species is a 404 too
+        mockMvc.perform(get("/api/v1/fish/00000000-0000-0000-0000-000000000001"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("not_found"));
     }

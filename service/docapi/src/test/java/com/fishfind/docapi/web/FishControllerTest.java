@@ -1,9 +1,7 @@
 package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.FishQueryRepository;
-import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.FishDocumentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -39,27 +37,41 @@ class FishControllerTest {
     @MockBean
     private FishQueryRepository queryRepository;
 
-    // ---- generic JSON-document CRUD (inherited from AbstractDocumentController) ----
+    // ---- GET /{guid}: the species document (dbo.fn_fish_info_json, 1.28.0) ----
+
+    private static final String WALLEYE = "2CFFB500-3E59-4120-9460-055856E9AC5C";
 
     @Test
-    void getReturnsTheDocumentNestedInTheEnvelope() throws Exception {
-        when(service.get("7")).thenReturn(objectMapper.readTree("{\"name\":\"Walleye\"}"));
+    void getReturnsTheSpeciesDocumentForALowerCasedGuid() throws Exception {
+        when(queryRepository.info(WALLEYE.toLowerCase())).thenReturn(objectMapper.readTree(
+                "{\"fishId\":\"" + WALLEYE + "\",\"name\":\"Walleye\",\"zoology\":{\"maxLengthCm\":104.00}}"));
 
-        mockMvc.perform(get("/api/v1/fish/7"))
+        mockMvc.perform(get("/api/v1/fish/" + WALLEYE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Walleye"))
+                .andExpect(jsonPath("$.data.zoology.maxLengthCm").value(104.0))
                 .andExpect(jsonPath("$.error").doesNotExist())
                 .andExpect(jsonPath("$.meta.timestamp").exists());
+        verify(service, never()).get(any());
     }
 
     @Test
-    void getUnknownIdReturns404WithErrorEnvelope() throws Exception {
-        when(service.get("nope")).thenThrow(new DocumentNotFoundException(DocumentType.FISH, "nope"));
+    void getUnknownSpeciesReturns404WithErrorEnvelope() throws Exception {
+        when(queryRepository.info(any())).thenReturn(null);
 
-        mockMvc.perform(get("/api/v1/fish/nope"))
+        mockMvc.perform(get("/api/v1/fish/" + WALLEYE))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("not_found"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void getMalformedIdReturns400AndNeverQueries() throws Exception {
+        mockMvc.perform(get("/api/v1/fish/walleye"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+        verify(queryRepository, never()).info(any());
+        verify(service, never()).get(any());
     }
 
     // ---- species-catalogue search (delegated to FishQueryRepository) ----

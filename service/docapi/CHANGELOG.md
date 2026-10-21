@@ -2,6 +2,12 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-21: **1.28.0 (LIVE 2026-10-21, digest f65adedd…4c71, rollback docapi-prev = 1.27.0) — `GET /api/v1/fish/{guid}` is the species document.** FishController overrides the
+  inherited document read (its `dbo.fn_fish_doc` never existed, every call a 500) with `dbo.fn_fish_info_json`: everything
+  about one species except images, the same document as the MCP tool `get_fish` (one helper, `FishController.species`).
+  Non-GUID ⇒ 400 before SQL, unknown species ⇒ 404. Species news is unchanged on `/api/v1/news/fish/{guid}`;
+  POST/PUT `/fish` are still the generic document writes. Tests: `FishControllerTest` (3 replace the 2 document
+  cases, failing first), `DocumentRoundTripTest` unknown-id case; suite 363/363.
 - 2026-10-21: **1.27.0 (LIVE 2026-10-21, digest d1b83b41…fd76e, rollback docapi-prev = 1.26.0) — MCP tool `get_fish`.** Everything about one species except images, for an
   admin MCP key (adminOnly, like the other fish tools): `fishId` (GUID, validated before SQL) → `FishQueryRepository.info`
   → `dbo.fn_fish_info_json` (envfish-db, new, with helpers `fn_bitmask_labels_json` / `fn_fish_rule_conditions_json`;
