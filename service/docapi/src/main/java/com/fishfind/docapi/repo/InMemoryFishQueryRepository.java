@@ -67,4 +67,10 @@ public class InMemoryFishQueryRepository implements FishQueryRepository {
         out.putArray("items");
         return out;
     }
+
+    /** No database: no species is known. */
+    @Override
+    public JsonNode info(String fishId) {
+        return null;
+    }
 }

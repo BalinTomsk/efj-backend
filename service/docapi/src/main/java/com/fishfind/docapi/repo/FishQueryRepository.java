@@ -70,4 +70,13 @@ public interface FishQueryRepository {
      *         state, probability}]}}, highest probability first; never {@code null}
      */
     JsonNode waterBodies(String fishId, String country, String state, Integer locType, int minProbability, int limit);
+
+    /**
+     * Everything known about one species, without images, backed by {@code dbo.fn_fish_info_json}. Used by
+     * the MCP tool {@code get_fish} (1.27.0). The caller validates the GUID first.
+     *
+     * @param fishId canonical species GUID
+     * @return the species document, or {@code null} for an unknown species
+     */
+    JsonNode info(String fishId);
 }

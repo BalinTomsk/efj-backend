@@ -128,10 +128,10 @@ class McpControllerTest {
     }
 
     @Test
-    void toolsListPublishesTenReadOnlyTools() throws Exception {
+    void toolsListPublishesElevenReadOnlyTools() throws Exception {
         rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.tools", hasSize(10)))
+                .andExpect(jsonPath("$.result.tools", hasSize(11)))
                 .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
                 .andExpect(jsonPath("$.result.tools[0].inputSchema.type").value("object"))
                 .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(0)));
@@ -567,7 +567,7 @@ class McpControllerTest {
 
     // ---- 1.21.0: fish information for admins only ---------------------------------------------
 
-    private static final Set<String> FISH_TOOLS = Set.of("get_water_body_fish", "search_fish", "find_water_bodies_by_fish");
+    private static final Set<String> FISH_TOOLS = Set.of("get_water_body_fish", "search_fish", "get_fish", "find_water_bodies_by_fish");
 
     @Test
     void aGuestOrUserSeesSevenToolsAndNoFishTools() throws Exception {
@@ -576,6 +576,7 @@ class McpControllerTest {
                     .andExpect(jsonPath("$.result.tools", hasSize(7)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'get_water_body_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'search_fish')]", hasSize(0)))
+                    .andExpect(jsonPath("$.result.tools[?(@.name == 'get_fish')]", hasSize(0)))
                     .andExpect(jsonPath("$.result.tools[?(@.name == 'find_water_bodies_by_fish')]", hasSize(0)));
         }
     }
@@ -669,6 +670,56 @@ class McpControllerTest {
 
         call("search_fish", "{\"query\":\"  walleye \"}")
                 .andExpect(jsonPath("$.result.structuredContent.items[0].latin").value("Sander vitreus"));
+    }
+
+    // ---- 1.27.0: get_fish ----------------------------------------------------------------------
+
+    @Test
+    void getFishReturnsTheSpeciesDocumentForANormalizedId() throws Exception {
+        when(fishRepository.info(WALLEYE.toLowerCase())).thenReturn(objectMapper.readTree(
+                "{\"fishId\":\"" + WALLEYE + "\",\"name\":\"Walleye\",\"moonSensitive\":true,"
+                        + "\"zoology\":{\"maxLengthCm\":104.00},\"codes\":[{\"country\":\"CA\",\"state\":\"ON\",\"code\":\"334\"}]}"));
+
+        call("get_fish", "{\"fishId\":\"{" + WALLEYE + "}\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.name").value("Walleye"))
+                .andExpect(jsonPath("$.result.structuredContent.zoology.maxLengthCm").value(104.0))
+                .andExpect(jsonPath("$.result.structuredContent.codes[0].code").value("334"));
+    }
+
+    @Test
+    void getFishStripsAnyPictureTheDocumentCarries() throws Exception {
+        when(fishRepository.info(WALLEYE.toLowerCase())).thenReturn(objectMapper.readTree(
+                "{\"name\":\"Walleye\",\"img\":\"iVBORw0KGgo=\",\"image\":\"iVBORw0KGgo=\",\"zoology\":{\"photo\":\"x\",\"shape\":\"Elongate\"}}"));
+
+        call("get_fish", "{\"fishId\":\"" + WALLEYE + "\"}")
+                .andExpect(jsonPath("$.result.structuredContent.img").doesNotExist())
+                .andExpect(jsonPath("$.result.structuredContent.image").doesNotExist())
+                .andExpect(jsonPath("$.result.structuredContent.zoology.photo").doesNotExist())
+                .andExpect(jsonPath("$.result.structuredContent.zoology.shape").value("Elongate"))
+                .andExpect(jsonPath("$.result.content[0].text", not(containsString("iVBOR"))));
+    }
+
+    @Test
+    void getFishForAnUnknownSpeciesIsAToolErrorNamingIt() throws Exception {
+        when(fishRepository.info(anyString())).thenReturn(null);
+
+        call("get_fish", "{\"fishId\":\"" + WALLEYE + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString(WALLEYE.toLowerCase())));
+    }
+
+    @Test
+    void getFishRejectsAMissingOrMalformedIdBeforeAnyQuery() throws Exception {
+        call("get_fish", "{}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("search_fish")));
+        call("get_fish", "{\"fishId\":\"walleye\"}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        call("get_fish", "{\"fishId\":42}")
+                .andExpect(jsonPath("$.result.isError").value(true));
+        verify(fishRepository, never()).info(any());
     }
 
     @Test

@@ -2,6 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-21: **1.27.0 (LIVE 2026-10-21, digest d1b83b41…fd76e, rollback docapi-prev = 1.26.0) — MCP tool `get_fish`.** Everything about one species except images, for an
+  admin MCP key (adminOnly, like the other fish tools): `fishId` (GUID, validated before SQL) → `FishQueryRepository.info`
+  → `dbo.fn_fish_info_json` (envfish-db, new, with helpers `fn_bitmask_labels_json` / `fn_fish_rule_conditions_json`;
+  `unit_test@FishInfoJson.sql`, 7 tests, failing first). Sections follow `Resources/wfFishViewer.aspx` with its bitmask
+  labels, plus regional codes, top ranks, monthly / lunar catch curves, predators / prey, record catches and document
+  labels; units are in the key names (`maxLengthCm`, `weightLb`...). Unknown species ⇒ not-found tool error. `img` /
+  `imgs` join the keys `stripPhotos` removes. The SQL must be on the database before this image (an unknown function
+  is a 500 on the shared `sqlBreaker`). Tests: `McpControllerTest` +4; suite 362/362.
 - 2026-10-19: **[Unreleased, in 1.26.0]** **`mouthRoad` in the water-body document.** `GET /api/v1/river/description/{guid}`
   and the MCP tool `get_water_body` carry `mouthRoad`: the nearest named road to the mouth within 10 km
   (`dbo.Tributaries.road` of the side-32 row, NRN / TIGER; `null` when none). SQL only: `dbo.fn_lake_view_json`
