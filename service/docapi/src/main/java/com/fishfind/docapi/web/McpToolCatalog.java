@@ -85,7 +85,7 @@ public class McpToolCatalog {
 
 
     /** Output keys that hold a photo or a gallery, at any depth (matched case-insensitively). */
-    private static final Set<String> PHOTO_KEYS = Set.of("pic", "pics", "image", "images", "picture", "pictures");
+    private static final Set<String> PHOTO_KEYS = Set.of("pic", "pics", "img", "imgs", "image", "images", "picture", "pictures");
 
     /** Every tool here reads public data and touches nothing outside this service's database. */
     private static final String READ_ONLY_ANNOTATIONS =
@@ -231,6 +231,21 @@ public class McpToolCatalog {
                   "query":{"type":"string","minLength":1,"maxLength":64,"description":"e.g. walleye, Sander vitreus"}
                 },"required":["query"],"additionalProperties":false}""",
                 true, (args, role) -> searchFish(args));
+
+        add("get_fish", "Fish species details",
+                "Everything recorded about one fish species except pictures: names, family, description and uses; "
+                        + "type (sport, commercial, invading...), water types and habitat with its water conditions "
+                        + "(temperature C, pH, oxygen, depth m...); zoology (size in cm/kg, longevity, colours, "
+                        + "morphology); spawning (maturity age, egg counts, spawn months with their habitat and "
+                        + "conditions); food; the provinces' and states' own species codes and top-species ranks; "
+                        + "the monthly catch index (baseline month = 100) and the 28-day lunar catch probability "
+                        + "(day 1 new moon, 14 full; only some species have these); moon sensitivity and migration; "
+                        + "predators and prey; record catches (lb, in). Get the fishId from search_fish first.",
+                """
+                {"type":"object","properties":{
+                  "fishId":{"type":"string","description":"The species' fishId GUID, from search_fish"}
+                },"required":["fishId"],"additionalProperties":false}""",
+                true, (args, role) -> fishInfo(args));
 
         add("find_water_bodies_by_fish", "Water bodies with a fish species",
                 "Finds the water bodies where one fish species is recorded, optionally limited to a country (CA or US) "
@@ -416,6 +431,16 @@ public class McpToolCatalog {
         return objectMapper.valueToTree(fishRepository.search(query));
     }
 
+    /** One species' document (no images; {@link #stripPhotos} still runs over it on the way out). */
+    private JsonNode fishInfo(JsonNode args) {
+        String fishId = requireFishId(args);
+        JsonNode doc = fishRepository.info(fishId);
+        if (doc == null) {
+            throw new DocumentNotFoundException(DocumentType.FISH, fishId);
+        }
+        return doc;
+    }
+
     /**
      * Removes every photo from a result, in place, at any depth: a key in {@link #PHOTO_KEYS}, or any key
      * starting with {@code photo} ({@code photo}, {@code photos}, {@code photo0}, {@code photoBase64}...).
@@ -436,11 +461,7 @@ public class McpToolCatalog {
     }
 
     private JsonNode waterBodiesByFish(JsonNode args) {
-        String fishText = optionalText(args, "fishId");
-        if (fishText == null) {
-            throw new InvalidDocumentException("fishId is required (get it from search_fish)");
-        }
-        String fishId = RiverController.normalizeGuid(fishText);
+        String fishId = requireFishId(args);
         String country = requireCountry(optionalText(args, "country"));   // null = both countries
         String state = optionalText(args, "state");
         state = state == null ? null : RegulationController.requireCode(state, "state");
@@ -522,6 +543,15 @@ public class McpToolCatalog {
             throw new InvalidDocumentException("guid is required");
         }
         return RiverController.normalizeGuid(guid);
+    }
+
+    /** The {@code fishId} argument in canonical form; anything that is not a GUID never reaches SQL. */
+    private static String requireFishId(JsonNode args) {
+        String fishId = optionalText(args, "fishId");
+        if (fishId == null) {
+            throw new InvalidDocumentException("fishId is required (get it from search_fish)");
+        }
+        return RiverController.normalizeGuid(fishId);
     }
 
     /** A trimmed string argument, or {@code null} when absent/blank; a non-string is a caller error. */

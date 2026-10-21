@@ -402,6 +402,7 @@ Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `
 | `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
 | `get_region_regulations` | `country` `CA` or `US` (required), optional `state` | `RegulationQueryRepository.region` |
 | `search_fish` (admin) | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
+| `get_fish` (1.27.0, admin) | `fishId` (GUID, required) | `FishQueryRepository.info` → `dbo.fn_fish_info_json`: everything about one species except images — names, family, description, uses, types / water types / abilities (labels decoded as `Resources/wfFishViewer.aspx` does), habitat + its water-condition intervals, zoology (`maxLengthCm`, `maxWeightKg`, `longevityYears`...), spawn (maturity, eggs, spawn `periods` with habitat and conditions), food, regional `codes`, `topRanks`, `catchByMonth` (index, baseline month 100), `catchByMoonDay` (28-day, 1 = new moon), `moonSensitive` / `migrates`, `predators` / `prey`, `records` (`weightLb`, `lengthIn`), `documents` (label only); unknown species ⇒ not-found tool error |
 | `find_water_bodies_by_fish` (1.20.2, admin) | `fishId` (GUID, required); `country` `CA` or `US` (absent = both), `state`; `types` (names → `locType` bitmask); `min_probability` 0..100 (default 0); `limit` 1..50 (default 20) | `FishQueryRepository.waterBodies` → `dbo.fn_fish_water_bodies_json` → `{total, limit, items, query}`; each water body once, at its highest probability |
 
 Rules:
@@ -1320,13 +1321,13 @@ build artifacts. Never bake a real `.env` into the image.
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
 - `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (47 tests; 1.26.0 the ranking search cases, the search schema and the instructions line; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
+  regulation/fish query repositories (52 tests; 1.27.0 the get_fish cases, 1.26.0 the ranking search cases, the search schema and the instructions line; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
   `find_water_bodies_by_fish` cases, 1.21.0 the role cases, 1.22.0 the tributaries cases, 1.24.0 the barriers cases, 1.25.0 the US cases that replaced
   the Canada-only ones; requests run as admin unless a test says otherwise): initialize (version echo, newest offered for an unknown one, no
-  session header), 202 for a notification, ping, `tools/list` (10 tools for admin, 7 for anyone else, all read-only), `-32601`/`-32602`/
+  session header), 202 for a notification, ping, `tools/list` (11 tools for admin, 7 for anyone else, all read-only), `-32601`/`-32602`/
   `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
   happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth
-  (including a `Photo0` key), and a repository exception becoming a temporary tool error with no SQL detail.
+  (including a `Photo0` key, and an `img` key since 1.27.0), and a repository exception becoming a temporary tool error with no SQL detail.
 - Test resources: `application.properties` (`spring.profiles.active=test`) and `application-test.yml`
   (no datasource — small resilience4j config, WARN logging; the JDBC datasource for
   `DocApiJdbcWiringTest` comes from its `@TestPropertySource`).

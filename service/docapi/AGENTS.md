@@ -153,10 +153,10 @@ com.fishfind.docapi
 │   │                              #   (2026-08-31), search (1.10.0), lakeNews/fishNews (1.11.0/
 │   │                              #   1.12.0), export (2026-09-17). No SQL Server delegate since
 │   │                              #   1.16.0; JdbcNewsQueryRepository + NewsDocumentRepository deleted
-│   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...)
+│   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...) + waterBodies(...) + info(fishId) (1.27.0)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
-│   │                              #   fn_fish_latin_json
+│   │                              #   fn_fish_latin_json, fn_fish_water_bodies_json, fn_fish_info_json
 │   ├── RiverQueryRepository       # interface: unfished/description/fish/source/mouth(lakeId) +
 │   │                              #   search(RiverSearchCriteria) (1.19.0; stateId 1.23.0; region/type/sort/offset 1.26.0) +
 │   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0)
@@ -203,7 +203,7 @@ com.fishfind.docapi
     ├── HealthController           # GET /health → { status, version, uptime }
     ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
     │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
-    ├── McpToolCatalog             # the 10 read-only water-body/fish/regulation tools; validates before any
+    ├── McpToolCatalog             # the 11 read-only water-body/fish/regulation tools (get_fish 1.27.0); validates before any
     │                              #   repository call; Canada + USA (Canada-only filter removed 1.25.0); fish tools for ADMIN
     │                              #   only (X-Fish-Role from cproxy, 1.21.0);
     │                              #   repository call; strips EVERY photo field from every result (stripPhotos);
@@ -830,7 +830,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (358 tests as of 1.26.0):
+`mvn test` — no DB needed (362 tests as of 1.27.0):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the

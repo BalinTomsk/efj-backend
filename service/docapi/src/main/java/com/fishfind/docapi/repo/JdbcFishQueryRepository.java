@@ -46,6 +46,9 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
     /** Water bodies holding one species (docapi 1.20.2, MCP find_water_bodies_by_fish). */
     static final String WATER_BODIES_SQL = "SELECT dbo.fn_fish_water_bodies_json(?, ?, ?, ?, ?, ?)";
 
+    /** One species, everything but images (docapi 1.27.0, MCP get_fish); NULL for an unknown species. */
+    static final String INFO_SQL = "SELECT dbo.fn_fish_info_json(?)";
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -121,6 +124,15 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
         return parseItem(json);
     }
 
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "infoFallback")
+    public JsonNode info(String fishId) {
+        List<String> rows = jdbc.query(INFO_SQL, ps -> ps.setString(1, fishId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parseItem(json);
+    }
+
     /**
      * Runs a scalar-JSON query and parses the result. Both functions are written to return {@code '[]'}
      * rather than NULL, but a NULL/blank scalar is still mapped to an empty array so a caller can never
@@ -175,6 +187,14 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
     public JsonNode waterBodiesFallback(String fishId, String country, String state, Integer locType,
                                         int minProbability, int limit, Throwable ex) {
         throw new RuntimeException("SQL fish water-bodies query failed for fish " + fishId, ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #info}.
+     */
+    @SuppressWarnings("unused")
+    public JsonNode infoFallback(String fishId, Throwable ex) {
+        throw new RuntimeException("SQL fish-info query failed for fish " + fishId, ex);
     }
 
     /**
