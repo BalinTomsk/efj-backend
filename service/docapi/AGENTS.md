@@ -189,7 +189,8 @@ com.fishfind.docapi
     │                              #   interchange /export, /import
     ├── NewsAdminController         # /api/v1/news/admin -- POST /draft, PATCH /{id}, PATCH
     │                              #   /{id}/photo/{index} (Editor/AddNews.aspx writes, 1.13.0)
-    ├── FishController             # base-path CRUD + search (/search) + base-path Latin lookups
+    ├── FishController             # GET /{guid} species document (fn_fish_info_json, 1.28.0; shared with MCP get_fish)
+    │                              #   + POST/PUT CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
     ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid}
     │                              #   (lakejson&tab=view) + /river/fish/{guid} (tab=fishing) +
@@ -830,7 +831,7 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (362 tests as of 1.27.0):
+`mvn test` — no DB needed (363 tests as of 1.28.0):
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the

@@ -2,11 +2,14 @@ package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.FishQueryRepository;
+import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.FishDocumentService;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,11 +20,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Fish endpoints under {@code /api/v1/fish}. Inherits the generic JSON-document CRUD
- * ({@code GET/POST/PUT /{id}}) from {@link AbstractDocumentController} and adds the species-catalogue
- * search query:
+ * Fish endpoints under {@code /api/v1/fish}. Inherits the generic JSON-document writes
+ * ({@code POST/PUT /{id}}) from {@link AbstractDocumentController} and adds:
  *
  * <ul>
+ *   <li>{@code GET /api/v1/fish/{guid}} — one species, everything but images (1.28.0; also the MCP tool
+ *       {@code get_fish}).</li>
  *   <li>{@code GET /api/v1/fish/search} — relevance-ranked species search by name / Latin / synonym.</li>
  *   <li>{@code GET /api/v1/fish?province=&codes=} — regional fish code to Latin name, per province.</li>
  *   <li>{@code GET /api/v1/fish?fishes=} — batch common name to Latin name, one result per name.</li>
@@ -39,6 +43,35 @@ import java.util.List;
 @RestController
 @RequestMapping(value = "/api/v1/fish", produces = MediaType.APPLICATION_JSON_VALUE)
 public class FishController extends AbstractDocumentController {
+
+    /**
+     * One species, everything recorded about it except images ({@code dbo.fn_fish_info_json}, 1.28.0).
+     * Replaces the inherited document read, whose {@code dbo.fn_fish_doc} does not exist (every call was a 500).
+     * POST/PUT on this path are still the inherited document writes.
+     *
+     * @param id the species GUID, any case, braces allowed
+     * @return the species document in the response envelope
+     * @throws InvalidDocumentException if {@code id} is not a GUID (→ 400, no SQL)
+     * @throws DocumentNotFoundException for an unknown species (→ 404)
+     */
+    @Override
+    @GetMapping("/{id}")
+    public ApiResponse<JsonNode> get(@PathVariable String id) {
+        return ApiResponse.ok(species(queryRepository, id));
+    }
+
+    /**
+     * The species document behind {@code GET /api/v1/fish/{guid}} and the MCP tool {@code get_fish}: the GUID is
+     * validated and normalized before any SQL, an unknown species is a not-found.
+     */
+    static JsonNode species(FishQueryRepository repository, String guid) {
+        String fishId = RiverController.normalizeGuid(guid);
+        JsonNode doc = repository.info(fishId);
+        if (doc == null) {
+            throw new DocumentNotFoundException(DocumentType.FISH, fishId);
+        }
+        return doc;
+    }
 
     /** Upper bound on the search term ({@code dbo.SearchFishList} takes a {@code varchar(64)}). */
     static final int MAX_TERM = 64;

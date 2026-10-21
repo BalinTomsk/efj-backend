@@ -431,14 +431,16 @@ public class McpToolCatalog {
         return objectMapper.valueToTree(fishRepository.search(query));
     }
 
-    /** One species' document (no images; {@link #stripPhotos} still runs over it on the way out). */
+    /**
+     * One species' document, the same as {@code GET /api/v1/fish/{guid}} ({@link FishController#species}); no images,
+     * and {@link #stripPhotos} still runs over it on the way out.
+     */
     private JsonNode fishInfo(JsonNode args) {
-        String fishId = requireFishId(args);
-        JsonNode doc = fishRepository.info(fishId);
-        if (doc == null) {
-            throw new DocumentNotFoundException(DocumentType.FISH, fishId);
+        String fishId = optionalText(args, "fishId");
+        if (fishId == null) {
+            throw new InvalidDocumentException("fishId is required (get it from search_fish)");
         }
-        return doc;
+        return FishController.species(fishRepository, fishId);
     }
 
     /**
