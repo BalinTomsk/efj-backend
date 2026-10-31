@@ -6,28 +6,50 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
+import com.fishfind.docapi.repo.CatchLog;
+import com.fishfind.docapi.repo.CatchLogCommandRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.RiverSearchCriteria;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
 /**
- * The tools {@link McpController} offers an MCP client — every one a READ of public water-body data,
- * calling the same repositories the REST endpoints do. No write, no {@code /unfished} (an editorial
- * work queue), no news: an MCP client is a model acting for someone, and nothing here should let it
- * change data.
+ * The tools {@link McpController} offers an MCP client — READS of public water-body data, calling the same
+ * repositories the REST endpoints do, plus (1.29.0) admin-only catch-log writes. No {@code /unfished} (an editorial
+ * work queue), no news.
+ *
+ * <p><strong>The writes</strong> (1.29.0, on request): {@code add_catch_log} and {@code add_catch_log_photo}
+ * add a catch log, e.g. one taken from a news article. They exist only for the key's owning account (cproxy
+ * 0.27.0's {@value McpCaller#USER_HEADER}) when it is one of {@code docapi.mcp.write-users}, the portal's two
+ * admin accounts; the log is recorded under it. Any other key, an operator key from {@code mcp-keys.py} (no
+ * account) included, does not see them. {@code update_catch_log} (1.30.0) edits only a log the same account
+ * authored; nothing here deletes: an MCP client is a model acting for someone, and the person reviews before it
+ * writes.
+ *
+ * <p><strong>Weather</strong> (1.30.0) is filled the way the portal's catch-log form fills it: each value the
+ * caller leaves out comes from the water body's station forecast for the catch date
+ * ({@code fn_catch_weather_snapshot}; about 15 days are kept, so an older date gets nothing). The result's
+ * {@code stationWeather} lists the values that came from the station, so a reviewer can tell them from stated ones.
  *
  * <p>Every argument is validated <strong>before</strong> a repository is called. A malformed GUID
  * passed through would be a SQL conversion error, i.e. a failure counted by the shared
@@ -38,7 +60,8 @@ import java.util.regex.Pattern;
  * <p><strong>No tool returns a photo, nor any trace of one</strong> (user decision, 2026-09-30). The
  * description document carries an {@code images} gallery and the source/mouth documents a {@code pic},
  * and a future document may add another; rather than trimming each tool, every result passes through
- * {@link #stripPhotos} on its way out, so a new tool cannot leak one by omission. Results are also
+ * {@link #stripPhotos} on its way out, so a new tool cannot leak one by omission. {@code add_catch_log_photo}
+ * takes a photo IN (by URL, see {@link CatchPhotoFetcher}); its result, too, carries only a count. Results are also
  * shaped for a model's context window: {@code search_water_bodies} is capped at
  * {@value #SEARCH_MAX_LIMIT}.
  *
@@ -91,6 +114,50 @@ public class McpToolCatalog {
     private static final String READ_ONLY_ANNOTATIONS =
             "{\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false}";
 
+    /** The writes add a row and never change or remove one; a repeated call adds another. */
+    private static final String OPEN_WORLD_FALSE =
+            "{\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":false,\"openWorldHint\":false}";
+
+    /** {@code update_catch_log}: replaces the values it is given; the same call twice leaves the same log. */
+    private static final String UPDATE_ANNOTATIONS =
+            "{\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":true,\"openWorldHint\":false}";
+
+    /**
+     * The portal form's conditions ({@code ddlWeatherCondition}, {@code icon:text}): a {@code weather} value
+     * naming one of them (any case) is stored with its icon, anything else as free text with none.
+     */
+    private static final Map<String, String> WEATHER_ICONS = Map.of(
+            "clear", "01d", "partly cloudy", "02d", "cloudy", "03d", "overcast", "04d",
+            "rain", "10d", "thunderstorm", "11d", "snow", "13d", "fog", "50d");
+
+    /** As {@link #OPEN_WORLD_FALSE}, and it reaches outside this service (downloads a URL). */
+    private static final String OPEN_WORLD_TRUE =
+            "{\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":false,\"openWorldHint\":true}";
+
+    /** The catch-log fields add_catch_log and update_catch_log share, as JSON-schema properties. */
+    private static final String CATCH_LOG_FIELDS = """
+                      "species":{"type":"string","maxLength":120,"description":"Species as the source names it, e.g. largemouth bass"},
+                      "angler":{"type":"string","maxLength":200,"description":"Who caught it, as the source names them; omit when not named"},
+                      "title":{"type":"string","maxLength":200,"description":"Short headline for the log"},
+                      "notes":{"type":"string","maxLength":4000,"description":"Every other stated detail, one 'Label: value' per line"},
+                      "catchDate":{"type":"string","description":"When it was caught: YYYY-MM-DD, or YYYY-MM-DDTHH:MM local time. Omit when not stated"},
+                      "weight":{"type":"number","exclusiveMinimum":0,"maximum":2000},
+                      "weightUnit":{"type":"string","enum":["kg","lb"],"description":"Required with weight"},
+                      "length":{"type":"number","exclusiveMinimum":0,"maximum":1000},
+                      "lengthUnit":{"type":"string","enum":["cm","in"],"description":"Required with length"},
+                      "method":{"type":"string","maxLength":200,"description":"How it was caught, e.g. from the bank, trolling, fly"},
+                      "tackle":{"type":"string","maxLength":200,"description":"Rod, reel, line"},
+                      "lure":{"type":"string","maxLength":200,"description":"Lure or bait"},
+                      "airTemp":{"type":"number","minimum":-60,"maximum":60,"description":"Air temperature, degrees C"},
+                      "weather":{"type":"string","maxLength":64,"description":"Conditions. Clear, Partly Cloudy, Cloudy, Overcast, Rain, Thunderstorm, Snow or Fog show the portal's icon; other text is stored as given"},
+                      "waterTemp":{"type":"number","minimum":-5,"maximum":45,"description":"Water temperature, degrees C"},
+                      "released":{"type":"boolean","description":"true released, false kept; omit when not stated"},
+                      "lat":{"type":"number","minimum":-90,"maximum":90,"description":"Catch point, only when the source gives it"},
+                      "lon":{"type":"number","minimum":-180,"maximum":180},
+                      "private":{"type":"boolean","default":false,"description":"true: only the author and admins see it"}""";
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     /**
      * One MCP tool: the metadata {@code tools/list} publishes and the handler {@code tools/call} runs.
      *
@@ -100,32 +167,39 @@ public class McpToolCatalog {
      * @param inputSchema JSON Schema of the {@code arguments} object
      * @param annotations behaviour hints (read-only etc.)
      * @param adminOnly   true for fish information: listed and callable for {@link ViewerRole#ADMIN} only
-     * @param handler     (arguments, caller role) → result object; throws {@link InvalidDocumentException} or
+     * @param write       true for the catch-log writes: listed and callable only for the accounts in
+     *                    {@code docapi.mcp.write-users}, whatever the role
+     * @param handler     (arguments, caller) → result object; throws {@link InvalidDocumentException} or
      *                    {@link DocumentNotFoundException} for a caller mistake
      */
     public record Tool(String name, String title, String description, JsonNode inputSchema,
-                       JsonNode annotations, boolean adminOnly, BiFunction<JsonNode, ViewerRole, JsonNode> handler) {
-
-        /** Whether {@code role} may see and call this tool. */
-        public boolean allowedFor(ViewerRole role) {
-            return !adminOnly || role == ViewerRole.ADMIN;
-        }
+                       JsonNode annotations, boolean adminOnly, boolean write,
+                       BiFunction<JsonNode, McpCaller, JsonNode> handler) {
     }
 
     private final RiverQueryRepository riverRepository;
     private final RegulationQueryRepository regulationRepository;
     private final FishQueryRepository fishRepository;
+    private final CatchLogCommandRepository catchLogRepository;
+    private final CatchPhotoFetcher photoFetcher;
     private final ObjectMapper objectMapper;
+    private final Set<String> writeUsers;
     private final Map<String, Tool> tools = new LinkedHashMap<>();
 
     public McpToolCatalog(RiverQueryRepository riverRepository,
                           RegulationQueryRepository regulationRepository,
                           FishQueryRepository fishRepository,
-                          ObjectMapper objectMapper) {
+                          CatchLogCommandRepository catchLogRepository,
+                          CatchPhotoFetcher photoFetcher,
+                          ObjectMapper objectMapper,
+                          @Value("${docapi.mcp.write-users:}") String writeUsers) {
         this.riverRepository = riverRepository;
         this.regulationRepository = regulationRepository;
         this.fishRepository = fishRepository;
+        this.catchLogRepository = catchLogRepository;
+        this.photoFetcher = photoFetcher;
         this.objectMapper = objectMapper;
+        this.writeUsers = parseWriteUsers(writeUsers);
 
         add("search_water_bodies", "Search and rank water bodies",
                 "Finds lakes, rivers and other water bodies in Canada and the USA by part of a name, by CGNDB code "
@@ -266,23 +340,101 @@ public class McpToolCatalog {
                   "limit":{"type":"integer","minimum":1,"maximum":50,"default":20}
                 },"required":["fishId"],"additionalProperties":false}""",
                 true, (args, role) -> waterBodiesByFish(args));
+
+        addWrite("add_catch_log", "Add a catch log",
+                "Adds a catch log (a caught fish) to one water body, authored by the account that owns this MCP key. "
+                        + "Store ONLY what the source states: leave out every field it does not give, never estimate "
+                        + "one (no species from a photo, no date from the publication date, no unit conversion). "
+                        + "`angler` is who caught it as the source names them (the log is authored by the key's "
+                        + "admin account). Details without a field of their own (age, girth, "
+                        + "county, record status, source URL) go in `notes`, one per line. Get lakeId from search_water_bodies and, "
+                        + "if the species is known, fishId from search_fish. Returns the stored log with its "
+                        + "`catchLogId`; pass that to add_catch_log_photo for a picture. Weather: any of airTemp, "
+                        + "weather, waterTemp left out is filled from the water body's station forecast for catchDate, "
+                        + "as the portal form does (only about 15 days of forecasts are kept); the result's "
+                        + "`stationWeather` lists what came from the station. Pass stationWeather false to store only "
+                        + "what you give. Not idempotent: calling it twice stores two logs; fix a stored log with "
+                        + "update_catch_log.",
+                """
+                {"type":"object","properties":{
+                  "lakeId":{"type":"string","description":"The water body's lakeId GUID, from search_water_bodies"},
+                  "fishId":{"type":"string","description":"The species' fishId GUID, from search_fish; omit when unsure"},
+%s,
+                  "stationWeather":{"type":"boolean","default":true,"description":"Fill weather values left out from the station forecast for catchDate"}
+                },"required":["lakeId"],"additionalProperties":false}""".formatted(CATCH_LOG_FIELDS),
+                OPEN_WORLD_FALSE, this::addCatchLog);
+
+        addWrite("update_catch_log", "Correct a catch log",
+                "Changes a catch log this MCP key's account added (add_catch_log): give catchLogId and only the "
+                        + "fields to change; every other value stays as stored. A field set to null is cleared "
+                        + "(angler cannot be cleared). Same fields and rules as add_catch_log; the water body and "
+                        + "the author cannot change, and nothing is filled from the station. Returns the log as "
+                        + "stored. Show the user the change and get a yes first.",
+                """
+                {"type":"object","properties":{
+                  "catchLogId":{"type":"string","description":"From add_catch_log"},
+                  "fishId":{"type":["string","null"],"description":"The species' fishId GUID, from search_fish"},
+%s
+                },"required":["catchLogId"],"additionalProperties":false}""".formatted(nullable(CATCH_LOG_FIELDS)),
+                UPDATE_ANNOTATIONS, this::updateCatchLog);
+
+        addWrite("add_catch_log_photo", "Add a photo to a catch log",
+                "Downloads one image from an https URL and attaches it to a catch log made with add_catch_log "
+                        + "(at most 3 photos per log; call once per photo). The server fetches the image itself; never "
+                        + "pass image data. `credit` is required: the photographer or publisher, as the source credits "
+                        + "it. JPEG, WebP or PNG up to 5 MB; WebP and PNG are stored as JPEG.",
+                """
+                {"type":"object","properties":{
+                  "catchLogId":{"type":"string","description":"From add_catch_log"},
+                  "imageUrl":{"type":"string","maxLength":2048,"description":"https URL of the JPEG, WebP or PNG"},
+                  "credit":{"type":"string","maxLength":200,"description":"Photo credit as the source gives it"},
+                  "caption":{"type":"string","maxLength":500,"description":"Caption as the source gives it"}
+                },"required":["catchLogId","imageUrl","credit"],"additionalProperties":false}""",
+                OPEN_WORLD_TRUE, this::addCatchLogPhoto);
     }
 
-    /** The tools {@code role} may use, in publication order. */
-    public List<Tool> tools(ViewerRole role) {
-        return tools.values().stream().filter(t -> t.allowedFor(role)).toList();
+    /** The tools {@code caller} may use, in publication order. */
+    public List<Tool> tools(McpCaller caller) {
+        return tools.values().stream().filter(t -> allowed(t, caller)).toList();
     }
 
-    /** The tool called {@code name} if {@code role} may use it, else {@code null} (as if it did not exist). */
-    public Tool find(String name, ViewerRole role) {
+    /** The tool called {@code name} if {@code caller} may use it, else {@code null} (as if it did not exist). */
+    public Tool find(String name, McpCaller caller) {
         Tool tool = name == null ? null : tools.get(name);
-        return tool != null && tool.allowedFor(role) ? tool : null;
+        return tool != null && allowed(tool, caller) ? tool : null;
+    }
+
+    /**
+     * A write only for the accounts in {@code docapi.mcp.write-users} (the portal's two admin accounts, the same
+     * list as its {@code TDbLayer} admin ids; user decision 2026-10-30), a fish tool only for an admin role,
+     * everything else for every caller.
+     */
+    private boolean allowed(Tool tool, McpCaller caller) {
+        if (tool.write()) return caller.userId() != null && writeUsers.contains(caller.userId());
+        return !tool.adminOnly() || caller.role() == ViewerRole.ADMIN;
+    }
+
+    /** Comma/semicolon-separated GUIDs, canonical form; anything else is a startup error, not a silent skip. */
+    static Set<String> parseWriteUsers(String value) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (String part : value == null ? new String[0] : value.split("[,;]")) {
+            if (!part.isBlank()) ids.add(RiverController.normalizeGuid(part.trim()));
+        }
+        return Set.copyOf(ids);
     }
 
     private void add(String name, String title, String description, String inputSchema, boolean adminOnly,
                      BiFunction<JsonNode, ViewerRole, JsonNode> handler) {
+        BiFunction<JsonNode, McpCaller, JsonNode> byRole = (args, caller) -> handler.apply(args, caller.role());
         tools.put(name, new Tool(name, title, description, json(inputSchema), json(READ_ONLY_ANNOTATIONS),
-                adminOnly, handler.andThen(McpToolCatalog::stripPhotos)));
+                adminOnly, false, byRole.andThen(McpToolCatalog::stripPhotos)));
+    }
+
+    /** A write: only for {@link #writeUsers}, and its handler gets the whole caller (it needs the account). */
+    private void addWrite(String name, String title, String description, String inputSchema, String annotations,
+                          BiFunction<JsonNode, McpCaller, JsonNode> handler) {
+        tools.put(name, new Tool(name, title, description, json(inputSchema), json(annotations),
+                true, true, handler.andThen(McpToolCatalog::stripPhotos)));
     }
 
     private JsonNode json(String text) {
@@ -441,6 +593,245 @@ public class McpToolCatalog {
             throw new InvalidDocumentException("fishId is required (get it from search_fish)");
         }
         return FishController.species(fishRepository, fishId);
+    }
+
+    // ---- write handlers (1.29.0) ---------------------------------------------------------------
+
+    private JsonNode addCatchLog(JsonNode args, McpCaller caller) {
+        String userId = requireAuthor(caller);
+        String lakeId = optionalText(args, "lakeId");
+        if (lakeId == null) {
+            throw new InvalidDocumentException("lakeId is required (get it from search_water_bodies)");
+        }
+        lakeId = RiverController.normalizeGuid(lakeId);
+        CatchLog blank = new CatchLog(uuidV7(), lakeId, userId, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, false, CatchLog.Weather.NONE);
+        CatchLog log = merge(blank, args);
+        List<String> fromStation = new ArrayList<>();
+        if (log.catchDate() != null && !Boolean.FALSE.equals(optionalBoolean(args, "stationWeather"))) {
+            CatchLog.Weather given = log.weather();
+            CatchLog.Weather station = catchLogRepository.stationWeather(lakeId, log.catchDate().toLocalDate());
+            boolean text = given.text() == null && station.text() != null;
+            if (given.temp() == null && station.temp() != null) fromStation.add("airTemp");
+            if (text) fromStation.add("weather");
+            if (given.water() == null && station.water() != null) fromStation.add("waterTemp");
+            if (station.pressure() != null) fromStation.add("pressure");
+            log = log.withWeather(new CatchLog.Weather(
+                    given.temp() != null ? given.temp() : station.temp(),
+                    station.pressure(),
+                    text ? station.text() : given.text(),
+                    text ? station.icon() : given.icon(),
+                    given.water() != null ? given.water() : station.water()));
+        }
+        JsonNode stored = catchLogRepository.add(log);
+        if (stored == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, lakeId);
+        }
+        if (stored instanceof ObjectNode out) {
+            ArrayNode list = out.putArray("stationWeather");
+            fromStation.forEach(list::add);
+        }
+        return stored;
+    }
+
+    private JsonNode updateCatchLog(JsonNode args, McpCaller caller) {
+        String userId = requireAuthor(caller);
+        String catchLogId = optionalText(args, "catchLogId");
+        if (catchLogId == null) {
+            throw new InvalidDocumentException("catchLogId is required (from add_catch_log)");
+        }
+        catchLogId = RiverController.normalizeGuid(catchLogId);
+        CatchLog current = catchLogRepository.find(catchLogId);
+        if (current == null) {
+            throw new InvalidDocumentException("No catch log " + catchLogId);
+        }
+        if (!userId.equalsIgnoreCase(current.userId())) {
+            throw new InvalidDocumentException("Catch log " + catchLogId + " was not added by this key's account; "
+                    + "only its author's key can change it here (use the portal)");
+        }
+        JsonNode stored = catchLogRepository.add(merge(current, args));
+        if (stored == null) {
+            throw new InvalidDocumentException("No catch log " + catchLogId);
+        }
+        return stored;
+    }
+
+    /**
+     * {@code base} with every catch-log field present in {@code args} replaced: a value sets it, JSON null clears
+     * it, an absent key keeps {@code base}'s. Validates the result (units go with their values, lat with lon) and
+     * the species, so nothing malformed reaches SQL.
+     */
+    private CatchLog merge(CatchLog base, JsonNode args) {
+        String fishId = base.fishId();
+        if (args.has("fishId")) {
+            fishId = optionalText(args, "fishId");
+            if (fishId != null) fishId = RiverController.normalizeGuid(fishId);
+        }
+        Double weight = args.has("weight") ? optionalNumber(args, "weight", 0, 2000) : base.weight();
+        String weightUnit = args.has("weightUnit") ? unitValue(args, "weightUnit", Set.of("kg", "lb")) : base.weightUnit();
+        Double length = args.has("length") ? optionalNumber(args, "length", 0, 1000) : base.length();
+        String lengthUnit = args.has("lengthUnit") ? unitValue(args, "lengthUnit", Set.of("cm", "in")) : base.lengthUnit();
+        pair(weight, weightUnit, "weight", "weightUnit");
+        pair(length, lengthUnit, "length", "lengthUnit");
+        Double lat = args.has("lat") ? optionalNumber(args, "lat", -90, 90) : base.lat();
+        Double lon = args.has("lon") ? optionalNumber(args, "lon", -180, 180) : base.lon();
+        if ((lat == null) != (lon == null)) {
+            throw new InvalidDocumentException("lat and lon go together");
+        }
+        CatchLog.Weather w = base.weather();
+        Double temp = args.has("airTemp") ? optionalNumber(args, "airTemp", -60, 60) : w.temp();
+        Double water = args.has("waterTemp") ? optionalNumber(args, "waterTemp", -5, 45) : w.water();
+        String text = w.text();
+        String icon = w.icon();
+        if (args.has("weather")) {
+            text = boundedText(args, "weather", 64);
+            icon = text == null ? null : WEATHER_ICONS.get(text.toLowerCase(Locale.ROOT));
+        }
+        CatchLog log = new CatchLog(base.id(), base.lakeId(), base.userId(), fishId,
+                text(args, "species", 120, base.species()), text(args, "angler", 200, base.angler()),
+                text(args, "title", 200, base.title()), text(args, "notes", 4000, base.text()),
+                lat, lon, text(args, "method", 200, base.method()), text(args, "tackle", 200, base.tackle()),
+                text(args, "lure", 200, base.lure()),
+                args.has("catchDate") ? catchDate(optionalText(args, "catchDate")) : base.catchDate(),
+                weight, weightUnit, length, lengthUnit,
+                args.has("released") ? optionalBoolean(args, "released") : base.released(),
+                args.has("private") ? Boolean.TRUE.equals(optionalBoolean(args, "private")) : base.isPrivate(),
+                new CatchLog.Weather(temp, w.pressure(), text, icon, water));
+        // Checked before the write, outside it: an unknown species is the caller's mistake, never a breaker failure.
+        if (fishId != null && !fishId.equalsIgnoreCase(base.fishId()) && !catchLogRepository.fishExists(fishId)) {
+            throw new InvalidDocumentException("fishId " + fishId + " is not a known species (get it from search_fish)");
+        }
+        return log;
+    }
+
+    /** A text field: {@code fallback} when the key is absent, else the bounded value (null clears it). */
+    private static String text(JsonNode args, String key, int max, String fallback) {
+        return args.has(key) ? boundedText(args, key, max) : fallback;
+    }
+
+    private JsonNode addCatchLogPhoto(JsonNode args, McpCaller caller) {
+        String userId = requireAuthor(caller);
+        String catchLogId = optionalText(args, "catchLogId");
+        if (catchLogId == null) {
+            throw new InvalidDocumentException("catchLogId is required (from add_catch_log)");
+        }
+        catchLogId = RiverController.normalizeGuid(catchLogId);
+        String imageUrl = boundedText(args, "imageUrl", 2048);
+        if (imageUrl == null) {
+            throw new InvalidDocumentException("imageUrl is required");
+        }
+        String credit = boundedText(args, "credit", 200);
+        if (credit == null) {
+            throw new InvalidDocumentException("credit is required: the photographer or publisher the source credits");
+        }
+        String caption = boundedText(args, "caption", 500);
+        CatchPhotoFetcher.check(imageUrl);   // refuse a bad URL before touching the database
+        int photos = catchLogRepository.photoCount(catchLogId);
+        if (photos < 0) {
+            throw new InvalidDocumentException("No catch log " + catchLogId);
+        }
+        if (photos >= CatchLogCommandRepository.MAX_PHOTOS) {
+            throw new InvalidDocumentException("Catch log " + catchLogId + " already has "
+                    + CatchLogCommandRepository.MAX_PHOTOS + " photos");
+        }
+        byte[] jpeg = photoFetcher.fetch(imageUrl);
+        JsonNode stored = catchLogRepository.addPhoto(catchLogId, userId, jpeg, photos, caption, credit);
+        if (stored == null) {
+            throw new InvalidDocumentException("No catch log " + catchLogId);
+        }
+        return stored;
+    }
+
+    /** The account a write is recorded under; a key that belongs to no account cannot write. */
+    private static String requireAuthor(McpCaller caller) {
+        if (caller.userId() == null) {
+            throw new InvalidDocumentException("Adding catch logs needs an MCP key created on the portal (Profile, "
+                    + "MCP tab) by one of the two admin accounts; this key belongs to no account");
+        }
+        return caller.userId();
+    }
+
+    /** YYYY-MM-DD (stored as midnight) or YYYY-MM-DDTHH:MM[:SS]; null when absent; never in the future. */
+    static LocalDateTime catchDate(String value) {
+        if (value == null) return null;
+        LocalDateTime parsed;
+        try {
+            parsed = value.length() <= 10 ? LocalDate.parse(value).atStartOfDay() : LocalDateTime.parse(value);
+        } catch (DateTimeParseException ex) {
+            throw new InvalidDocumentException("catchDate must be YYYY-MM-DD or YYYY-MM-DDTHH:MM");
+        }
+        if (parsed.isAfter(LocalDateTime.now(ZoneOffset.UTC).plusDays(1))) {
+            throw new InvalidDocumentException("catchDate is in the future");
+        }
+        return parsed;
+    }
+
+    /** A unit argument, lower-cased and checked against {@code allowed}; null when absent or JSON null. */
+    private static String unitValue(JsonNode args, String key, Set<String> allowed) {
+        String unit = optionalText(args, key);
+        if (unit == null) return null;
+        unit = unit.toLowerCase(Locale.ROOT);
+        if (!allowed.contains(unit)) {
+            throw new InvalidDocumentException(key + " must be one of " + String.join(", ", new java.util.TreeSet<>(allowed)));
+        }
+        return unit;
+    }
+
+    /** A unit must come with its value and only with it. */
+    private static void pair(Double value, String unit, String valueKey, String unitKey) {
+        if (value != null && unit == null) throw new InvalidDocumentException(unitKey + " is required with " + valueKey);
+        if (value == null && unit != null) throw new InvalidDocumentException(unitKey + " given without " + valueKey);
+    }
+
+    /**
+     * The shared field schema for {@code update_catch_log}, where JSON null clears a field: every
+     * {@code "type":"string"} / {@code "number"} / {@code "boolean"} also admits null.
+     */
+    static String nullable(String fields) {
+        return fields.replaceAll("\\{\"type\":\"(string|number|boolean)\"", "{\"type\":[\"$1\",\"null\"]");
+    }
+
+    /** A trimmed string of at most {@code max} characters, or null; longer is a caller error, never cut. */
+    private static String boundedText(JsonNode args, String key, int max) {
+        String v = optionalText(args, key);
+        if (v != null && v.length() > max) {
+            throw new InvalidDocumentException(key + " must not exceed " + max + " characters");
+        }
+        return v;
+    }
+
+    /** A number in (min, max] for 0 minimums, [min, max] otherwise; null when absent. */
+    private static Double optionalNumber(JsonNode args, String key, double min, double max) {
+        JsonNode node = args.get(key);
+        if (node == null || node.isNull()) return null;
+        if (!node.isNumber()) {
+            throw new InvalidDocumentException(key + " must be a number");
+        }
+        double v = node.asDouble();
+        boolean low = min == 0 ? v <= 0 : v < min;
+        if (low || v > max || Double.isNaN(v)) {
+            throw new InvalidDocumentException(key + " must be " + (min == 0 ? "above 0" : "at least " + min)
+                    + " and at most " + max);
+        }
+        return v;
+    }
+
+    private static Boolean optionalBoolean(JsonNode args, String key) {
+        JsonNode node = args.get(key);
+        if (node == null || node.isNull()) return null;
+        if (!node.isBoolean()) {
+            throw new InvalidDocumentException(key + " must be true or false");
+        }
+        return node.asBoolean();
+    }
+
+    /** A time-ordered (version 7) UUID, like the portal's {@code Guid.CreateVersion7()} for catch logs. */
+    static String uuidV7() {
+        long millis = System.currentTimeMillis();
+        long rand = RANDOM.nextLong();
+        long msb = (millis << 16) | 0x7000L | (RANDOM.nextInt() & 0x0fffL);
+        long lsb = (rand & 0x3fffffffffffffffL) | 0x8000000000000000L;
+        return new UUID(msb, lsb).toString();
     }
 
     /**

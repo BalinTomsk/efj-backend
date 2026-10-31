@@ -21,6 +21,11 @@ spring:
 # live, so ~25–35 MB and ~13 MB when full. The container sets no -Xmx, so the JVM takes its default
 # quarter of container memory. Lower these two first if docapi starts pressuring heap.
 docapi:
+  mcp:
+    # The only accounts that see the MCP catch-log writes (add_catch_log, add_catch_log_photo): the portal's two
+    # admin accounts, the same ids as TDbLayer.s_defaultAdminUserIds. Override with DOCAPI_MCP_WRITE_USERS
+    # (comma-separated GUIDs) without a rebuild.
+    write-users: bb30165a-fd1a-4b54-b921-9334242c9bf6,ba497981-7f23-40a2-8b59-641dbe36f442
   cache:
     news:
       document: 25    # GET /news/{id}

@@ -6,6 +6,8 @@ import com.fishfind.docapi.repo.FishDocumentRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.JdbcFishQueryRepository;
 import com.fishfind.docapi.repo.JdbcRiverDescriptionCommandRepository;
+import com.fishfind.docapi.repo.CatchLogCommandRepository;
+import com.fishfind.docapi.repo.JdbcCatchLogCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
@@ -248,6 +250,15 @@ public class JdbcStoreConfig {
     @Bean
     public RiverFishCommandRepository riverFishCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverFishCommandRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed catch-log command repository ({@code dbo.sp_add_catch_memo} / {@code sp_add_catch_memo_photo})
+     * behind the MCP write tools, a bean in its own right so Resilience4j can proxy it.
+     */
+    @Bean
+    public CatchLogCommandRepository catchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcCatchLogCommandRepository(jdbc, objectMapper);
     }
 
     /**

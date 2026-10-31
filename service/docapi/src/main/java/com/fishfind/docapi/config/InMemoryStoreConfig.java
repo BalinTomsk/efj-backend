@@ -10,6 +10,8 @@ import com.fishfind.docapi.repo.InMemoryNewsAdminCommandRepository;
 import com.fishfind.docapi.repo.InMemoryNewsQueryRepository;
 import com.fishfind.docapi.repo.InMemoryNewsWriteRepository;
 import com.fishfind.docapi.repo.InMemoryRiverDescriptionCommandRepository;
+import com.fishfind.docapi.repo.CatchLogCommandRepository;
+import com.fishfind.docapi.repo.InMemoryCatchLogCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverFishCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverQueryRepository;
@@ -91,6 +93,11 @@ public class InMemoryStoreConfig {
     @Bean
     public RiverFishCommandRepository riverFishCommandRepository() {
         return new InMemoryRiverFishCommandRepository();
+    }
+
+    @Bean
+    public CatchLogCommandRepository catchLogCommandRepository() {
+        return new InMemoryCatchLogCommandRepository();
     }
 
     @Bean

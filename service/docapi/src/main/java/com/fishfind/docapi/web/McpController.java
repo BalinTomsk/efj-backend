@@ -27,8 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * A Model Context Protocol server at {@code /api/v1/mcp}: the water-body reads of
- * {@link McpToolCatalog}, offered to MCP clients (Claude Desktop, Claude Code) as tools.
+ * A Model Context Protocol server at {@code /api/v1/mcp}: the water-body reads (and the admin-only
+ * catch-log writes) of {@link McpToolCatalog}, offered to MCP clients (Claude Desktop, Claude Code) as tools.
  *
  * <p><strong>Streamable HTTP, stateless, JSON responses only.</strong> Every JSON-RPC request is a
  * {@code POST} answered with one {@code application/json} body; a notification or a client response
@@ -66,7 +66,10 @@ public class McpController {
             "FishFind water-body data for CANADA and the USA: lakes, rivers and other water bodies, where "
                     + "they start and end, and fishing regulations. Start with search_water_bodies to get a "
                     + "water body's lakeId GUID, then pass it to the get_water_body* tools. Fish species "
-                    + "information is available to administrators only. Read-only; no photos are provided. "
+                    + "information is available to administrators only. No tool returns photos. Every tool "
+                    + "reads, except add_catch_log, update_catch_log and add_catch_log_photo (the two admin accounts only), "
+                    + "which add or correct a catch log: store only details the source states, and show the entry "
+                    + "to the user first. "
                     + "For ranking questions (the longest or shortest river, the largest or deepest lake of a "
                     + "province, state or country) call search_water_bodies ONCE with country/state, types and "
                     + "sort (e.g. state ME, types [river], sort length_desc, limit 1) instead of looking water "
@@ -94,10 +97,11 @@ public class McpController {
     public ResponseEntity<JsonNode> post(@RequestBody(required = false) String body,
                                          @RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
                                          @RequestHeader(value = "MCP-Protocol-Version", required = false) String protocolVersion,
-                                         @RequestHeader(value = ViewerRole.HEADER, required = false) String roleHeader) {
+                                         @RequestHeader(value = ViewerRole.HEADER, required = false) String roleHeader,
+                                         @RequestHeader(value = McpCaller.USER_HEADER, required = false) String userHeader) {
         // Who is calling, as cproxy established it from the MCP key's owning account. Missing or unknown
-        // reads as GUEST (fail closed): fish tools are then hidden.
-        ViewerRole role = ViewerRole.fromHeader(roleHeader);
+        // reads as GUEST (fail closed): fish tools and the writes are then hidden. No account: no writes.
+        McpCaller caller = McpCaller.fromHeaders(roleHeader, userHeader);
         if (origin != null) {
             return json(HttpStatus.FORBIDDEN, error(null, INVALID_REQUEST, "Browser origins are not accepted"));
         }
@@ -122,12 +126,12 @@ public class McpController {
             }
             ArrayNode replies = objectMapper.createArrayNode();
             for (JsonNode item : message) {
-                JsonNode reply = handle(item, role);
+                JsonNode reply = handle(item, caller);
                 if (reply != null) replies.add(reply);
             }
             return replies.isEmpty() ? ResponseEntity.accepted().build() : json(HttpStatus.OK, replies);
         }
-        JsonNode reply = handle(message, role);
+        JsonNode reply = handle(message, caller);
         return reply == null ? ResponseEntity.accepted().build() : json(HttpStatus.OK, reply);
     }
 
@@ -147,7 +151,7 @@ public class McpController {
      * One JSON-RPC message → its response, or {@code null} for a notification or a client response
      * (both of which get no reply).
      */
-    JsonNode handle(JsonNode message, ViewerRole role) {
+    JsonNode handle(JsonNode message, McpCaller caller) {
         if (!message.isObject() || !"2.0".equals(message.path("jsonrpc").asText())) {
             return error(null, INVALID_REQUEST, "Not a JSON-RPC 2.0 message");
         }
@@ -166,8 +170,8 @@ public class McpController {
         return switch (method.asText()) {
             case "initialize" -> result(id, initialize(params));
             case "ping" -> result(id, objectMapper.createObjectNode());
-            case "tools/list" -> result(id, toolsList(role));
-            case "tools/call" -> callTool(id, params, role);
+            case "tools/list" -> result(id, toolsList(caller));
+            case "tools/call" -> callTool(id, params, caller);
             default -> error(id, METHOD_NOT_FOUND, "Method not found: " + method.asText());
         };
     }
@@ -185,10 +189,10 @@ public class McpController {
         return out;
     }
 
-    private ObjectNode toolsList(ViewerRole role) {
+    private ObjectNode toolsList(McpCaller caller) {
         ObjectNode out = objectMapper.createObjectNode();
         ArrayNode list = out.putArray("tools");
-        for (McpToolCatalog.Tool tool : catalog.tools(role)) {
+        for (McpToolCatalog.Tool tool : catalog.tools(caller)) {
             ObjectNode t = list.addObject();
             t.put("name", tool.name());
             t.put("title", tool.title());
@@ -199,9 +203,9 @@ public class McpController {
         return out;
     }
 
-    private ObjectNode callTool(JsonNode id, JsonNode params, ViewerRole role) {
+    private ObjectNode callTool(JsonNode id, JsonNode params, McpCaller caller) {
         // A tool the caller's role may not use is reported exactly like one that does not exist.
-        McpToolCatalog.Tool tool = catalog.find(params.path("name").asText(null), role);
+        McpToolCatalog.Tool tool = catalog.find(params.path("name").asText(null), caller);
         if (tool == null) {
             return error(id, INVALID_PARAMS, "Unknown tool: " + params.path("name").asText(""));
         }
@@ -216,7 +220,7 @@ public class McpController {
         ObjectNode out;
         String outcome;
         try {
-            out = toolResult(tool.handler().apply(args, role));
+            out = toolResult(tool.handler().apply(args, caller));
             outcome = "ok";
         } catch (InvalidDocumentException | DocumentNotFoundException ex) {
             out = toolError(ex.getMessage());
