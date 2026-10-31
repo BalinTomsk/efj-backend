@@ -1,11 +1,16 @@
 package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fishfind.docapi.repo.CatchLog;
+import com.fishfind.docapi.repo.CatchLogCommandRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
+import com.fishfind.docapi.service.InvalidDocumentException;
 import com.fishfind.docapi.repo.RegulationQueryRepository;
 import com.fishfind.docapi.repo.RiverQueryRepository;
 import com.fishfind.docapi.repo.RiverSearchCriteria;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -22,6 +27,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -55,6 +61,12 @@ class McpControllerTest {
 
     @MockBean
     private FishQueryRepository fishRepository;
+
+    @MockBean
+    private CatchLogCommandRepository catchLogRepository;
+
+    @MockBean
+    private CatchPhotoFetcher photoFetcher;
 
     /** As cproxy sends it for an admin's key; the default, so the pre-1.21.0 tests still reach every tool. */
     private ResultActions rpc(String body) throws Exception {
@@ -128,13 +140,22 @@ class McpControllerTest {
     }
 
     @Test
-    void toolsListPublishesElevenReadOnlyTools() throws Exception {
-        rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
+    void toolsListPublishesElevenReadsAndThreeCatchLogWritesToAnAdmin() throws Exception {
+        mockMvc.perform(post("/api/v1/mcp").contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Fish-Role", "admin").header("X-Fish-User", "bb30165a-fd1a-4b54-b921-9334242c9bf6")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.tools", hasSize(11)))
+                .andExpect(jsonPath("$.result.tools", hasSize(14)))
                 .andExpect(jsonPath("$.result.tools[0].name").value("search_water_bodies"))
                 .andExpect(jsonPath("$.result.tools[0].inputSchema.type").value("object"))
-                .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(0)));
+                .andExpect(jsonPath("$.result.tools[?(@.annotations.readOnlyHint != true)]", hasSize(3)))
+                .andExpect(jsonPath("$.result.tools[11].name").value("add_catch_log"))
+                .andExpect(jsonPath("$.result.tools[11].annotations.destructiveHint").value(false))
+                .andExpect(jsonPath("$.result.tools[12].name").value("update_catch_log"))
+                .andExpect(jsonPath("$.result.tools[12].annotations.idempotentHint").value(true))
+                .andExpect(jsonPath("$.result.tools[12].inputSchema.properties.airTemp.type[1]").value("null"))
+                .andExpect(jsonPath("$.result.tools[13].name").value("add_catch_log_photo"))
+                .andExpect(jsonPath("$.result.tools[13].annotations.openWorldHint").value(true));
     }
 
     @Test
@@ -731,5 +752,262 @@ class McpControllerTest {
                 .andExpect(jsonPath("$.result.isError").value(true))
                 .andExpect(jsonPath("$.result.content[0].text", containsString("temporarily unavailable")))
                 .andExpect(jsonPath("$.result.content[0].text", not(containsString("SQL"))));
+    }
+
+    // ---- catch-log writes (1.29.0) --------------------------------------------------------------
+
+    /** One of the two admin accounts in application.yml docapi.mcp.write-users. */
+    private static final String AUTHOR = "bb30165a-fd1a-4b54-b921-9334242c9bf6";
+    /** An admin-role account that is not one of them. */
+    private static final String OTHER_ADMIN = "0190bbbb-0000-7000-8000-000000000009";
+    private static final String MEMO = "0190cccc-0000-7000-8000-000000000002";
+
+    /** As cproxy 0.27.0 sends a self-service admin key: role and owning account. */
+    private ResultActions write(String user, String tool, String arguments) throws Exception {
+        var request = post("/api/v1/mcp")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Fish-Role", "admin")
+                .content("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool
+                        + "\",\"arguments\":" + arguments + "}}");
+        if (user != null) request = request.header("X-Fish-User", user);
+        return mockMvc.perform(request);
+    }
+
+    private ObjectNode storedLog() {
+        ObjectNode stored = objectMapper.createObjectNode();
+        stored.put("catchLogId", MEMO);
+        stored.put("imageCount", 0);
+        return stored;
+    }
+
+    @Test
+    void addCatchLogStoresOnlyTheGivenFieldsUnderTheKeysAccount() throws Exception {
+        when(catchLogRepository.add(any())).thenReturn(storedLog());
+        when(catchLogRepository.stationWeather(any(), any())).thenReturn(CatchLog.Weather.NONE);
+
+        write(AUTHOR.toUpperCase(), "add_catch_log", "{\"lakeId\":\"" + GUID.toUpperCase() + "\","
+                + "\"species\":\"largemouth bass\",\"angler\":\"Jane Doe\",\"weight\":15.9,\"weightUnit\":\"LB\",\"catchDate\":\"2026-05-03\","
+                + "\"method\":\"from the bank\",\"notes\":\"Age: 15\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.catchLogId").value(MEMO))
+                .andExpect(jsonPath("$.result.structuredContent.imageCount").value(0));
+
+        ArgumentCaptor<CatchLog> saved = ArgumentCaptor.forClass(CatchLog.class);
+        verify(catchLogRepository).add(saved.capture());
+        CatchLog log = saved.getValue();
+        org.junit.jupiter.api.Assertions.assertEquals(GUID, log.lakeId());
+        org.junit.jupiter.api.Assertions.assertEquals(AUTHOR, log.userId());
+        org.junit.jupiter.api.Assertions.assertEquals("lb", log.weightUnit());
+        org.junit.jupiter.api.Assertions.assertEquals("Jane Doe", log.angler());
+        org.junit.jupiter.api.Assertions.assertEquals(java.time.LocalDateTime.of(2026, 5, 3, 0, 0), log.catchDate());
+        // Not stated = NULL, never a default.
+        org.junit.jupiter.api.Assertions.assertNull(log.released());
+        org.junit.jupiter.api.Assertions.assertNull(log.length());
+        org.junit.jupiter.api.Assertions.assertNull(log.lengthUnit());
+        org.junit.jupiter.api.Assertions.assertNull(log.lure());
+        org.junit.jupiter.api.Assertions.assertNull(log.fishId());
+        org.junit.jupiter.api.Assertions.assertFalse(log.isPrivate());
+        org.junit.jupiter.api.Assertions.assertEquals('7', log.id().charAt(14));   // a version-7 id
+    }
+
+    @Test
+    void theWritesAreHiddenFromNonAdminsAndNeedTheKeysAccount() throws Exception {
+        callAs("user", "add_catch_log", "{\"lakeId\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.error.code").value(McpController.INVALID_PARAMS));
+        // An operator key (no X-Fish-User), another admin account and a malformed id do not even see them.
+        for (String user : new String[] {null, OTHER_ADMIN, "not-a-guid"}) {
+            write(user, "add_catch_log", "{\"lakeId\":\"" + GUID + "\"}")
+                    .andExpect(jsonPath("$.error.code").value(McpController.INVALID_PARAMS));
+        }
+        rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}")
+                .andExpect(jsonPath("$.result.tools", hasSize(11)));
+        // The list is the portal's two admins, whatever role cproxy reports for them.
+        callAs("user", "add_catch_log", "{}").andExpect(jsonPath("$.error.code").value(McpController.INVALID_PARAMS));
+        mockMvc.perform(post("/api/v1/mcp").contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Fish-Role", "user").header("X-Fish-User", AUTHOR)
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"))
+                .andExpect(jsonPath("$.result.tools", hasSize(10)))
+                .andExpect(jsonPath("$.result.tools[?(@.name == 'add_catch_log')]", hasSize(1)))
+                .andExpect(jsonPath("$.result.tools[?(@.name == 'get_fish')]", hasSize(0)));
+        verifyNoInteractions(catchLogRepository, photoFetcher);
+    }
+
+    @Test
+    void addCatchLogRefusesBadArgumentsBeforeAnyWrite() throws Exception {
+        String lake = "\"lakeId\":\"" + GUID + "\"";
+        for (String args : new String[] {
+                "{}",
+                "{\"lakeId\":\"Lake Erie\"}",
+                "{" + lake + ",\"weight\":12}",                                  // weight without unit
+                "{" + lake + ",\"weightUnit\":\"lb\"}",                          // unit without weight
+                "{" + lake + ",\"weight\":12,\"weightUnit\":\"stone\"}",
+                "{" + lake + ",\"length\":-3,\"lengthUnit\":\"in\"}",
+                "{" + lake + ",\"weight\":\"12 lb\",\"weightUnit\":\"lb\"}",
+                "{" + lake + ",\"catchDate\":\"May 3\"}",
+                "{" + lake + ",\"catchDate\":\"2999-01-01\"}",
+                "{" + lake + ",\"released\":\"yes\"}",
+                "{" + lake + ",\"lat\":45.1}",
+                "{" + lake + ",\"weather\":\"" + "x".repeat(65) + "\"}"}) {
+            write(AUTHOR, "add_catch_log", args).andExpect(jsonPath("$.result.isError").value(true));
+        }
+        verify(catchLogRepository, never()).add(any());
+    }
+
+    @Test
+    void addCatchLogChecksTheSpeciesAndTheWaterBody() throws Exception {
+        String walleye = "0b1e7f00-0000-4000-8000-0000000000aa";
+        when(catchLogRepository.fishExists(walleye)).thenReturn(false);
+        write(AUTHOR, "add_catch_log", "{\"lakeId\":\"" + GUID + "\",\"fishId\":\"" + walleye + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("search_fish")));
+        verify(catchLogRepository, never()).add(any());
+
+        when(catchLogRepository.add(any())).thenReturn(null);   // no such water body
+        write(AUTHOR, "add_catch_log", "{\"lakeId\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString(GUID)));
+    }
+
+    @Test
+    void addCatchLogPhotoDownloadsTheJpegAndStoresItWithTheCredit() throws Exception {
+        byte[] jpeg = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x01};
+        when(catchLogRepository.photoCount(MEMO)).thenReturn(1);
+        when(photoFetcher.fetch("https://8.8.8.8/bass.jpg")).thenReturn(jpeg);
+        ObjectNode stored = storedLog();
+        stored.put("imageCount", 2);
+        when(catchLogRepository.addPhoto(eq(MEMO), eq(AUTHOR), eq(jpeg), eq(1), eq("Teen with the bass"), eq("Wired2Fish")))
+                .thenReturn(stored);
+
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://8.8.8.8/bass.jpg\","
+                + "\"credit\":\"Wired2Fish\",\"caption\":\"Teen with the bass\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.imageCount").value(2));
+    }
+
+    @Test
+    void addCatchLogPhotoRefusesAMissingCreditAFullLogAndAPrivateUrl() throws Exception {
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://8.8.8.8/a.jpg\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("credit")));
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"http://example.com/a.jpg\",\"credit\":\"X\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("https")));
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://127.0.0.1/a.jpg\",\"credit\":\"X\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("public")));
+        verifyNoInteractions(catchLogRepository);
+
+        when(catchLogRepository.photoCount(MEMO)).thenReturn(3);
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://8.8.8.8/a.jpg\",\"credit\":\"X\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("3 photos")));
+        when(catchLogRepository.photoCount(MEMO)).thenReturn(-1);
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://8.8.8.8/a.jpg\",\"credit\":\"X\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("No catch log")));
+        verifyNoInteractions(photoFetcher);
+        verify(catchLogRepository, never()).addPhoto(any(), any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void aFailedDownloadIsAToolErrorTheModelCanRead() throws Exception {
+        when(catchLogRepository.photoCount(MEMO)).thenReturn(0);
+        when(photoFetcher.fetch(anyString())).thenThrow(new InvalidDocumentException("The image is not a JPEG"));
+        write(AUTHOR, "add_catch_log_photo", "{\"catchLogId\":\"" + MEMO + "\",\"imageUrl\":\"https://8.8.8.8/a.webp\",\"credit\":\"X\"}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("not a JPEG")));
+        verify(catchLogRepository, never()).addPhoto(any(), any(), any(), anyInt(), any(), any());
+    }
+
+    // ---- weather and corrections (1.30.0) -------------------------------------------------------
+
+    private static final CatchLog.Weather STATION = new CatchLog.Weather(21.0, 1012.0, "Rain", "10d", 17.5);
+
+    @Test
+    void addCatchLogFillsOnlyTheOmittedWeatherFromTheStationAndSaysSo() throws Exception {
+        when(catchLogRepository.add(any())).thenReturn(storedLog());
+        when(catchLogRepository.stationWeather(GUID, java.time.LocalDate.of(2026, 10, 3))).thenReturn(STATION);
+
+        write(AUTHOR, "add_catch_log", "{\"lakeId\":\"" + GUID + "\",\"catchDate\":\"2026-10-03T10:00\","
+                + "\"airTemp\":14,\"weather\":\"clear\"}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.stationWeather", hasSize(2)))
+                .andExpect(jsonPath("$.result.structuredContent.stationWeather[0]").value("waterTemp"))
+                .andExpect(jsonPath("$.result.structuredContent.stationWeather[1]").value("pressure"));
+
+        ArgumentCaptor<CatchLog> saved = ArgumentCaptor.forClass(CatchLog.class);
+        verify(catchLogRepository).add(saved.capture());
+        CatchLog.Weather w = saved.getValue().weather();
+        org.junit.jupiter.api.Assertions.assertEquals(14.0, w.temp());       // given wins
+        org.junit.jupiter.api.Assertions.assertEquals("clear", w.text());
+        org.junit.jupiter.api.Assertions.assertEquals("01d", w.icon());      // a portal condition gets its icon
+        org.junit.jupiter.api.Assertions.assertEquals(17.5, w.water());      // omitted: from the station
+        org.junit.jupiter.api.Assertions.assertEquals(1012.0, w.pressure());
+    }
+
+    @Test
+    void addCatchLogTakesNoStationWeatherWhenToldNotToOrWithoutADate() throws Exception {
+        when(catchLogRepository.add(any())).thenReturn(storedLog());
+        write(AUTHOR, "add_catch_log", "{\"lakeId\":\"" + GUID + "\",\"catchDate\":\"2026-10-03\","
+                + "\"stationWeather\":false,\"weather\":\"Windy, 12 C\"}")
+                .andExpect(jsonPath("$.result.structuredContent.stationWeather", hasSize(0)));
+        write(AUTHOR, "add_catch_log", "{\"lakeId\":\"" + GUID + "\"}")
+                .andExpect(jsonPath("$.result.isError").value(false));
+        verify(catchLogRepository, never()).stationWeather(any(), any());
+
+        ArgumentCaptor<CatchLog> saved = ArgumentCaptor.forClass(CatchLog.class);
+        verify(catchLogRepository, org.mockito.Mockito.times(2)).add(saved.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("Windy, 12 C", saved.getAllValues().get(0).weather().text());
+        org.junit.jupiter.api.Assertions.assertNull(saved.getAllValues().get(0).weather().icon());
+        org.junit.jupiter.api.Assertions.assertTrue(saved.getAllValues().get(1).weather().isEmpty());
+    }
+
+    private static CatchLog stored(String author) {
+        return new CatchLog(MEMO, GUID, author, null, "largemouth bass", "Luke Mulholland", "8 lb 10 oz bass",
+                "Age: 14", null, null, "From the bank", null, "Trick Shad", java.time.LocalDateTime.of(2026, 10, 3, 0, 0),
+                8.625, "lb", 23.5, "in", false, false, CatchLog.Weather.NONE);
+    }
+
+    @Test
+    void updateCatchLogChangesOnlyTheGivenFieldsAndNullClears() throws Exception {
+        when(catchLogRepository.find(MEMO)).thenReturn(stored(AUTHOR.toUpperCase()));
+        when(catchLogRepository.add(any())).thenReturn(storedLog());
+
+        write(AUTHOR, "update_catch_log", "{\"catchLogId\":\"" + MEMO + "\",\"airTemp\":14,"
+                + "\"weather\":\"Clear\",\"lure\":null}")
+                .andExpect(jsonPath("$.result.isError").value(false))
+                .andExpect(jsonPath("$.result.structuredContent.catchLogId").value(MEMO));
+
+        ArgumentCaptor<CatchLog> saved = ArgumentCaptor.forClass(CatchLog.class);
+        verify(catchLogRepository).add(saved.capture());
+        CatchLog log = saved.getValue();
+        org.junit.jupiter.api.Assertions.assertEquals(MEMO, log.id());        // same log: an update
+        org.junit.jupiter.api.Assertions.assertEquals(14.0, log.weather().temp());
+        org.junit.jupiter.api.Assertions.assertEquals("01d", log.weather().icon());
+        org.junit.jupiter.api.Assertions.assertNull(log.lure());
+        org.junit.jupiter.api.Assertions.assertEquals(8.625, log.weight());
+        org.junit.jupiter.api.Assertions.assertEquals("Luke Mulholland", log.angler());
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, log.released());
+        verify(catchLogRepository, never()).stationWeather(any(), any());
+        verify(catchLogRepository, never()).fishExists(any());
+    }
+
+    @Test
+    void updateCatchLogRefusesAnotherAuthorsLogAMissingLogAndAnOrphanedUnit() throws Exception {
+        when(catchLogRepository.find(MEMO)).thenReturn(stored(OTHER_ADMIN));
+        write(AUTHOR, "update_catch_log", "{\"catchLogId\":\"" + MEMO + "\",\"airTemp\":14}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("not added by this key")));
+
+        when(catchLogRepository.find(MEMO)).thenReturn(stored(AUTHOR));
+        write(AUTHOR, "update_catch_log", "{\"catchLogId\":\"" + MEMO + "\",\"weight\":null}")
+                .andExpect(jsonPath("$.result.isError").value(true))
+                .andExpect(jsonPath("$.result.content[0].text", containsString("weightUnit given without weight")));
+
+        when(catchLogRepository.find(MEMO)).thenReturn(null);
+        write(AUTHOR, "update_catch_log", "{\"catchLogId\":\"" + MEMO + "\",\"airTemp\":14}")
+                .andExpect(jsonPath("$.result.content[0].text", containsString("No catch log")));
+        verify(catchLogRepository, never()).add(any());
     }
 }

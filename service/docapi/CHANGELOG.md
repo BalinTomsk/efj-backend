@@ -2,6 +2,36 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-10-31: **1.30.0 (not deployed) — catch-log weather, corrections and WebP photos.** `add_catch_log` takes
+  `airTemp` (°C) and `waterTemp` (°C) besides `weather`, and fills every weather value it is not given from the water
+  body's station forecast for the catch date (`dbo.fn_catch_weather_snapshot`, as the portal form's "Auto"; about 15
+  days are kept, so an older catch gets nothing); the result's `stationWeather` lists what came from the station, and
+  `stationWeather: false` stores only what is given. A `weather` naming one of the portal's conditions (Clear, Partly
+  Cloudy, Cloudy, Overcast, Rain, Thunderstorm, Snow, Fog) is stored with its icon. New tool `update_catch_log`
+  (same accounts): `catchLogId` plus only the fields to change, JSON null clears one; only a log the key's own account
+  authored; `CatchLogCommandRepository.find` (`fn_catch_memo_json`) + the same `sp_add_catch_memo` (its update
+  branch), never station weather. `add_catch_log_photo` takes WebP and PNG too and stores them as JPEG (quality 0.9,
+  white under transparency, ≤40 MP decoded): new dependency `com.twelvemonkeys.imageio:imageio-webp` 3.12.0, its
+  reader registered by hand because ImageIO's scan misses a jar nested in the Spring Boot jar. No SQL change (the
+  procedure already had the weather parameters; the snapshot function is the portal's). SQL checked on local envionx.
+  Tests: `McpControllerTest` +4 (63), `CatchPhotoFetcherTest` +3 (5); suite 379/379.
+
+- 2026-10-30: **1.29.0 (LIVE 2026-10-31, rollback docapi-prev = 1.28.0) — MCP catch-log writes `add_catch_log` and `add_catch_log_photo`.** The first MCP
+  tools that write. Both are listed and callable only when `X-Fish-User` (cproxy 0.27.0: the self-service key's owning
+  account, recorded as the author) is in `docapi.mcp.write-users` (env `DOCAPI_MCP_WRITE_USERS`; default = the
+  portal's two admin accounts, user decision 2026-10-30), whatever the role. Operator keys never see them. `add_catch_log`
+  → `CatchLogCommandRepository` → `dbo.sp_add_catch_memo` (`@is_admin = 1`, version-7 id); absent fields are `NULL`;
+  species and photo count are checked by separate reads OUTSIDE the write, so a caller mistake never counts on
+  `sqlBreaker`; the row is read back (scalar `FOR JSON` subquery). `add_catch_log_photo` → `CatchPhotoFetcher`
+  downloads the URL itself (https:443, public addresses only, at most 3 redirects, 6 s, 5 MB, JPEG signature only,
+  as the portal's upload) → `dbo.sp_add_catch_memo_photo` with the credit as photo author; at most 3 photos per log.
+  `angler` (who caught it, shown on the catch-log card as "X (posted by Y)") needs envfish-db `catch_memo_angler` +
+  `sp_add_catch_memo @angler` + `fn_catch_log_write_state` (`ADMIN_WRITE_catch_memo_angler.sql`, BEFORE the image).
+  Every read goes through a function (`fn_catch_log_write_state`, `fn_catch_memo_json(id, 0)`), never a table.
+  Tool handlers now take `McpCaller(role, userId)`. Server instructions and the McpGuide no longer say read-only.
+  SQL checked on local envionx (CTRL did not resolve from the workstation on 2026-10-30).
+  Tests: `McpControllerTest` +7 (59), `CatchPhotoFetcherTest` 2; suite 372/372.
+
 - 2026-10-21: **1.28.0 (LIVE 2026-10-21, digest f65adedd…4c71, rollback docapi-prev = 1.27.0) — `GET /api/v1/fish/{guid}` is the species document.** FishController overrides the
   inherited document read (its `dbo.fn_fish_doc` never existed, every call a 500) with `dbo.fn_fish_info_json`: everything
   about one species except images, the same document as the MCP tool `get_fish` (one helper, `FishController.species`).
