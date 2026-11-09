@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -57,12 +58,26 @@ class StationProcessorUSTest {
                 obs("99999", "2026-10-11T18:00:00+00:00", "410"),          // not a legacy parameter
                 obs("00060", "2026-10-11T18:00:00+00:00", "12", "00003"),  // daily mean, not instantaneous
                 obs("00065", "2026-10-11T18:00:00+00:00", "Ice"),
-                obs("00010", "2026-10-11T18:00:00+00:00", "17.2", null)),  // no statistic: kept
+                obs("00060", "2026-10-11T18:00:00+00:00", "17.2", null)),  // no statistic: kept
                 MOUNTAIN);
 
         assertEquals(1, series.size());
-        assertEquals("Temperature", series.get(0).name());
-        assertEquals("water, &#176;C", series.get(0).unit());
+        assertEquals("Streamflow", series.get(0).name());
+        assertEquals("ft^3/s", series.get(0).unit());
+    }
+
+    @Test
+    void buildReadingsDropsReadingsNoLongerStored() {
+        // Water temperature, air temperature and orthophosphate are no longer stored, so none of their codes is pushed.
+        List<UsSeriesReading> series = StationProcessorUS.buildReadings(List.of(
+                obs("00010", "2026-10-11T18:00:00+00:00", "17.2"),
+                obs("00011", "2026-10-11T18:00:00+00:00", "63.0"),
+                obs("00020", "2026-10-11T18:00:00+00:00", "11.0"),
+                obs("00021", "2026-10-11T18:00:00+00:00", "52.0"),
+                obs("00671", "2026-10-11T18:00:00+00:00", "0.02")),
+                MOUNTAIN);
+
+        assertTrue(series.isEmpty());
     }
 
     @Test

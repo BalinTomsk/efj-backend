@@ -10,10 +10,12 @@ import java.util.Map;
  * <p>The pairs are exactly what the old WaterML parser produced: {@code variableName} split at the first
  * comma, trimmed, with {@code &#179;} rewritten to {@code ^3}. They were harvested from live legacy
  * responses for eight states on 2026-10-11 so the move to the new API changes no stored value. Some legacy
- * units do not match the procedure's conversion checks (for example {@code in ft}, and
- * {@code water, &#176;C} for temperature); that is pre-existing behaviour, kept on purpose.
+ * units do not match the procedure's conversion checks (for example {@code in ft}); that is pre-existing
+ * behaviour, kept on purpose.
  *
- * <p>Codes not listed here are not pushed: the procedure has no column for them.
+ * <p>Codes not listed here are not pushed: the procedure has no column for them. Water temperature
+ * ({@code 00010} / {@code 00011}), air temperature ({@code 00020} / {@code 00021}) and orthophosphate
+ * ({@code 00671}) are deliberately left out: they are no longer stored (removed from {@code dbo.WaterData} 2026-11-08).
  */
 public final class UsgsParameterMap {
 
@@ -27,10 +29,6 @@ public final class UsgsParameterMap {
     }
 
     private static final Map<String, LegacyName> MAP = Map.ofEntries(
-            Map.entry("00010", new LegacyName("Temperature", "water, &#176;C")),
-            Map.entry("00011", new LegacyName("Temperature", "water, &#176;F")),
-            Map.entry("00020", new LegacyName("Temperature", "air, &#176;C")),
-            Map.entry("00021", new LegacyName("Temperature", "air, &#176;F")),
             Map.entry("00025", new LegacyName("Barometric pressure", "mmHg")),
             Map.entry("00030", new LegacyName("Incident solar radiation intensity", "(cal/cm&#178;)/d")),
             Map.entry("00035", new LegacyName("Wind speed", "mph")),
@@ -51,7 +49,6 @@ public final class UsgsParameterMap {
             Map.entry("00301", new LegacyName("Dissolved oxygen", "water, unfiltered, % saturation")),
             Map.entry("00400", new LegacyName("pH", "water, unfiltered, field, standard units")),
             Map.entry("00480", new LegacyName("Salinity", "water, unfiltered, parts per thousand")),
-            Map.entry("00671", new LegacyName("Orthophosphate", "water, filtered, mg/L as P")),
             Map.entry("32295", new LegacyName("Colored dissolved organic matter (CDOM)", "water, in situ, single band excitation, fluorescence emission, ppb QSE")),
             Map.entry("32315", new LegacyName("Chlorophyll <i>a</i>", "estimated, water, in-situ, in-vivo fluorescence (IVF), relative fluorescence units (RFU)")),
             Map.entry("32316", new LegacyName("Chlorophyll <i>a</i>", "estimated, water, in-situ, in-vivo fluorescence (IVF), concentration estimated from reference material, micrograms per liter")),
