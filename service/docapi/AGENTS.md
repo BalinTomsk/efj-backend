@@ -161,6 +161,11 @@ com.fishfind.docapi
 │   │                              #   search(RiverSearchCriteria) (1.19.0; stateId 1.23.0; region/type/sort/offset 1.26.0) +
 │   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0)
 │   ├── RiverSearchCriteria        # record: the 11 normalized search arguments + SORTS (1.26.0)
+│   ├── ForecastQueryRepository    # interface: stations / plot / reasoning (1.31.0, /api/v1/forecast)
+│   ├── InMemoryForecastQueryRepository / JdbcForecastQueryRepository (fn_forecast_stations_json,
+│   │                              #   fn_forecast_plot_json + fn_plot_weather + fn_fish_reasoning_json week,
+│   │                              #   fn_fish_reasoning_json)
+│   ├── CachingForecastQueryRepository # @Primary in jdbc: 5-min TTL LRU (500) per method, misses not stored
 │   ├── InMemoryRiverQueryRepository # default backing — found:false / null docs (no DB)
 │   ├── JdbcRiverQueryRepository   # JDBC backing — dbo.fn_river_unfished_json / fn_lake_view_json /
 │   │                              #   fn_lake_fishing_json / fn_lake_source_json / fn_lake_mouth_json /
@@ -198,6 +203,8 @@ com.fishfind.docapi
     │                              #   PATCH on fish/description/source/mouth, GET /river/search (1.19.0),
     │                              #   GET /river/tributaries/{guid} (1.22.0), GET /river/barriers/{guid} (1.24.0),
     │                              #   PATCH /river/source|mouth/{guid}/point relink (1.25.0)
+    ├── ForecastController          # GET /api/v1/forecast/stations, /plot/{sid}, /reasoning/{sid} (1.31.0):
+    │                              #   the website's Planning map, Plot and Reasoning pages as JSON for the app
     ├── RegulationController        # GET/PATCH /river/regulation/{guid} + /region/regulation/{country}[/{state}]
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
@@ -554,6 +561,10 @@ ordering. Batch cap 100 ⇒ 400.
 | `PATCH /api/v1/river/source/{guid}/point`, `PATCH /api/v1/river/mouth/{guid}/point` | `EXEC dbo.sp_lake_link_assign ?, ?, ?` | **1.25.0.** The relink the merge patches refuse: body `{"pointId":"<guid>"}` makes that water body the source (side 16) / mouth (side 32) — the `EditLakeLink.aspx` "Point" save, `sp_assign_border` included; `TR_UPD_Tributaries` updates `lake.source`/`lake.mouth`. Both GUIDs validated first (400, no SQL); `pointId` = `{guid}` ⇒ 400; unknown `{guid}` ⇒ 404; `error:pointNotFound` from the proc ⇒ 400. Response `{lakeId, side, pointId, pointName, previousPointId, previousPointName, changed, error}`. PATCH so cproxy's verb gate covers it. `unit_test@LakeLinkAssign.sql` (8). |
 | `PATCH /api/v1/river/mouth/{guid}` | `EXEC dbo.sp_lake_mouth_update ?, ?` | Same contract as `PATCH /river/source/{guid}` above, targeting the `side=32` row via the new `sp_lake_mouth_update`. Both PATCH procedures live behind one shared `RiverLinkCommandRepository` bean (`patchSource`/`patchMouth`), not two separate repositories, since they are the identical merge-patch mechanism against a different `Tributaries.side`. |
 
+### Forecast query (`ForecastController`, 1.31.0)
+
+Three GETs for the envfish-droid Forecast tab: `/forecast/stations` (`dbo.fn_forecast_stations_json`, new, over `dbo.fn_map_location`), `/forecast/plot/{sid}` (`fn_forecast_plot_json` + `fn_plot_weather` + the week of `fn_fish_reasoning_json`, one statement) and `/forecast/reasoning/{sid}` (`fn_fish_reasoning_json`). Full contract in `docs/specification.md` → "Forecast". Arguments validated before SQL; `CachingForecastQueryRepository` holds each document 5 minutes. **Deploy order: `fn_forecast_stations_json` on docapi's database first**, confirmed from a fresh connection — a missing object opens the shared `sqlBreaker` for every SQL endpoint. `dbo.spForecast` (WebService/Forecast) does not exist and is not used. Plot.aspx draws no fish score: `plot.week` is the Reasoning tab's week.
+
 ### Regulation query/write (`RegulationController`)
 
 `RegulationController` (`@RequestMapping("/api/v1")`, method-level full paths — its two resource
@@ -831,7 +842,9 @@ set `NVD_API_KEY`). Kept out of the default lifecycle.
 
 ## Tests
 
-`mvn test` — no DB needed (363 tests as of 1.28.0):
+`mvn test` — no DB needed (395 tests as of 1.31.0):
+
+- `ForecastControllerTest` (10) + `ForecastRepositoryTest` (6), 1.31.0 — see `docs/specification.md` → Tests.
 
 - `DocumentServiceTest` — validation, normalization, not-found (mocks `DocumentStore`).
 - `MySqlNewsDocumentRepositoryTest` — `getDocument` reads via `CALL sp_news_doc_get(?)` against the

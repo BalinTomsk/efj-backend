@@ -2,6 +2,18 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-13: **1.31.0 (LIVE 2026-11-13, digest c69bbcb5…) — Forecast API for the Android app (envfish-droid P0-08).** New
+  `ForecastController`: `GET /api/v1/forecast/stations?fish=&lat=&lon=&radius=&country=&limit=` (the Planning.aspx
+  map within a radius, nearest first, via the new `dbo.fn_forecast_stations_json` over `dbo.fn_map_location`),
+  `GET /forecast/plot/{sid}?fish=` (Plot.aspx's `fn_forecast_plot_json` document, its 23 `fn_plot_weather` calendar
+  rows and the 7-day score week of `fn_fish_reasoning_json`, one statement) and `GET /forecast/reasoning/{sid}?fish=&day=`
+  (`fn_fish_reasoning_json`, day 0..6). Arguments validated before SQL; `Cache-Control: private, max-age=300`;
+  `CachingForecastQueryRepository` (5-min TTL, 500 per endpoint) because cproxy caches only guest GETs. Findings:
+  `dbo.spForecast` does not exist (WebService/Forecast is inert) and Plot.aspx draws no score, so the week comes
+  from the Reasoning function; the API returns numbers, not the Reasoning page's English sentences. Tests: 16 new
+  (395 total); the three statements also run against SQL Server (local envionx: `day=3` equals `week[3]`).
+  **Deploy order:** `fn_forecast_stations_json` on docapi's database first, then the image. Rollback: `docapi-prev=1.30.0`.
+
 - 2026-10-31: **1.30.0 (not deployed) — catch-log weather, corrections and WebP photos.** `add_catch_log` takes
   `airTemp` (°C) and `waterTemp` (°C) besides `weather`, and fills every weather value it is not given from the water
   body's station forecast for the catch date (`dbo.fn_catch_weather_snapshot`, as the portal form's "Auto"; about 15

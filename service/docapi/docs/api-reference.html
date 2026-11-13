@@ -380,6 +380,7 @@
     <a href="#news" class="impl"><span class="n">●</span>News</a>
     <a href="#fish" class="impl"><span class="n">●</span>Fish</a>
     <a href="#river" class="impl"><span class="n">●</span>River</a>
+    <a href="#forecast" class="impl"><span class="n">●</span>Forecast</a>
     <a href="#waterbody" class="stub"><span class="n">○</span>Waterbody</a>
     <a href="#station" class="stub"><span class="n">○</span>Station</a>
     <a href="#mcp" class="impl"><span class="n">●</span>MCP</a>
@@ -393,7 +394,7 @@
       <h2 class="display">How responses are shaped</h2>
       <span class="tag">ApiResponse&lt;T&gt;</span>
     </div>
-    <p class="prose">Every docapi response — success or failure, from any of the seven controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
+    <p class="prose">Every docapi response — success or failure, from any of the eight controllers — is wrapped the same way, so a caller never has to branch on shape before it can check for an error.</p>
 
     <div class="envelope-card" style="margin-top:20px;">
       <div>
@@ -419,6 +420,7 @@
       <div class="status-tile"><span class="ctrl-name">News</span><span class="ctrl-state live">Live</span><span class="ctrl-note">CRUD + 5 read/write extras, all backed</span></div>
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; GET /{guid} species document (1.28.0, live 2026&#8209;10&#8209;21); POST/PUT not yet</span></div>
       <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed; 5 PATCH writes fronted (Bearer-token gated); source/mouth GET+PATCH deployed and verified live 2026‑09‑09</span></div>
+      <div class="status-tile"><span class="ctrl-name">Forecast</span><span class="ctrl-state live">Live</span><span class="ctrl-note">3 GETs for the app&rsquo;s Forecast tab, docapi 1.31.0 &mdash; live 2026-11-13</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">MCP</span><span class="ctrl-state live">Live</span><span class="ctrl-note">docapi 1.22.0 live 2026‑10‑05 at mcp.fishfind.info (cproxy MCP keys)</span></div>
@@ -1469,6 +1471,134 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
   </section>
 
   <!-- ============================= REGULATION ============================= -->
+  <section class="block" id="forecast">
+    <div class="block-head">
+      <h2 class="display">Forecast</h2>
+      <span class="tag">ForecastController · /api/v1/forecast</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">The website&rsquo;s forecast pages as JSON, for the Android app&rsquo;s Forecast tab (envfish-droid P0-08). Each endpoint returns the document of the database function the page itself uses, so the numbers are the website&rsquo;s: the <strong>Planning.aspx</strong> map, what <strong>Plot.aspx</strong> draws, and the <strong>Reasoning</strong> tab. Every argument is validated before SQL (a bad one is a <code>400</code>, never a SQL error on the shared breaker). Responses carry <code>Cache-Control: private, max-age=300</code>, and docapi keeps each document in memory for the same 5 minutes (500 per endpoint). <code>WebService/Forecast</code> and its <code>dbo.spForecast</code> are not used: that procedure does not exist in the database.</p>
+        <p class="prose" style="margin:2px 0 14px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;11&#8209;13, docapi 1.31.0 &mdash; LIVE 2026&#8209;11&#8209;13.</strong> All three need docapi 1.31.0; <code>/stations</code> also needs <code>dbo.fn_forecast_stations_json</code> (envfish-db 2026&#8209;11&#8209;13) on docapi&rsquo;s database first. The examples show the shape; their numbers are illustrative until checked live.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/forecast/stations<span class="param">?fish=&amp;lat=&amp;lon=&amp;radius=&amp;country=&amp;limit=</span></span></div>
+        <span class="specimen-label">Forecast-map stations near a point</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">The Planning.aspx map for one fish &mdash; stations with a recent reading, a forecast for today and the fish (<code>dbo.fn_map_location</code>) &mdash; cut to a radius around the caller, nearest first (<code>dbo.fn_forecast_stations_json</code>). <code>today</code> (0&ndash;100) is the value the map plots; <code>marker</code> = <code>today / 10 &minus; 1</code>, the map&rsquo;s pin colour index. <code>name</code> is the map&rsquo;s station name (may be empty); <code>distanceKm</code> is great-circle, 0.1&nbsp;km. <code>total</code> counts every station in the radius, <code>stations</code> holds at most <code>limit</code>. Nothing near is <code>200</code> with an empty <code>stations</code>; an unknown fish is <code>404</code>.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">fish</td><td>Fish GUID (36-char, 32-hex or braced), required. Missing or malformed &rarr; <code>400</code> before any SQL.</td></tr>
+            <tr><td class="pname">lat, lon</td><td>Required, &minus;90..90 / &minus;180..180. Rounded to 0.01&deg; (~1&nbsp;km) so nearby callers share a cache entry; the rounded values are echoed.</td></tr>
+            <tr><td class="pname">radius</td><td>km, default 100, capped at 500; garbage &rarr; default.</td></tr>
+            <tr><td class="pname">country</td><td><code>CA</code> or <code>US</code> (any case), the map&rsquo;s country radio; absent &rarr; both. Anything else &rarr; <code>400</code>.</td></tr>
+            <tr><td class="pname">limit</td><td>Default 50, capped at 200; garbage &rarr; default.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Walleye near Kitchener</strong>.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/stations?fish={walleye}&amp;lat=43.45&amp;lon=-80.49&amp;limit=20</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"2cffb500-…"</span><span class="p">,</span> <span class="k">"fish"</span><span class="p">:</span> <span class="s">"Walleye"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">43.45</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-80.49</span><span class="p">,</span> <span class="k">"radiusKm"</span><span class="p">:</span> <span class="n">100</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"limit"</span><span class="p">:</span> <span class="n">20</span><span class="p">,</span> <span class="k">"total"</span><span class="p">:</span> <span class="n">31</span><span class="p">,</span> 
+    <span class="k">"stations"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"sid"</span><span class="p">:</span> <span class="n">266353</span><span class="p">,</span> <span class="k">"name"</span><span class="p">:</span> <span class="s">"CANAGAGIGUE CREEK NEAR ELMIRA"</span><span class="p">,</span> <span class="k">"lat"</span><span class="p">:</span> <span class="n">43.59</span><span class="p">,</span> <span class="k">"lon"</span><span class="p">:</span> <span class="n">-80.55</span><span class="p">,</span> 
+      <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"state"</span><span class="p">:</span> <span class="s">"ON"</span><span class="p">,</span> <span class="k">"county"</span><span class="p">:</span> <span class="s">"Waterloo"</span><span class="p">,</span> <span class="k">"today"</span><span class="p">:</span> <span class="n">64</span><span class="p">,</span> <span class="k">"marker"</span><span class="p">:</span> <span class="n">5</span><span class="p">,</span> <span class="k">"distanceKm"</span><span class="p">:</span> <span class="n">16.4</span> <span class="p">},</span> <span class="n">…</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>No coordinates</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/stations?fish={walleye}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"lat is required"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Unknown fish</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/stations?fish=00000000-0000-0000-0000-000000000000&amp;lat=45&amp;lon=-75</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/forecast/plot/<span class="param">{sid}</span><span class="param">?fish=</span></span></div>
+        <span class="specimen-label">What Plot.aspx draws, plus the 7-day score</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">One statement, three parts. <code>plot</code> is <code>dbo.fn_forecast_plot_json</code> unchanged, the document <code>Plot.aspx</code> <code>GetJsonPlot</code> charts: <code>date</code> (&minus;15&hellip;+7 days) with <code>discharge</code>, <code>level</code>, <code>temperature</code>, <code>precipitation</code>, <code>turbidity</code> (<code>null</code> = no value), and <code>place</code>, <code>fish</code>, <code>country</code>, <code>state</code>, <code>stamp</code>, <code>lakeid</code>, <code>lakename</code>. <code>calendar</code> is the first 23 rows of <code>dbo.fn_plot_weather</code> with the columns the page&rsquo;s day/weather grid reads. <code>week</code> is the fish&rsquo;s score for 7 days from <code>dbo.fn_fish_reasoning_json</code> (day 0 = today). <strong>Plot.aspx itself draws no score</strong>; the week is the Reasoning tab&rsquo;s. Discharge and level follow the country (CA m&sup3;/s, m; US ft&sup3;/s, ft); <code>temperature</code> is &deg;C everywhere (the function&rsquo;s US &deg;F conversion runs before any value is filled, so it does nothing, and Plot.aspx labels US values &deg;F by mistake). Unknown station, or a fish not listed there (the map never links that pair) &rarr; <code>404</code>.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">sid</td><td>The station&rsquo;s <code>WaterStation.sid</code>, a positive integer (Plot.aspx <code>?id=</code>). Anything else &rarr; <code>400</code>.</td></tr>
+            <tr><td class="pname">fish</td><td>Fish GUID (36-char, 32-hex or braced), required. Missing or malformed &rarr; <code>400</code> before any SQL.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Canagagigue Creek, walleye</strong> &mdash; arrays shortened.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/plot/266353?fish={walleye}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"sid"</span><span class="p">:</span> <span class="n">266353</span><span class="p">,</span> <span class="k">"fishId"</span><span class="p">:</span> <span class="s">"2cffb500-…"</span><span class="p">,</span> 
+    <span class="k">"plot"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"place"</span><span class="p">:</span> <span class="s">"CANAGAGIGUE CREEK NEAR ELMIRA"</span><span class="p">,</span> <span class="k">"fish"</span><span class="p">:</span> <span class="s">"Walleye"</span><span class="p">,</span> <span class="k">"country"</span><span class="p">:</span> <span class="s">"CA"</span><span class="p">,</span> <span class="k">"lakename"</span><span class="p">:</span> <span class="s">"Canagagigue Creek"</span><span class="p">,</span> 
+      <span class="k">"date"</span><span class="p">:</span> <span class="p">[</span><span class="s">"Wed 29"</span><span class="p">,</span> <span class="n">…</span><span class="p">]</span><span class="p">,</span> <span class="k">"discharge"</span><span class="p">:</span> <span class="p">[</span><span class="n">1.2</span><span class="p">,</span> <span class="n">…</span><span class="p">]</span><span class="p">,</span> <span class="k">"level"</span><span class="p">:</span> <span class="p">[…]</span><span class="p">,</span> <span class="k">"temperature"</span><span class="p">:</span> <span class="p">[…]</span><span class="p">,</span> <span class="k">"precipitation"</span><span class="p">:</span> <span class="p">[…]</span><span class="p">,</span> <span class="k">"turbidity"</span><span class="p">:</span> <span class="p">[…]</span> <span class="p">},</span>
+    <span class="k">"calendar"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"dt"</span><span class="p">:</span> <span class="s">"2026-10-29"</span><span class="p">,</span> <span class="k">"temperature_low"</span><span class="p">:</span> <span class="n">3</span><span class="p">,</span> <span class="k">"temperature_high"</span><span class="p">:</span> <span class="n">11</span><span class="p">,</span> <span class="k">"precipitation"</span><span class="p">:</span> <span class="n">0</span><span class="p">,</span> <span class="k">"wind_max_speed"</span><span class="p">:</span> <span class="n">14</span><span class="p">,</span> <span class="k">"wind_direction"</span><span class="p">:</span> <span class="s">"NW"</span><span class="p">,</span> <span class="k">"shortText"</span><span class="p">:</span> <span class="s">"Partly cloudy"</span><span class="p">,</span> <span class="n">…</span> <span class="p">},</span> <span class="n">…</span> <span class="p">]</span><span class="p">,</span> 
+    <span class="k">"week"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"date"</span><span class="p">:</span> <span class="s">"2026-11-13"</span><span class="p">,</span> <span class="k">"moonDay"</span><span class="p">:</span> <span class="n">4</span><span class="p">,</span> <span class="k">"monthFactor"</span><span class="p">:</span> <span class="n">0.600</span><span class="p">,</span> <span class="k">"lunarFactor"</span><span class="p">:</span> <span class="n">0.598</span><span class="p">,</span> <span class="k">"oxygenFactor"</span><span class="p">:</span> <span class="n">1.000</span><span class="p">,</span> <span class="k">"probability"</span><span class="p">:</span> <span class="n">36</span><span class="p">,</span> <span class="k">"weather"</span><span class="p">:</span> <span class="p">{…}</span> <span class="p">},</span> <span class="n">…</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Fish not listed at the station</strong>.</span><span class="status-code status-404">404</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/plot/266353?fish={another fish}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"not_found"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/forecast/reasoning/<span class="param">{sid}</span><span class="param">?fish=&amp;day=</span></span></div>
+        <span class="specimen-label">The Reasoning tab</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;"><code>dbo.fn_fish_reasoning_json(sid, fish, now + day)</code> unchanged &mdash; the facts <code>Forecast/Reasoning.aspx</code> puts into words: <code>today</code> = <code>base</code> &times; <code>factors.month</code> &times; <code>factors.lunar</code> &times; <code>factors.oxygen</code> (0&ndash;100, capped), with <code>moon</code>, <code>month</code>, <code>spawn</code> / <code>inSpawnSeason</code>, <code>water</code> (latest readings), <code>ranges.oxygen</code>, <code>weather</code> and the 7-day <code>week</code>. The words are the app&rsquo;s own (its <code>strings.xml</code>); the API returns the numbers. This <code>today</code> is computed live; the map&rsquo;s is the value stored by the last <code>spTotalUpdateProbability</code> run, so they agree once that job has run for the day. Unknown station or fish not listed there &rarr; <code>404</code>.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">sid</td><td>The station&rsquo;s <code>WaterStation.sid</code>, a positive integer (Plot.aspx <code>?id=</code>). Anything else &rarr; <code>400</code>.</td></tr>
+            <tr><td class="pname">fish</td><td>Fish GUID (36-char, 32-hex or braced), required. Missing or malformed &rarr; <code>400</code> before any SQL.</td></tr>
+            <tr><td class="pname">day</td><td>0..6 days ahead, default 0 (today). Anything else &rarr; <code>400</code>. Day <em>n</em> equals <code>week[n]</code> of day 0.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Canagagigue Creek, walleye, today</strong> &mdash; nested objects shortened.</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/reasoning/266353?fish={walleye}</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"sid"</span><span class="p">:</span> <span class="n">266353</span><span class="p">,</span> <span class="k">"station"</span><span class="p">:</span> <span class="s">"CANAGAGIGUE CREEK NEAR ELMIRA"</span><span class="p">,</span> <span class="k">"fish"</span><span class="p">:</span> <span class="s">"Walleye"</span><span class="p">,</span> <span class="k">"base"</span><span class="p">:</span> <span class="n">100</span><span class="p">,</span> <span class="k">"today"</span><span class="p">:</span> <span class="n">36</span><span class="p">,</span> 
+    <span class="k">"factors"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"month"</span><span class="p">:</span> <span class="n">0.600</span><span class="p">,</span> <span class="k">"lunar"</span><span class="p">:</span> <span class="n">0.598</span><span class="p">,</span> <span class="k">"oxygen"</span><span class="p">:</span> <span class="n">1.000</span> <span class="p">},</span> <span class="k">"moon"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"day"</span><span class="p">:</span> <span class="n">4</span><span class="p">,</span> <span class="n">…</span> <span class="p">},</span>
+    <span class="k">"month"</span><span class="p">:</span> <span class="p">{…}</span><span class="p">,</span> <span class="k">"spawn"</span><span class="p">:</span> <span class="p">[…]</span><span class="p">,</span> <span class="k">"inSpawnSeason"</span><span class="p">:</span> <span class="z">false</span><span class="p">,</span> <span class="k">"water"</span><span class="p">:</span> <span class="p">{…}</span><span class="p">,</span> <span class="k">"ranges"</span><span class="p">:</span> <span class="p">{…}</span><span class="p">,</span> <span class="k">"weather"</span><span class="p">:</span> <span class="p">{…}</span><span class="p">,</span> <span class="k">"week"</span><span class="p">:</span> <span class="p">[…]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Day out of range</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/reasoning/266353?fish={walleye}&amp;day=7</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"day must be 0..6"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
   <section class="block" id="regulation">
     <div class="block-head">
       <h2 class="display">Regulation</h2>
@@ -1774,6 +1904,9 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">Waterbody</td><td class="qpath">GET /api/v1/waterbody/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">Station</td><td class="qpath">GET /api/v1/station/1</td><td>500</td><td>SQL objects not created</td></tr>
           <tr><td class="qctrl">any</td><td class="qpath">POST /api/v1/news</td><td>405</td><td>gateway blocks non-GET</td></tr>
+          <tr><td class="qctrl">Forecast</td><td class="qpath">GET /api/v1/forecast/stations?fish=&amp;lat=&amp;lon=</td><td>200</td><td>map stations near a point &mdash; docapi 1.31.0</td></tr>
+          <tr><td class="qctrl">Forecast</td><td class="qpath">GET /api/v1/forecast/plot/{sid}?fish=</td><td>200</td><td>Plot.aspx document + calendar + 7-day score</td></tr>
+          <tr><td class="qctrl">Forecast</td><td class="qpath">GET /api/v1/forecast/reasoning/{sid}?fish=&amp;day=</td><td>200</td><td>Reasoning tab facts</td></tr>
           <tr><td class="qctrl">MCP</td><td class="qpath">POST /api/v1/mcp tools/list</td><td>200</td><td>7 read-only tools &mdash; docapi 1.20.0, verified on the droplet 2026‑10‑01</td></tr>
           <tr><td class="qctrl">MCP</td><td class="qpath">GET /api/v1/mcp</td><td>405</td><td>no event stream &mdash; verified on the droplet 2026‑10‑01</td></tr>
         </tbody>
