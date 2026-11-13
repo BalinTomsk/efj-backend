@@ -11,6 +11,9 @@ import com.fishfind.docapi.repo.JdbcCatchLogCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverFishCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
+import com.fishfind.docapi.repo.CachingForecastQueryRepository;
+import com.fishfind.docapi.repo.ForecastQueryRepository;
+import com.fishfind.docapi.repo.JdbcForecastQueryRepository;
 import com.fishfind.docapi.repo.JdbcRegulationCommandRepository;
 import com.fishfind.docapi.repo.JdbcRegulationQueryRepository;
 import com.fishfind.docapi.repo.RegulationCommandRepository;
@@ -240,6 +243,27 @@ public class JdbcStoreConfig {
     @Bean
     public RiverQueryRepository riverQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The SQL-backed forecast repository (1.31.0, {@code /api/v1/forecast/*}), its own bean so Resilience4j can
+     * proxy it -- see {@link #jdbcNewsStore}.
+     */
+    @Bean
+    public ForecastQueryRepository jdbcForecastQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcForecastQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * What {@code ForecastController} injects: {@link CachingForecastQueryRepository} (5-minute LRU per endpoint)
+     * in front of {@link #jdbcForecastQueryRepository}. {@code @Primary} because two beans implement the
+     * interface and the controller injects by type.
+     */
+    @Bean
+    @Primary
+    public ForecastQueryRepository forecastQueryRepository(
+            @Qualifier("jdbcForecastQueryRepository") ForecastQueryRepository jdbcForecastQueryRepository) {
+        return new CachingForecastQueryRepository(jdbcForecastQueryRepository);
     }
 
     /**

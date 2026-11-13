@@ -374,6 +374,21 @@ All non-health responses use the envelope `{ data, error, meta }` where `meta` c
 `timestamp`. Exactly one of `data` / `error` is populated. **Exception: `/api/v1/mcp`** speaks JSON-RPC 2.0,
 not the envelope (below).
 
+### Forecast — `/api/v1/forecast` (1.31.0)
+
+`ForecastController` serves the website's forecast pages as JSON for the envfish-droid Forecast tab. Each endpoint
+returns the document of the database function the page itself uses, so the numbers are the website's. Every
+argument is validated before the repository is called (400 `invalid_document`, never a SQL error on the shared
+`sqlBreaker`); every 200 carries `Cache-Control: private, max-age=300`.
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /forecast/stations?fish=&lat=&lon=&radius=&country=&limit=` | `SELECT dbo.fn_forecast_stations_json(?, ?, ?, ?, ?, ?)` | Planning.aspx's map (`dbo.fn_map_location`: water AND weather AND fish) within `radius` km, nearest first: `{fishId, fish, lat, lon, radiusKm, country, limit, total, stations:[{sid, name, lat, lon, country, state, county, today, marker, distanceKm}]}`. `fish` GUID and `lat`/`lon` required (400); `lat`/`lon` rounded to 0.01°; `radius` default 100 cap 500, `limit` default 50 cap 200 (garbage ⇒ default); `country` CA/US/absent (else 400). Unknown fish ⇒ 404; nothing near ⇒ empty `stations`. |
+| `GET /forecast/plot/{sid}?fish=` | `SELECT dbo.fn_forecast_plot_json(?, ?), (SELECT TOP 23 … FROM dbo.fn_plot_weather(?) … FOR JSON PATH), JSON_QUERY(dbo.fn_fish_reasoning_json(?, ?, SYSUTCDATETIME()), '$.week')` | `{sid, fishId, plot, calendar, week}`: Plot.aspx's chart document, its 23 day/weather cells (the columns `LoadPlaceLatLon` reads) and the 7-day score (Plot.aspx draws no score; this is the Reasoning tab's week). `sid` positive int, `fish` GUID (400). A NULL week (unknown station, or a fish not listed there) ⇒ 404. |
+| `GET /forecast/reasoning/{sid}?fish=&day=` | `SELECT dbo.fn_fish_reasoning_json(?, ?, DATEADD(DAY, ?, SYSUTCDATETIME()))` | The Reasoning tab's document unchanged; `day` 0..6, default 0 (else 400). NULL ⇒ 404. Numbers only: the app words them. |
+
+`dbo.spForecast` (the inert `WebService/Forecast`) is not used; it does not exist in the database.
+
 ### MCP server — `/api/v1/mcp` (1.20.0)
 
 A Model Context Protocol server for Claude Desktop / Claude Code (`McpController` + `McpToolCatalog`).
@@ -1133,6 +1148,21 @@ client-side 400).
 
 Both queries are **not cached** — one proxied bean per profile.
 
+### Forecast query repository (`ForecastQueryRepository`, 1.31.0)
+
+- **`InMemoryForecastQueryRepository`** (default profile) — every method returns `null` (→ 404).
+- **`JdbcForecastQueryRepository`** (jdbc profile) — the three statements in the Forecast endpoint table, each one
+  round trip, `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker")` with a rethrowing fallback. `plot` returns
+  `null` when the week column is NULL/blank (`fn_forecast_plot_json` answers for any sid, so the week is the
+  existence check) and an empty `calendar` array when the weather function has no rows.
+- **`CachingForecastQueryRepository`** — the `@Primary` bean in the jdbc profile, in front of the JDBC one: one
+  bounded LRU per method (500 entries, `MAX_ENTRIES`), 5-minute TTL (`TTL_MILLIS`), keyed by every argument; a
+  `null` is never stored; a miss loads outside the lock. Reason: the app is always signed in, and cproxy caches only
+  guest GETs.
+
+Only `dbo.fn_forecast_stations_json` is new (envfish-db, `unit_test@ForecastStationsJson.sql`, 7 tests); it reuses
+`dbo.fn_map_location`, so the map rule lives in one place.
+
 ## Service layer
 
 ### `DocumentService` (abstract)
@@ -1297,7 +1327,10 @@ build artifacts. Never bake a real `.env` into the image.
 
 ## Tests
 
-`mvn test` runs 135 tests, none requiring a database:
+`mvn test` runs 395 tests (1.31.0), none requiring a database:
+
+- `ForecastControllerTest` (10, 1.31.0) — `@WebMvcTest`: normalized arguments reach the repository (GUID, rounded lat/lon, caps, upper-cased country, garbage ⇒ defaults), `Cache-Control: max-age=300, private`, 404 on a null document, every 400 with the repository never called.
+- `ForecastRepositoryTest` (6, 1.31.0) — each statement's parameters bound in order (a NULL country as `Types.CHAR`), `plot` nesting its three columns and returning null without a week; the cache serving repeats, keying by day, never storing a miss, expiring after the TTL, and staying bounded.
 
 - `DocApiApplicationTest` — mocks static `SpringApplication.run`.
 - `DocApiContextTest` — `@SpringBootTest` boots the full context on the default (in-memory) profile.
