@@ -153,7 +153,7 @@ com.fishfind.docapi
 │   │                              #   (2026-08-31), search (1.10.0), lakeNews/fishNews (1.11.0/
 │   │                              #   1.12.0), export (2026-09-17). No SQL Server delegate since
 │   │                              #   1.16.0; JdbcNewsQueryRepository + NewsDocumentRepository deleted
-│   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...) + waterBodies(...) + info(fishId) (1.27.0)
+│   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...) + waterBodies(...) + info(fishId) (1.27.0) + photos/photo (1.32.0)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
 │   │                              #   fn_fish_latin_json, fn_fish_water_bodies_json, fn_fish_info_json
@@ -195,6 +195,7 @@ com.fishfind.docapi
     ├── NewsAdminController         # /api/v1/news/admin -- POST /draft, PATCH /{id}, PATCH
     │                              #   /{id}/photo/{index} (Editor/AddNews.aspx writes, 1.13.0)
     ├── FishController             # GET /{guid} species document (fn_fish_info_json, 1.28.0; shared with MCP get_fish)
+    │                              #   + GET /page/{guid} app fish page + /photo/{guid}/{imageId} bytes (1.32.0)
     │                              #   + POST/PUT CRUD + search (/search) + base-path Latin lookups
     │                              #   (?province=&codes= and ?fishes=)
     ├── RiverController            # GET /river/unfished (wbUnFish.aspx duplicate) + /river/description/{guid}

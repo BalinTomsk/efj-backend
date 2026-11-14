@@ -400,7 +400,7 @@ public class NewsController extends AbstractDocumentController {
      * library actually holds. Anything unrecognised is served as {@code application/octet-stream}
      * rather than guessed: a wrong image type is worse than an honest unknown one.
      */
-    private static String sniffContentType(byte[] bytes) {
+    static String sniffContentType(byte[] bytes) {
         if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') {
             return MediaType.IMAGE_PNG_VALUE;
         }

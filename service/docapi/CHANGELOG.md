@@ -2,6 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-14: **1.32.0 (LIVE 2026-11-14, digest 0087fdbf…, rollback `docapi-prev` = 1.31.0) — fish page for the Android app (envfish-droid P0-09).** `GET /api/v1/fish/page/{guid}?waters=`
+  returns `{fish, photos, waters, news}`: the species document (`fn_fish_info_json`), the photo list with credits,
+  default first (`fn_fish_image_gallery` + `fn_edit_fish_general` + `fn_fish_image_info`), the water bodies holding it
+  (`fn_fish_water_bodies_json`, default 20, cap 50) and the last 5 news (`/news/fish/{guid}`; `null` when MySQL fails).
+  `GET /api/v1/fish/photo/{guid}/{imageId}` serves one photo's bytes (sniffed type, 7-day public cache, ETag, 304).
+  No new DB object; both statements run against local envionx. Not role-gated in docapi; on the gateway's HTTPS
+  port a signed-in account only (user decision: signed-in only, no guest surface). Tests: `FishControllerTest` +5.
+
 - 2026-11-13: **1.31.0 (LIVE 2026-11-13, digest c69bbcb5…) — Forecast API for the Android app (envfish-droid P0-08).** New
   `ForecastController`: `GET /api/v1/forecast/stations?fish=&lat=&lon=&radius=&country=&limit=` (the Planning.aspx
   map within a radius, nearest first, via the new `dbo.fn_forecast_stations_json` over `dbo.fn_map_location`),

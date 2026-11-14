@@ -912,6 +912,34 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
 
     <div class="endpoint">
       <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish/page/{guid}<span class="param">?waters=</span></span></div>
+        <span class="specimen-label">the app&rsquo;s fish page in one call &mdash; 1.32.0, live 2026-11-14</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">For the envfish-droid fish page (P0-09). Returns <code>{ fish, photos, waters, news }</code>: <code>fish</code> is the <code>/fish/{guid}</code> document above; <code>photos</code> lists every picture with its credits, the default first (<code>fn_fish_image_gallery</code> + <code>fn_edit_fish_general</code> + <code>fn_fish_image_info</code>), each with the <code>url</code> of its bytes; <code>waters</code> is <code>fn_fish_water_bodies_json</code> (<code>waters</code> default 20, cap 50, highest probability first); <code>news</code> is the last 5 articles naming the species (as <code>/news/fish/{guid}?limit=5</code>), or <code>null</code> when the news database fails &mdash; the page still answers. Non-GUID &rArr; <code>400</code> before SQL; unknown species &rArr; <code>404</code>.</p>
+<pre class="mono">{ "data": {
+  "fish":   { "fishId": "2CFFB500-&hellip;", "name": "Walleye", "latin": "Sander vitreus", "description": "&hellip;", "spawn": { &hellip; }, &hellip; },
+  "photos": [ { "imageId": 1212, "isDefault": true, "male": false, "juvenile": false,
+                "author": null, "source": null, "link": null, "label": null,
+                "url": "/api/v1/fish/photo/2cffb500-&hellip;/1212" } ],
+  "waters": { "total": 3120, "limit": 20, "items": [ { "lakeId": "&hellip;", "lakeName": "&hellip;", "locType": 1, "country": "CA", "state": "ON", "probability": 100 } ] },
+  "news":   { "fishId": "2cffb500-&hellip;", "limit": 5, "items": [ { "newsId": "&hellip;", "title": "&hellip;", "source": "&hellip;", "stamp": "&hellip;", "country": "CA" } ] }
+}, "error": null, "meta": { &hellip; } }</pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish/photo/{guid}/{imageId}</span></div>
+        <span class="specimen-label">one photo&rsquo;s raw bytes &mdash; 1.32.0, live 2026-11-14</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">Raw image bytes, not JSON: <code>fn_fish_image_handler</code> limited to a photo of that species (an id belonging to another species is <code>404</code>, not the function&rsquo;s newest-picture fallback). Content type sniffed from the bytes; <code>Cache-Control: public, max-age=604800</code>; <code>ETag "&lt;guid&gt;-&lt;imageId&gt;-&lt;length&gt;"</code>; <code>If-None-Match</code> &rArr; <code>304</code>. Non-GUID &rArr; <code>400</code> before SQL.</p>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/fish/search<span class="param">?q=</span></span></div>
         <span class="specimen-label">relevance-ranked catalogue search</span>
       </div>
@@ -1883,6 +1911,8 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
           <tr><td class="qctrl">News</td><td class="qpath">POST /api/v1/news/admin/draft</td><td>201</td><td>docapi 1.13.5, live — verified, new draft id in &lt;1s (3 consecutive calls)</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">PATCH /api/v1/news/admin/{id}</td><td>200</td><td>docapi 1.13.5, live — upsert &amp; publish</td></tr>
           <tr><td class="qctrl">News</td><td class="qpath">PATCH /api/v1/news/admin/{id}/photo/{index}</td><td>200</td><td>docapi 1.13.5, live — replaces one photo slot</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/page/{guid}</td><td>200</td><td>fish page: species, photos, waters, last 5 news &mdash; docapi 1.32.0</td></tr>
+          <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/photo/{guid}/{imageId}</td><td>200</td><td>one photo&rsquo;s bytes &mdash; docapi 1.32.0</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish/search?q=burbot</td><td>200</td><td>1 exact match</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=AB&amp;codes={"BURB","WALL"}</td><td>200</td><td>2 resolved</td></tr>
           <tr><td class="qctrl">Fish</td><td class="qpath">GET /api/v1/fish?province=BC&amp;codes=RB</td><td>200</td><td>1 result — Rainbow Trout</td></tr>

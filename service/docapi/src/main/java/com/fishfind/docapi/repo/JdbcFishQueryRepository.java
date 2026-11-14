@@ -3,6 +3,7 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.web.FishController.FishSearchItem;
 import com.fishfind.docapi.web.FishController.FishSearchPage;
@@ -48,6 +49,27 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
 
     /** One species, everything but images (docapi 1.27.0, MCP get_fish); NULL for an unknown species. */
     static final String INFO_SQL = "SELECT dbo.fn_fish_info_json(?)";
+
+    /**
+     * The fish page's photo list (docapi 1.32.0): every {@code dbo.fish_image} row of the species with its
+     * credits, the default picture first (the one {@code dbo.fn_edit_fish_general} names, as the website's
+     * fish viewer shows it), then newest first. Bound as (fishId, fishId, fishId).
+     */
+    static final String PHOTOS_SQL =
+            "SELECT g.fish_image_id, g.fish_image_gender, g.fish_image_juvenile,"
+            + " CASE WHEN g.fish_image_id = d.fish_image_id THEN 1 ELSE 0 END AS is_default,"
+            + " i.fish_image_author, i.fish_image_source, i.fish_image_link, i.fish_image_label"
+            + " FROM dbo.fn_fish_image_gallery(?) g"
+            + " OUTER APPLY (SELECT TOP 1 e.fish_image_id FROM dbo.fn_edit_fish_general(?) e) d"
+            + " OUTER APPLY dbo.fn_fish_image_info(?, g.fish_image_id) i"
+            + " ORDER BY is_default DESC, g.fish_image_id DESC";
+
+    /**
+     * One photo's bytes. The gallery join keeps an id that is not this species' from falling back to the newest
+     * picture, which {@code dbo.fn_fish_image_handler} does on its own. Bound as (fishId, imageId, fishId, imageId).
+     */
+    static final String PHOTO_SQL =
+            "SELECT dbo.fn_fish_image_handler(?, ?) FROM dbo.fn_fish_image_gallery(?) g WHERE g.fish_image_id = ?";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -133,6 +155,51 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
         return (json == null || json.isBlank()) ? null : parseItem(json);
     }
 
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "photosFallback")
+    public JsonNode photos(String fishId) {
+        ArrayNode out = objectMapper.createArrayNode();
+        jdbc.query(PHOTOS_SQL, ps -> {
+            ps.setString(1, fishId);
+            ps.setString(2, fishId);
+            ps.setString(3, fishId);
+        }, rs -> {
+            ObjectNode item = out.addObject();
+            item.put("imageId", rs.getInt("fish_image_id"));
+            item.put("isDefault", rs.getInt("is_default") == 1);
+            item.put("male", rs.getBoolean("fish_image_gender"));
+            item.put("juvenile", rs.getBoolean("fish_image_juvenile"));
+            putTrimmed(item, "author", rs.getString("fish_image_author"));
+            putTrimmed(item, "source", rs.getString("fish_image_source"));
+            putTrimmed(item, "link", rs.getString("fish_image_link"));
+            putTrimmed(item, "label", rs.getString("fish_image_label"));
+        });
+        return out;
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "photoFallback")
+    public byte[] photo(String fishId, int imageId) {
+        List<byte[]> rows = jdbc.query(PHOTO_SQL, ps -> {
+            ps.setString(1, fishId);
+            ps.setInt(2, imageId);
+            ps.setString(3, fishId);
+            ps.setInt(4, imageId);
+        }, (rs, i) -> rs.getBytes(1));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** A blank credit is left out (the columns are NOT NULL, so "none" is stored as ''). */
+    private static void putTrimmed(ObjectNode item, String key, String value) {
+        if (value == null || value.isBlank()) {
+            item.putNull(key);
+        } else {
+            item.put(key, value.trim());
+        }
+    }
+
     /**
      * Runs a scalar-JSON query and parses the result. Both functions are written to return {@code '[]'}
      * rather than NULL, but a NULL/blank scalar is still mapped to an empty array so a caller can never
@@ -195,6 +262,22 @@ public class JdbcFishQueryRepository implements FishQueryRepository {
     @SuppressWarnings("unused")
     public JsonNode infoFallback(String fishId, Throwable ex) {
         throw new RuntimeException("SQL fish-info query failed for fish " + fishId, ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #photos}.
+     */
+    @SuppressWarnings("unused")
+    public JsonNode photosFallback(String fishId, Throwable ex) {
+        throw new RuntimeException("SQL fish-photos query failed for fish " + fishId, ex);
+    }
+
+    /**
+     * Circuit-breaker fallback for {@link #photo}.
+     */
+    @SuppressWarnings("unused")
+    public byte[] photoFallback(String fishId, int imageId, Throwable ex) {
+        throw new RuntimeException("SQL fish-photo query failed for fish " + fishId + " image " + imageId, ex);
     }
 
     /**

@@ -73,4 +73,16 @@ public class InMemoryFishQueryRepository implements FishQueryRepository {
     public JsonNode info(String fishId) {
         return null;
     }
+
+    /** No database: no species has photos. */
+    @Override
+    public JsonNode photos(String fishId) {
+        return JsonNodeFactory.instance.arrayNode();
+    }
+
+    /** No database: no photo exists. */
+    @Override
+    public byte[] photo(String fishId, int imageId) {
+        return null;
+    }
 }
