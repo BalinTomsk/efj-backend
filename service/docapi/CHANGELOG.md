@@ -2,6 +2,16 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-14: **1.33.0 (LIVE 2026-11-14, digest 22cbe815…, rollback `docapi-prev` = 1.32.0) — map shapes by bounding box for the Android app (envfish-droid P0-10).** New
+  `MapController`: `GET /api/v1/map/shapes?bbox=west,south,east,north&zoom=&limit=` returns the `dbo.Lake_Shape` lake
+  outlines and river lines crossing the box as GeoJSON, each simplified to one screen pixel at `zoom` and dropped when
+  under two pixels long (`dbo.fn_shapes_bbox_geojson`, new). Box at most 5° and 4,096 px across at the zoom, else 400
+  before SQL; `limit` default 500, cap 2000. `Cache-Control: private, max-age=3600`; `CachingMapQueryRepository`
+  (30 min, 200 entries). `TtlLru` extracted from `CachingForecastQueryRepository` and shared. Tests: 9 new (409 total).
+  **Deploy order:** on docapi's database first the `SIDX_Lake_Shape` spatial index, `dbo.fn_shape_geojson_parts`,
+  the reworked `dbo.fn_lake_shape_geojson` and `dbo.fn_shapes_bbox_geojson` (envfish-db), then the image.
+  Rollback: `docapi-prev=1.32.0`.
+
 - 2026-11-14: **1.32.0 (LIVE 2026-11-14, digest 0087fdbf…, rollback `docapi-prev` = 1.31.0) — fish page for the Android app (envfish-droid P0-09).** `GET /api/v1/fish/page/{guid}?waters=`
   returns `{fish, photos, waters, news}`: the species document (`fn_fish_info_json`), the photo list with credits,
   default first (`fn_fish_image_gallery` + `fn_edit_fish_general` + `fn_fish_image_info`), the water bodies holding it

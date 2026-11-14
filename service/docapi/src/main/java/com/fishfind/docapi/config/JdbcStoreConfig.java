@@ -14,6 +14,9 @@ import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
 import com.fishfind.docapi.repo.CachingForecastQueryRepository;
 import com.fishfind.docapi.repo.ForecastQueryRepository;
 import com.fishfind.docapi.repo.JdbcForecastQueryRepository;
+import com.fishfind.docapi.repo.CachingMapQueryRepository;
+import com.fishfind.docapi.repo.JdbcMapQueryRepository;
+import com.fishfind.docapi.repo.MapQueryRepository;
 import com.fishfind.docapi.repo.JdbcRegulationCommandRepository;
 import com.fishfind.docapi.repo.JdbcRegulationQueryRepository;
 import com.fishfind.docapi.repo.RegulationCommandRepository;
@@ -264,6 +267,23 @@ public class JdbcStoreConfig {
     public ForecastQueryRepository forecastQueryRepository(
             @Qualifier("jdbcForecastQueryRepository") ForecastQueryRepository jdbcForecastQueryRepository) {
         return new CachingForecastQueryRepository(jdbcForecastQueryRepository);
+    }
+
+    /**
+     * The SQL-backed map repository (1.33.0, {@code /api/v1/map/shapes}), its own bean so Resilience4j can proxy it
+     * -- see {@link #jdbcNewsStore}.
+     */
+    @Bean
+    public MapQueryRepository jdbcMapQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcMapQueryRepository(jdbc, objectMapper);
+    }
+
+    /** What {@code MapController} injects: {@link CachingMapQueryRepository} (30-minute LRU) in front of the JDBC bean. */
+    @Bean
+    @Primary
+    public MapQueryRepository mapQueryRepository(
+            @Qualifier("jdbcMapQueryRepository") MapQueryRepository jdbcMapQueryRepository) {
+        return new CachingMapQueryRepository(jdbcMapQueryRepository);
     }
 
     /**

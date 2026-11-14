@@ -17,6 +17,8 @@ import com.fishfind.docapi.repo.InMemoryRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverQueryRepository;
 import com.fishfind.docapi.repo.ForecastQueryRepository;
 import com.fishfind.docapi.repo.InMemoryForecastQueryRepository;
+import com.fishfind.docapi.repo.InMemoryMapQueryRepository;
+import com.fishfind.docapi.repo.MapQueryRepository;
 import com.fishfind.docapi.repo.InMemoryRegulationCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRegulationQueryRepository;
 import com.fishfind.docapi.repo.NewsAdminCommandRepository;
@@ -95,6 +97,11 @@ public class InMemoryStoreConfig {
     @Bean
     public ForecastQueryRepository forecastQueryRepository() {
         return new InMemoryForecastQueryRepository();
+    }
+
+    @Bean
+    public MapQueryRepository mapQueryRepository(ObjectMapper objectMapper) {
+        return new InMemoryMapQueryRepository(objectMapper);
     }
 
     @Bean

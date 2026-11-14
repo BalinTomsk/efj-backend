@@ -381,6 +381,7 @@
     <a href="#fish" class="impl"><span class="n">●</span>Fish</a>
     <a href="#river" class="impl"><span class="n">●</span>River</a>
     <a href="#forecast" class="impl"><span class="n">●</span>Forecast</a>
+    <a href="#map" class="impl"><span class="n">●</span>Map</a>
     <a href="#waterbody" class="stub"><span class="n">○</span>Waterbody</a>
     <a href="#station" class="stub"><span class="n">○</span>Station</a>
     <a href="#mcp" class="impl"><span class="n">●</span>MCP</a>
@@ -421,6 +422,7 @@
       <div class="status-tile"><span class="ctrl-name">Fish</span><span class="ctrl-state live">Live</span><span class="ctrl-note">search + 2 lookups backed; GET /{guid} species document (1.28.0, live 2026&#8209;10&#8209;21); POST/PUT not yet</span></div>
       <div class="status-tile"><span class="ctrl-name">River</span><span class="ctrl-state live">Live</span><span class="ctrl-note">unfished + description + fish lookups backed; 5 PATCH writes fronted (Bearer-token gated); source/mouth GET+PATCH deployed and verified live 2026‑09‑09</span></div>
       <div class="status-tile"><span class="ctrl-name">Forecast</span><span class="ctrl-state live">Live</span><span class="ctrl-note">3 GETs for the app&rsquo;s Forecast tab, docapi 1.31.0 &mdash; live 2026-11-13</span></div>
+      <div class="status-tile"><span class="ctrl-name">Map</span><span class="ctrl-state live">Live</span><span class="ctrl-note">GET /map/shapes for the app map, docapi 1.33.0 &mdash; live 2026-11-14; prod has no shapes yet</span></div>
       <div class="status-tile"><span class="ctrl-name">Waterbody</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">Station</span><span class="ctrl-state stub">Stub</span><span class="ctrl-note">routes exist, SQL objects not created</span></div>
       <div class="status-tile"><span class="ctrl-name">MCP</span><span class="ctrl-state live">Live</span><span class="ctrl-note">docapi 1.22.0 live 2026‑10‑05 at mcp.fishfind.info (cproxy MCP keys)</span></div>
@@ -1619,6 +1621,52 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
             <div class="example-body">
               <div class="req-line"><span class="verb-inline">GET</span>/api/v1/forecast/reasoning/266353?fish={walleye}&amp;day=7</div>
               <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"day must be 0..6"</span><span class="p">}</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <section class="block" id="map">
+    <div class="block-head">
+      <h2 class="display">Map</h2>
+      <span class="tag">MapController · /api/v1/map</span>
+    </div>
+    <p class="prose" style="margin-bottom:22px;">Map data for the Android app (envfish-droid P0-10). Arguments are validated before any SQL (<code>400 invalid_document</code>); every <code>200</code> carries <code>Cache-Control: private, max-age=3600</code> and docapi holds each document 30 minutes.</p>
+        <p class="prose" style="margin:2px 0 14px; padding:12px 14px; border-left:4px solid #1565C0; background:rgba(21,101,192,.07);"><strong>NEW 2026&#8209;11&#8209;14, docapi 1.33.0 &mdash; LIVE 2026&#8209;11&#8209;14.</strong> Production&rsquo;s <code>dbo.Lake_Shape</code> is empty (0 rows on 2026&#8209;11&#8209;14; the shapes are on CTRL only), so live calls return no features yet. The examples below come from the unit-test database.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/map/shapes<span class="param">?bbox=west,south,east,north&amp;zoom=&amp;limit=</span></span></div>
+        <span class="specimen-label">Lake outlines and river lines in a box</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">The <code>dbo.Lake_Shape</code> shapes crossing the box (<code>dbo.fn_shapes_bbox_geojson</code>, through the <code>SIDX_Lake_Shape</code> spatial index) as a GeoJSON FeatureCollection. Each shape is simplified to one 256&#8209;px web-map pixel at <code>zoom</code> (<code>toleranceM</code>, metres at the box&rsquo;s middle latitude) and left out when its length or perimeter is under two pixels. Shapes come back whole, not clipped to the box. <code>kind</code>: <code>line</code> (river centre line), <code>outline</code> (water-body polygon), <code>shape</code> (older rows); geometry is <code>LineString</code>, <code>MultiLineString</code>, <code>Polygon</code> or <code>MultiPolygon</code> in [lon, lat]. Longest shapes first; <code>truncated</code> is true when more crossed the box than <code>limit</code>. An empty box is <code>200</code> with no features.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">bbox</td><td><code>west,south,east,north</code> in degrees, required. West &lt; east, south &lt; north, latitudes within &plusmn;85, at most 5&deg; each way, not across the antimeridian. Rounded to 1e&#8209;5&deg; and echoed.</td></tr>
+            <tr><td class="pname">zoom</td><td>Web-map zoom 0..22, required. A box wider than 4,096 px at that zoom (16 tiles) is a <code>400</code>: ask per tile.</td></tr>
+            <tr><td class="pname">limit</td><td>Most features, default 500, capped at 2000; garbage &rarr; default.</td></tr>
+          </tbody>
+        </table>
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>A lake outline in the box</strong> (unit-test data).</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/map/shapes?bbox=-140,69.8,-139.7,70&amp;zoom=12</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"type"</span><span class="p">:</span> <span class="s">"FeatureCollection"</span><span class="p">,</span> <span class="k">"bbox"</span><span class="p">:</span> <span class="p">[</span><span class="n">-140</span><span class="p">,</span> <span class="n">69.8</span><span class="p">,</span> <span class="n">-139.7</span><span class="p">,</span> <span class="n">70</span><span class="p">],</span> <span class="k">"zoom"</span><span class="p">:</span> <span class="n">12</span><span class="p">,</span> <span class="k">"toleranceM"</span><span class="p">:</span> <span class="n">13.17</span><span class="p">,</span> <span class="k">"truncated"</span><span class="p">:</span> <span class="z">false</span><span class="p">,</span>
+    <span class="k">"features"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="k">"type"</span><span class="p">:</span> <span class="s">"Feature"</span><span class="p">,</span> <span class="k">"properties"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"id"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"lakeId"</span><span class="p">:</span> <span class="s">"…"</span><span class="p">,</span> <span class="k">"lakeName"</span><span class="p">:</span> <span class="s">"Utsbj Lake"</span><span class="p">,</span> <span class="k">"locType"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"kind"</span><span class="p">:</span> <span class="s">"outline"</span> <span class="p">},</span>
+      <span class="k">"geometry"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"type"</span><span class="p">:</span> <span class="s">"Polygon"</span><span class="p">,</span> <span class="k">"coordinates"</span><span class="p">:</span> <span class="p">[[[</span><span class="n">-139.9</span><span class="p">,</span><span class="n">69.9</span><span class="p">],</span> <span class="n">…</span><span class="p">]]</span> <span class="p">}</span> <span class="p">}</span> <span class="p">]</span> <span class="p">},</span> <span class="k">"error"</span><span class="p">:</span> <span class="z">null</span> <span class="p">}</span></pre>
+            </div>
+          </div>
+          <div class="example">
+            <div class="example-head"><span class="caption"><strong>Box too big for the zoom</strong>.</span><span class="status-code status-400">400</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/map/shapes?bbox=-1,1,0,2&amp;zoom=13</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span> <span class="k">"data"</span><span class="p">:</span> <span class="z">null</span><span class="p">,</span> <span class="k">"error"</span><span class="p">:</span> <span class="p">{</span><span class="k">"code"</span><span class="p">:</span> <span class="s">"invalid_document"</span><span class="p">,</span> <span class="k">"message"</span><span class="p">:</span> <span class="s">"bbox is too big for zoom 13 (5825 px across, at most 4096): ask for smaller boxes, e.g. one per tile"</span><span class="p">}</span> <span class="p">}</span></pre>
             </div>
           </div>
         </div>
