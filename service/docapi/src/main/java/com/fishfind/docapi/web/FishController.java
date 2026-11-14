@@ -2,20 +2,30 @@ package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.FishQueryRepository;
+import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.FishDocumentService;
 import com.fishfind.docapi.service.InvalidDocumentException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +36,9 @@ import java.util.List;
  * <ul>
  *   <li>{@code GET /api/v1/fish/{guid}} — one species, everything but images (1.28.0; also the MCP tool
  *       {@code get_fish}).</li>
+ *   <li>{@code GET /api/v1/fish/page/{guid}} — the app's fish page in one call: species document, photo list,
+ *       water bodies and the latest 5 news (1.32.0).</li>
+ *   <li>{@code GET /api/v1/fish/photo/{guid}/{imageId}} — one photo's bytes (1.32.0).</li>
  *   <li>{@code GET /api/v1/fish/search} — relevance-ranked species search by name / Latin / synonym.</li>
  *   <li>{@code GET /api/v1/fish?province=&codes=} — regional fish code to Latin name, per province.</li>
  *   <li>{@code GET /api/v1/fish?fishes=} — batch common name to Latin name, one result per name.</li>
@@ -76,12 +89,105 @@ public class FishController extends AbstractDocumentController {
     /** Upper bound on the search term ({@code dbo.SearchFishList} takes a {@code varchar(64)}). */
     static final int MAX_TERM = 64;
 
+    private static final Logger log = LoggerFactory.getLogger(FishController.class);
+
+    /** Water bodies on a fish page unless {@code waters} says otherwise, and the most it may ask for. */
+    static final int PAGE_WATERS_DEFAULT = 20;
+    static final int PAGE_WATERS_MAX = 50;
+
+    /** Latest news on a fish page (user decision 2026-11-14: the last 5). */
+    static final int PAGE_NEWS = 5;
+
+    /** Days a photo may be cached, as {@code /news/photo/{id}}. */
+    static final int PHOTO_CACHE_DAYS = 7;
+
     private final FishQueryRepository queryRepository;
+    private final NewsQueryRepository newsRepository;
+    private final ObjectMapper mapper;
 
     public FishController(FishDocumentService service, ObjectMapper objectMapper,
-                          FishQueryRepository queryRepository) {
+                          FishQueryRepository queryRepository, NewsQueryRepository newsRepository) {
         super(service, objectMapper);
         this.queryRepository = queryRepository;
+        this.newsRepository = newsRepository;
+        this.mapper = objectMapper;
+    }
+
+    /**
+     * Everything the app's fish page shows, in one call (docapi 1.32.0, envfish-droid P0-09):
+     * {@code {fish, photos, waters, news}}.
+     *
+     * <ul>
+     *   <li>{@code fish}: the species document of {@code GET /api/v1/fish/{guid}} (names, Latin name, description,
+     *       habitat, zoology, spawning, food, ...).</li>
+     *   <li>{@code photos}: {@code [{imageId, isDefault, male, juvenile, author, source, link, label, url}]}, the
+     *       default picture first; {@code url} is the gateway path of the bytes ({@link #photo}).</li>
+     *   <li>{@code waters}: {@code {total, limit, items}} from {@code dbo.fn_fish_water_bodies_json}, highest
+     *       probability first, every country and type.</li>
+     *   <li>{@code news}: the latest {@value #PAGE_NEWS} articles naming the species, as {@code /news/fish/{guid}}.
+     *       News lives in another database (MySQL); if it fails, {@code news} is {@code null} and the page still
+     *       answers, the rule the website's fish viewer follows.</li>
+     * </ul>
+     *
+     * <p>Not role-gated here; on the gateway's HTTPS port only a signed-in account reaches it (cproxy 0.29.0).
+     *
+     * @param guid   the species GUID, any case, braces allowed
+     * @param waters how many water bodies (default {@value #PAGE_WATERS_DEFAULT}, 1..{@value #PAGE_WATERS_MAX})
+     * @throws InvalidDocumentException if {@code guid} is not a GUID (→ 400, no SQL)
+     * @throws DocumentNotFoundException for an unknown species (→ 404)
+     */
+    @GetMapping("/page/{guid}")
+    public ApiResponse<JsonNode> page(@PathVariable String guid,
+                                      @RequestParam(required = false) Integer waters) {
+        JsonNode fish = species(queryRepository, guid);
+        String fishId = RiverController.normalizeGuid(guid);
+        int limit = (waters == null || waters < 1) ? PAGE_WATERS_DEFAULT : Math.min(waters, PAGE_WATERS_MAX);
+
+        ObjectNode out = mapper.createObjectNode();
+        out.set("fish", fish);
+        ArrayNode photos = out.putArray("photos");
+        for (JsonNode photo : queryRepository.photos(fishId)) {
+            ObjectNode item = photo.deepCopy();
+            item.put("url", "/api/v1/fish/photo/" + fishId + "/" + photo.path("imageId").asInt());
+            photos.add(item);
+        }
+        out.set("waters", queryRepository.waterBodies(fishId, null, null, null, 0, limit));
+        try {
+            out.set("news", mapper.valueToTree(newsRepository.fishNews(fishId, PAGE_NEWS)));
+        } catch (RuntimeException ex) {
+            log.warn("fish page {}: news unavailable, served without it: {}", fishId, ex.toString());
+            out.putNull("news");
+        }
+        return ApiResponse.ok(out);
+    }
+
+    /**
+     * One photo of one species, the bytes behind a {@code photos[].url} of {@link #page} (docapi 1.32.0). Cached
+     * like {@code /news/photo/{id}}: public {@code max-age}, an ETag of {@code "<fish>-<image>-<length>"},
+     * {@code If-None-Match} answered with 304.
+     *
+     * @return 200 with the image, 304, or 404 when the species has no photo with that id
+     * @throws InvalidDocumentException if {@code guid} is not a GUID (→ 400, no SQL)
+     */
+    @GetMapping(value = "/photo/{guid}/{imageId}", produces = MediaType.ALL_VALUE)
+    public ResponseEntity<byte[]> photo(@PathVariable String guid, @PathVariable int imageId,
+                                        @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        String fishId = RiverController.normalizeGuid(guid);
+        byte[] bytes = queryRepository.photo(fishId, imageId);
+        if (bytes == null || bytes.length == 0) {
+            return ResponseEntity.notFound().build();
+        }
+        String etag = "\"" + fishId + "-" + imageId + "-" + bytes.length + "\"";
+        CacheControl cache = CacheControl.maxAge(Duration.ofDays(PHOTO_CACHE_DAYS)).cachePublic();
+        if (ifNoneMatch != null && ifNoneMatch.contains(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cache).build();
+        }
+        return ResponseEntity.ok()
+                .eTag(etag)
+                .cacheControl(cache)
+                .contentType(MediaType.parseMediaType(NewsController.sniffContentType(bytes)))
+                .contentLength(bytes.length)
+                .body(bytes);
     }
 
     /**

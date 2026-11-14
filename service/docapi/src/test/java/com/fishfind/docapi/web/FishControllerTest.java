@@ -2,6 +2,9 @@ package com.fishfind.docapi.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.FishQueryRepository;
+import com.fishfind.docapi.repo.NewsQueryRepository;
+import com.fishfind.docapi.web.NewsController.NewsFishPage;
+import com.fishfind.docapi.web.NewsController.NewsRefItem;
 import com.fishfind.docapi.service.FishDocumentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -15,10 +18,16 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -36,6 +45,9 @@ class FishControllerTest {
 
     @MockBean
     private FishQueryRepository queryRepository;
+
+    @MockBean
+    private NewsQueryRepository newsRepository;
 
     // ---- GET /{guid}: the species document (dbo.fn_fish_info_json, 1.28.0) ----
 
@@ -72,6 +84,86 @@ class FishControllerTest {
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
         verify(queryRepository, never()).info(any());
         verify(service, never()).get(any());
+    }
+
+    // ---- GET /page/{guid}: the app's fish page (1.32.0, envfish-droid P0-09) ----
+
+    private void stubPage() throws Exception {
+        String id = WALLEYE.toLowerCase();
+        when(queryRepository.info(id)).thenReturn(objectMapper.readTree(
+                "{\"fishId\":\"" + WALLEYE + "\",\"name\":\"Walleye\",\"latin\":\"Sander vitreus\"}"));
+        when(queryRepository.photos(id)).thenReturn(objectMapper.readTree(
+                "[{\"imageId\":7,\"isDefault\":true,\"male\":false,\"juvenile\":false,\"author\":\"A\"}]"));
+        when(queryRepository.waterBodies(eq(id), isNull(), isNull(), isNull(), eq(0), anyInt())).thenReturn(
+                objectMapper.readTree("{\"total\":1,\"limit\":20,\"items\":[{\"lakeName\":\"Lake Erie\"}]}"));
+    }
+
+    @Test
+    void pageCombinesSpeciesPhotosWatersAndTheLastFiveNews() throws Exception {
+        stubPage();
+        String id = WALLEYE.toLowerCase();
+        when(newsRepository.fishNews(id, 5)).thenReturn(new NewsFishPage(id, 5,
+                List.of(new NewsRefItem("n1", "Big walleye", "src", "2026-11-01", "CA"))));
+
+        mockMvc.perform(get("/api/v1/fish/page/" + WALLEYE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fish.latin").value("Sander vitreus"))
+                .andExpect(jsonPath("$.data.photos[0].imageId").value(7))
+                .andExpect(jsonPath("$.data.photos[0].url").value("/api/v1/fish/photo/" + id + "/7"))
+                .andExpect(jsonPath("$.data.waters.items[0].lakeName").value("Lake Erie"))
+                .andExpect(jsonPath("$.data.news.limit").value(5))
+                .andExpect(jsonPath("$.data.news.items[0].title").value("Big walleye"));
+        verify(queryRepository).waterBodies(id, null, null, null, 0, FishController.PAGE_WATERS_DEFAULT);
+    }
+
+    @Test
+    void pageClampsWatersAndSurvivesANewsFailure() throws Exception {
+        stubPage();
+        when(newsRepository.fishNews(anyString(), anyInt())).thenThrow(new RuntimeException("mysql down"));
+
+        mockMvc.perform(get("/api/v1/fish/page/" + WALLEYE + "?waters=999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fish.name").value("Walleye"))
+                .andExpect(jsonPath("$.data.news").isEmpty());
+        verify(queryRepository).waterBodies(WALLEYE.toLowerCase(), null, null, null, 0, FishController.PAGE_WATERS_MAX);
+    }
+
+    @Test
+    void pageUnknownSpeciesIs404AndMalformedIs400WithoutSql() throws Exception {
+        when(queryRepository.info(any())).thenReturn(null);
+        mockMvc.perform(get("/api/v1/fish/page/" + WALLEYE)).andExpect(status().isNotFound());
+        verify(queryRepository, never()).photos(any());
+
+        mockMvc.perform(get("/api/v1/fish/page/walleye")).andExpect(status().isBadRequest());
+        verify(newsRepository, never()).fishNews(any(), anyInt());
+    }
+
+    // ---- GET /photo/{guid}/{imageId}: one photo's bytes (1.32.0) ----
+
+    private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x01, 0x02};
+
+    @Test
+    void photoServesSniffedBytesWithCacheHeadersAnd304() throws Exception {
+        String id = WALLEYE.toLowerCase();
+        when(queryRepository.photo(id, 7)).thenReturn(JPEG);
+        String etag = "\"" + id + "-7-5\"";
+
+        mockMvc.perform(get("/api/v1/fish/photo/" + WALLEYE + "/7"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(header().string("ETag", etag))
+                .andExpect(content().bytes(JPEG));
+        mockMvc.perform(get("/api/v1/fish/photo/" + WALLEYE + "/7").header("If-None-Match", etag))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    void photoMissingIs404AndMalformedGuidIs400WithoutSql() throws Exception {
+        when(queryRepository.photo(any(), anyInt())).thenReturn(null);
+        mockMvc.perform(get("/api/v1/fish/photo/" + WALLEYE + "/8")).andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/v1/fish/photo/walleye/8")).andExpect(status().isBadRequest());
+        verify(queryRepository, never()).photo(eq("walleye"), anyInt());
     }
 
     // ---- species-catalogue search (delegated to FishQueryRepository) ----

@@ -79,4 +79,25 @@ public interface FishQueryRepository {
      * @return the species document, or {@code null} for an unknown species
      */
     JsonNode info(String fishId);
+
+    /**
+     * The photos of one species for the fish page (docapi 1.32.0), default picture first, then newest first.
+     * Backed by {@code dbo.fn_fish_image_gallery}, {@code dbo.fn_edit_fish_general} (which picks the default,
+     * as the website's fish viewer does) and {@code dbo.fn_fish_image_info} (credits). No bytes.
+     *
+     * @param fishId canonical species GUID
+     * @return a JSON array of {@code {imageId, isDefault, male, juvenile, author, source, link, label}}; never
+     *         {@code null}, empty for a species without photos
+     */
+    JsonNode photos(String fishId);
+
+    /**
+     * The bytes of one photo of one species (docapi 1.32.0), {@code dbo.fn_fish_image_handler} limited to an
+     * image that really belongs to the species (the function itself falls back to the newest one).
+     *
+     * @param fishId  canonical species GUID
+     * @param imageId the {@code fish_image_id}
+     * @return the image bytes, or {@code null} when that species has no such photo
+     */
+    byte[] photo(String fishId, int imageId);
 }
