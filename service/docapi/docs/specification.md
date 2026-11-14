@@ -391,6 +391,16 @@ argument is validated before the repository is called (400 `invalid_document`, n
 
 `dbo.spForecast` (the inert `WebService/Forecast`) is not used; it does not exist in the database.
 
+### Map — `/api/v1/map` (1.33.0)
+
+`MapController` serves map data for the envfish-droid app (TODO P0-10). Arguments are validated before the
+repository is called (400 `invalid_document`, never a SQL error on the shared `sqlBreaker`); every 200 carries
+`Cache-Control: private, max-age=3600`, and `CachingMapQueryRepository` holds each document 30 minutes (200 entries).
+
+| Endpoint | SQL | Notes |
+|----------|-----|-------|
+| `GET /map/shapes?bbox=west,south,east,north&zoom=&limit=` | `SELECT dbo.fn_shapes_bbox_geojson(?, ?, ?, ?, ?, ?)` | The `dbo.Lake_Shape` shapes (lake outlines, river lines) crossing the box, found through the `SIDX_Lake_Shape` spatial index: `{type:"FeatureCollection", bbox, zoom, toleranceM, truncated, features:[{type:"Feature", properties:{id, lakeId, lakeName, locType, kind}, geometry}]}`, `kind` `line`/`outline`/`shape`, geometry LineString / MultiLineString / Polygon / MultiPolygon in [lon, lat]. Each shape is simplified (geography `Reduce`) to one 256-px web-map pixel at `zoom` and the box's middle latitude (`toleranceM`), and left out when its length / perimeter is under two pixels; shapes are whole, not clipped. `bbox` required: four numbers, west < east, south < north, latitudes ±85, at most 5° each way, no antimeridian crossing, rounded to 1e-5°; `zoom` required 0..22; a box over 4,096 px across at that zoom is a 400 (ask per tile). `limit` default 500, cap 2000, longest first; `truncated` = more shapes crossed the box. Empty box ⇒ empty `features` (never 404). Without the `jdbc` profile every box is empty. |
+
 ### MCP server — `/api/v1/mcp` (1.20.0)
 
 A Model Context Protocol server for Claude Desktop / Claude Code (`McpController` + `McpToolCatalog`).

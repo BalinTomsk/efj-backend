@@ -3,9 +3,6 @@ package com.fishfind.docapi.repo;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Clock;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.function.Supplier;
 
 /**
  * Caching decorator for {@link ForecastQueryRepository} (1.31.0). The forecast changes slowly (the map's
@@ -25,10 +22,9 @@ public class CachingForecastQueryRepository implements ForecastQueryRepository {
     public static final int MAX_ENTRIES = 500;
 
     private final ForecastQueryRepository delegate;
-    private final Clock clock;
-    private final Lru stations = new Lru();
-    private final Lru plots = new Lru();
-    private final Lru reasonings = new Lru();
+    private final TtlLru<JsonNode> stations;
+    private final TtlLru<JsonNode> plots;
+    private final TtlLru<JsonNode> reasonings;
 
     public CachingForecastQueryRepository(ForecastQueryRepository delegate) {
         this(delegate, Clock.systemUTC());
@@ -36,7 +32,9 @@ public class CachingForecastQueryRepository implements ForecastQueryRepository {
 
     CachingForecastQueryRepository(ForecastQueryRepository delegate, Clock clock) {
         this.delegate = delegate;
-        this.clock = clock;
+        this.stations = new TtlLru<>(MAX_ENTRIES, TTL_MILLIS, clock);
+        this.plots = new TtlLru<>(MAX_ENTRIES, TTL_MILLIS, clock);
+        this.reasonings = new TtlLru<>(MAX_ENTRIES, TTL_MILLIS, clock);
     }
 
     @Override
@@ -58,40 +56,5 @@ public class CachingForecastQueryRepository implements ForecastQueryRepository {
     /** Entries held per endpoint (tests). */
     int size() {
         return stations.size() + plots.size() + reasonings.size();
-    }
-
-    private record Entry(JsonNode value, long expires) {}
-
-    private final class Lru {
-        private final LinkedHashMap<String, Entry> map = new LinkedHashMap<>(64, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
-                return size() > MAX_ENTRIES;
-            }
-        };
-
-        JsonNode get(String key, Supplier<JsonNode> loader) {
-            long now = clock.millis();
-            synchronized (map) {
-                Entry e = map.get(key);
-                if (e != null && e.expires() > now) {
-                    return e.value();
-                }
-            }
-            // Loaded outside the lock: a slow query must not stall every other forecast request.
-            JsonNode value = loader.get();
-            if (value != null) {
-                synchronized (map) {
-                    map.put(key, new Entry(value, now + TTL_MILLIS));
-                }
-            }
-            return value;
-        }
-
-        int size() {
-            synchronized (map) {
-                return map.size();
-            }
-        }
     }
 }
