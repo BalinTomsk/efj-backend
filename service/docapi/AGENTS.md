@@ -167,6 +167,8 @@ com.fishfind.docapi
 │   │                              #   fn_fish_reasoning_json)
 │   ├── CachingForecastQueryRepository # @Primary in jdbc: 5-min TTL LRU (500) per method, misses not stored
 │   ├── TtlLru                     # the bounded TTL LRU both caching decorators use (1.33.0)
+│   ├── NewsNearRepository         # interface: taggedNews(limit) (MySQL) + lakesNear(ids, lat, lon, km) (SQL Server)
+│   ├── JdbcNewsNearRepository / InMemoryNewsNearRepository (1.34.0, /news/near; dbo.fn_lakes_near_json)
 │   ├── MapQueryRepository         # interface: shapes(west, south, east, north, zoom, limit) (1.33.0, /api/v1/map)
 │   ├── InMemoryMapQueryRepository / JdbcMapQueryRepository (dbo.fn_shapes_bbox_geojson) /
 │   │                              #   CachingMapQueryRepository (@Primary in jdbc: 30-min TTL LRU, 200 entries)
@@ -210,6 +212,8 @@ com.fishfind.docapi
     │                              #   PATCH /river/source|mouth/{guid}/point relink (1.25.0)
     ├── ForecastController          # GET /api/v1/forecast/stations, /plot/{sid}, /reasoning/{sid} (1.31.0):
     │                              #   the website's Planning map, Plot and Reasoning pages as JSON for the app
+    ├── NewsNearController          # GET /api/v1/news/near?lat=&lon=&radius=&limit= (1.34.0): stories whose tagged
+    │                              #   water body is near the point, nearest first (app Local news, P1-09)
     ├── MapController               # GET /api/v1/map/shapes?bbox=&zoom=&limit= (1.33.0): Lake_Shape outlines/lines
     │                              #   in a box as GeoJSON for the app map, simplified per zoom (P0-10)
     ├── RegulationController        # GET/PATCH /river/regulation/{guid} + /region/regulation/{country}[/{state}]

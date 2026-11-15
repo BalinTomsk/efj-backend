@@ -16,6 +16,8 @@ import com.fishfind.docapi.repo.ForecastQueryRepository;
 import com.fishfind.docapi.repo.JdbcForecastQueryRepository;
 import com.fishfind.docapi.repo.CachingMapQueryRepository;
 import com.fishfind.docapi.repo.JdbcMapQueryRepository;
+import com.fishfind.docapi.repo.JdbcNewsNearRepository;
+import com.fishfind.docapi.repo.NewsNearRepository;
 import com.fishfind.docapi.repo.MapQueryRepository;
 import com.fishfind.docapi.repo.JdbcRegulationCommandRepository;
 import com.fishfind.docapi.repo.JdbcRegulationQueryRepository;
@@ -276,6 +278,17 @@ public class JdbcStoreConfig {
     @Bean
     public MapQueryRepository jdbcMapQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcMapQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * {@code /news/near} (1.34.0): tagged stories from MySQL, distances from SQL Server ({@code fn_lakes_near_json}).
+     * Its own bean so Resilience4j can proxy it -- see {@link #jdbcNewsStore}.
+     */
+    @Bean
+    public NewsNearRepository newsNearRepository(JdbcTemplate jdbc,
+                                                 @Qualifier("mysqlNewsJdbcTemplate") JdbcTemplate mysqlJdbc,
+                                                 ObjectMapper objectMapper) {
+        return new JdbcNewsNearRepository(jdbc, mysqlJdbc, objectMapper);
     }
 
     /** What {@code MapController} injects: {@link CachingMapQueryRepository} (30-minute LRU) in front of the JDBC bean. */

@@ -2,6 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-15: **1.34.0 (LIVE 2026-11-16, rollback `docapi-prev` = 1.33.0) — news near a point for the Android app's Local news (envfish-droid P1-09).** New
+  `NewsNearController`: `GET /api/v1/news/near?lat=&lon=&radius=&limit=`. News (MySQL) only knows the water body a story
+  is tagged with (`news.lake_id`) and coordinates live in SQL Server, so `JdbcNewsNearRepository` reads the newest 2000
+  tagged stories (narrow columns, checked on a real mysql:8) and asks the new `dbo.fn_lakes_near_json` which of their
+  water bodies lie within the radius (nearer of source and mouth); the controller joins them, nearest first then newest.
+  `lat`/`lon` required and rounded to 0.01°; radius default 100 cap 500; limit default 20 cap 100. Answers and the tagged
+  list held 5 min (`TtlLru`). Tests: 8 new (417). **Deploy order:** `fn_lakes_near_json` on docapi's database first,
+  then the image. Rollback: `docapi-prev=1.33.0`.
+
 - 2026-11-14: **1.33.0 (LIVE 2026-11-14, digest 22cbe815…, rollback `docapi-prev` = 1.32.0) — map shapes by bounding box for the Android app (envfish-droid P0-10).** New
   `MapController`: `GET /api/v1/map/shapes?bbox=west,south,east,north&zoom=&limit=` returns the `dbo.Lake_Shape` lake
   outlines and river lines crossing the box as GeoJSON, each simplified to one screen pixel at `zoom` and dropped when
