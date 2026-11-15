@@ -892,6 +892,25 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
         </div>
       </div>
     </div>
+  
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/news/near<span class="param">?lat=&amp;lon=&amp;radius=&amp;limit=</span></span></div>
+        <span class="specimen-label">Stories near a point (docapi 1.34.0, live 2026-11-16)</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">For the Android app&rsquo;s Local news (envfish-droid P1-09). Published stories tagged with a water body (<code>news.lake_id</code>; the newest 2000 tagged ones) whose water body lies within <code>radius</code> km of the point &mdash; the nearer of its source and mouth, <code>dbo.fn_lakes_near_json</code> &mdash; nearest first, then newest: <code>{lat, lon, radiusKm, limit, total, items:[{newsId, title, source, stamp, country, lakeId, lakeName, distanceKm}]}</code>. A story without a water body is never &ldquo;near&rdquo;. Nothing near is <code>200</code> with empty <code>items</code>. Answers are held 5 minutes; <code>Cache-Control: private, max-age=300</code>.</p>
+        <table class="params">
+          <thead><tr><th>Parameter</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="pname">lat, lon</td><td>Required, &minus;90..90 / &minus;180..180, rounded to 0.01&deg;. Missing or out of range &rarr; <code>400</code> before any SQL.</td></tr>
+            <tr><td class="pname">radius</td><td>km, default 100, capped at 500; garbage &rarr; default.</td></tr>
+            <tr><td class="pname">limit</td><td>Default 20, capped at 100; garbage &rarr; default.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </section>
 
   <!-- ============================= FISH ============================= -->
