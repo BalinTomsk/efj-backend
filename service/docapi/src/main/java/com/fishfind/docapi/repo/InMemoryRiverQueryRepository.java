@@ -62,6 +62,12 @@ public class InMemoryRiverQueryRepository implements RiverQueryRepository {
         return null;
     }
 
+    /** No database: no stations, so every id is "not found" (controller maps to 404). */
+    @Override
+    public JsonNode weather(String lakeId) {
+        return null;
+    }
+
     /** No database: nothing to find, so every search is an empty page. */
     @Override
     public JsonNode search(RiverSearchCriteria criteria) {

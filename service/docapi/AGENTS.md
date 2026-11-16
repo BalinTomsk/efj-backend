@@ -159,7 +159,7 @@ com.fishfind.docapi
 │   │                              #   fn_fish_latin_json, fn_fish_water_bodies_json, fn_fish_info_json
 │   ├── RiverQueryRepository       # interface: unfished/description/fish/source/mouth(lakeId) +
 │   │                              #   search(RiverSearchCriteria) (1.19.0; stateId 1.23.0; region/type/sort/offset 1.26.0) +
-│   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0)
+│   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0) + weather(lakeId) (1.35.0)
 │   ├── RiverSearchCriteria        # record: the 11 normalized search arguments + SORTS (1.26.0)
 │   ├── ForecastQueryRepository    # interface: stations / plot / reasoning (1.31.0, /api/v1/forecast)
 │   ├── InMemoryForecastQueryRepository / JdbcForecastQueryRepository (fn_forecast_stations_json,

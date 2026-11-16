@@ -419,6 +419,40 @@ class RiverControllerTest {
         verify(queryRepository, never()).barriers(anyString());
     }
 
+    // ---- weather (1.35.0) ----
+
+    @Test
+    void weatherNormalizesTheGuidAndReturnsTheStations() throws Exception {
+        when(queryRepository.weather("0c44dfc7-849c-20c3-9db6-f2c06fc97a1f"))
+                .thenReturn(objectMapper.readTree("{\"guid\":\"0C44DFC7-849C-20C3-9DB6-F2C06FC97A1F\","
+                        + "\"lakeName\":\"Laurel Creek\",\"stations\":[{\"sid\":263862,\"mli\":\"02GA024\","
+                        + "\"science\":null,\"weather\":null}]}"));
+
+        mockMvc.perform(get("/api/v1/river/weather/0C44DFC7849C20C39DB6F2C06FC97A1F"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stations[0].sid").value(263862))
+                .andExpect(jsonPath("$.data.stations[0].mli").value("02GA024"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void weatherOfAnUnknownGuidIs404() throws Exception {
+        when(queryRepository.weather("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/weather/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+    }
+
+    @Test
+    void weatherOfAMalformedGuidIs400AndNeverQueries() throws Exception {
+        mockMvc.perform(get("/api/v1/river/weather/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+
+        verify(queryRepository, never()).weather(anyString());
+    }
+
     // ---- PATCH source (merge patch) ----
 
     @Test

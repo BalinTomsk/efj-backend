@@ -169,6 +169,24 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     /** The waterfalls and dams of one water body (1.24.0); live on docapi's database since envfish-db #70. */
     static final String BARRIERS_SQL = "SELECT dbo.fn_lake_barriers_json(?)";
 
+    /** The Weather tab (wfRiverViewWeather.aspx): stations, latest reading, today's forecast. 1.35.0. */
+    static final String WEATHER_SQL = "SELECT dbo.fn_lake_weather_json(?)";
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "weatherFallback")
+    public JsonNode weather(String lakeId) {
+        List<String> rows = jdbc.query(WEATHER_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
+        String json = rows.isEmpty() ? null : rows.get(0);
+        return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #weather}. */
+    @SuppressWarnings("unused")
+    public JsonNode weatherFallback(String lakeId, Throwable ex) {
+        throw new RuntimeException("SQL river-weather query failed for id " + lakeId, ex);
+    }
+
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "barriersFallback")

@@ -2,6 +2,12 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-16: **1.35.0 (LIVE 2026-11-16, digest fda2ecf7…, rollback `docapi-prev` = 1.34.0) — a water body's Weather tab for the Android app (envfish-droid P1-12).**
+  `GET /api/v1/river/weather/{guid}` returns `dbo.fn_lake_weather_json` (already in the database: the website's
+  `wfRiverViewWeather.aspx` document, read by the admin Save JSON): each station of the water body with its latest
+  reading and today's forecast. GUID validated first (400), unknown ⇒ 404. No SQL change. Tests: 3 new (420).
+  Rollback: `docapi-prev=1.34.0`.
+
 - 2026-11-15: **1.34.0 (LIVE 2026-11-16, rollback `docapi-prev` = 1.33.0) — news near a point for the Android app's Local news (envfish-droid P1-09).** New
   `NewsNearController`: `GET /api/v1/news/near?lat=&lon=&radius=&limit=`. News (MySQL) only knows the water body a story
   is tagged with (`news.lake_id`) and coordinates live in SQL Server, so `JdbcNewsNearRepository` reads the newest 2000
