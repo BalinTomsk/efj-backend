@@ -1387,6 +1387,16 @@ ETag: "aeb5b2d89355401abe322936453963ee-525222"
       </div>
     </div>
 
+        <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/weather/{guid}</span></div>
+        <span class="specimen-label">A water body's Weather tab (docapi 1.35.0, live 2026-11-16)</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="prose" style="margin:2px 0 14px;">What the website&rsquo;s <code>wfRiverViewWeather.aspx</code> renders, for the Android app: <code>{guid, lakeName, stations:[{sid, mli, lat, lon, locName, science, weather}]}</code> &mdash; every monitoring station of the water body, <code>science</code> its latest water reading (<code>vScienceView</code>) and <code>weather</code> today&rsquo;s forecast (<code>fn_station_weather_today</code>), each <code>null</code> when the station has none (<code>dbo.fn_lake_weather_json</code>). A water body without a station has an empty <code>stations</code>. Malformed GUID &rarr; <code>400</code> before any SQL; unknown &rarr; <code>404</code>.</p>
+      </div>
+    </div>
+
     <div class="endpoint">
       <div class="specimen-tag">
         <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/river/barriers/<span class="param">{guid}</span></span></div>

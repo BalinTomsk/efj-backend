@@ -523,6 +523,28 @@ public class RiverController {
     }
 
     /**
+     * The Weather tab of one water body (1.35.0, for the envfish-droid app): every monitoring station of it with its
+     * latest water reading ({@code science}) and today's forecast ({@code weather}), each null when the station has
+     * none -- {@code dbo.fn_lake_weather_json}, the document the website's {@code wfRiverViewWeather.aspx} renders.
+     * The GUID is validated before the repository is called, as for {@code /barriers}.
+     *
+     * @param guid the water body's GUID (36-char, 32-hex or braced)
+     * @return {@code {guid, lakeName, stations:[{sid, mli, lat, lon, locName, science, weather}]}}; an empty
+     *         {@code stations} (never 404) when the water body has no station
+     * @throws InvalidDocumentException  if {@code guid} is not a GUID (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/weather/{guid}")
+    public ApiResponse<JsonNode> weather(@PathVariable String guid) {
+        String id = normalizeGuid(guid);
+        JsonNode document = queryRepository.weather(id);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
      * Applies a JSON merge-patch to one water body's Source-tab fields.
      *
      * @param guid the water body's GUID

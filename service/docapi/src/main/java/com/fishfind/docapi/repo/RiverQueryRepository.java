@@ -86,6 +86,16 @@ public interface RiverQueryRepository {
     JsonNode barriers(String lakeId);
 
     /**
+     * The Weather tab for one water body (1.35.0): every monitoring station of it with its latest water reading and
+     * today's forecast -- {@code dbo.fn_lake_weather_json}, the document the website's {@code wfRiverViewWeather.aspx}
+     * renders.
+     *
+     * @return {@code {guid, lakeName, stations:[{sid, mli, lat, lon, locName, science, weather}]}}, or {@code null}
+     *         for an unknown water body
+     */
+    JsonNode weather(String lakeId);
+
+    /**
      * Water-body lookup and ranking by any combination of criteria; every non-null one must match (AND).
      * Backed by {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs, and at
      * least one criterion ({@link RiverSearchCriteria#hasCriterion}) is set. Region, type, sort and paging
