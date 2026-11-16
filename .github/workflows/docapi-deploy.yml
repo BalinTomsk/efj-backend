@@ -25,9 +25,7 @@ name: docapi
 #   DEPLOY_BASTION_KEY   optional: bastion private key
 #   GHCR_PULL_TOKEN      PAT with read:packages so the droplet can pull the image (or make the
 #                        ghcr.io/balintomsk/docapi package public and this can be any valid token)
-# Repository variable (optional):
-#   DOCAPI_PUBLISH       docker -p mapping (default 127.0.0.1:8080:8080 = localhost-only; set to the
-#                        private IP, e.g. 10.118.0.3:8080:8080, when a proxy on another droplet needs it)
+# The deploy publishes 127.0.0.1:8080 and the droplet's VPC address (eth1):8080, like the live container.
 
 on:
   push:
@@ -79,7 +77,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: vars
-        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        # The pom version (e.g. 1.35.0) is the tag manual deploys use (efj-backend/secret/deploy-docapi-<v>.ps1), so CI
+        # pushes it too, next to the commit tag.
+        run: |
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          v=$(grep -m1 -oP '(?<=<version>)[0-9]+\.[0-9]+\.[0-9]+(?=</version>)' service/docapi/pom.xml)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -96,6 +99,7 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ steps.vars.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.version }}
 
   deploy:
     needs: build-and-push
@@ -118,7 +122,6 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           TAG: ${{ needs.build-and-push.outputs.tag }}
-          PUBLISH: ${{ vars.DOCAPI_PUBLISH || '127.0.0.1:8080:8080' }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -126,23 +129,39 @@ jobs:
           proxy_host: ${{ secrets.DEPLOY_BASTION_HOST }}
           proxy_username: ${{ secrets.DEPLOY_BASTION_USER }}
           proxy_key: ${{ secrets.DEPLOY_BASTION_KEY }}
-          envs: TAG,PUBLISH
+          envs: TAG
+          # Same container as the manual deploy (efj-backend/secret/deploy-docapi-<v>.ps1, checked against the live one
+          # 2026-11-16): localhost + the droplet's VPC address (eth1) so cproxy on the other droplet reaches it, the
+          # docapi env file, the master key for the enc:v1 values, and the old container kept as docapi-prev. A failed
+          # health check puts docapi-prev back.
           script: |
             set -e
             echo "${{ secrets.GHCR_PULL_TOKEN }}" | docker login ghcr.io -u BalinTomsk --password-stdin
             docker pull "ghcr.io/balintomsk/docapi:${TAG}"
-            docker rm -f docapi 2>/dev/null || true
-            docker run -d --name docapi --restart unless-stopped \
-              -p "${PUBLISH}" \
-              --env-file /mnt/volume_jnode/waterservice/waterservice.env \
-              -e SPRING_PROFILES_ACTIVE=jdbc \
-              "ghcr.io/balintomsk/docapi:${TAG}"
             docker logout ghcr.io || true
+            if docker inspect docapi >/dev/null 2>&1; then
+              docker rm -f docapi-prev >/dev/null 2>&1 || true
+              docker stop -t 30 docapi
+              docker rename docapi docapi-prev
+              docker update --restart=no docapi-prev >/dev/null
+            fi
+            VPC=$(ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1 | head -1)
+            docker run -d --name docapi --restart unless-stopped \
+              -p 127.0.0.1:8080:8080 ${VPC:+-p "$VPC:8080:8080"} \
+              --env-file /mnt/volume_jnode/docapi/docapi.env \
+              -e SPRING_PROFILES_ACTIVE=jdbc \
+              -e FF_MASTER_KEY_FILE=/run/master.key \
+              -v /mnt/volume_jnode/docapi/master.key:/run/master.key:ro \
+              "ghcr.io/balintomsk/docapi:${TAG}"
             echo "Waiting for health..."
-            for i in $(seq 1 20); do
+            for i in $(seq 1 30); do
               curl -sf http://localhost:8080/health && { echo; echo "docapi healthy"; exit 0; }
               sleep 3
             done
-            echo "docapi did not become healthy in time" >&2
+            echo "docapi did not become healthy in time; putting docapi-prev back" >&2
             docker logs --tail 50 docapi >&2 || true
+            docker rm -f docapi
+            if docker inspect docapi-prev >/dev/null 2>&1; then
+              docker rename docapi-prev docapi && docker update --restart unless-stopped docapi && docker start docapi
+            fi
             exit 1
