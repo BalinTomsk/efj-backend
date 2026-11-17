@@ -2,7 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
-- 2026-11-17: **1.36.0 (built, not deployed) — the signed-in user's own catch log for the Android app (envfish-droid Me tab).**
+- 2026-11-17: **1.37.0 (built, not deployed) — saved spots for the Android app (envfish-droid P2-02).** New
+  `SpotController` on the new envfish-db table `dbo.user_spot` (apply to prod BEFORE this deploys):
+  `GET /api/v1/spot/mine` (`fn_user_spot_list_json`), `POST /api/v1/spot` (`{spotId?, name, lat, lon, lakeId?, note?}`,
+  `sp_user_spot_save`; the client's id makes a retry safe) and `POST /api/v1/spot/{id}/delete` (`sp_user_spot_delete`;
+  POST because the gateway forwards no DELETE). Caller = `X-Fish-User` (cproxy 0.30.0); another account's spot is 404,
+  a 501st spot 409 `too_many_spots`. The procedures answer with a result code (`@result OUTPUT`), never an error, so a
+  caller mistake never counts against the breaker; the JDBC SQL was run on a real engine. 436 tests (+7).
+- 2026-11-17: **1.36.0 (LIVE 2026-11-17 via CI, image 4bd49dd) — the signed-in user's own catch log for the Android app (envfish-droid Me tab).**
   New `CatchLogController`: `GET /api/v1/catch/mine?limit=` (`dbo.fn_catch_memo_mine_json`, NEW in envfish-db: apply to
   prod BEFORE this deploys, or the missing function trips the shared breaker), `POST /api/v1/catch` (JSON, the
   `add_catch_log` fields; weather from the station forecast), `POST /api/v1/catch/{id}/photo` (raw JPEG, at most 5 MB, 3 per
