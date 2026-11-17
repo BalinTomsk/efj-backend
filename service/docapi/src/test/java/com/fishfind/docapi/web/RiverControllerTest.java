@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -417,6 +418,51 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.error.code").value("invalid_document"));
 
         verify(queryRepository, never()).barriers(anyString());
+    }
+
+    // ---- map points (1.38.0) ----
+
+    @Test
+    void mapPointsPassTheSignedInUserAndRoleAndReturnBothLayers() throws Exception {
+        when(queryRepository.mapPoints("0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11", "11111111-2222-3333-4444-555555555555", false))
+                .thenReturn(objectMapper.readTree("{\"guid\":\"0C4A6E4C-849C-20C3-9E4F-5E1CBD3A1A11\",\"lakeName\":\"Guelph Lake\","
+                        + "\"spots\":[{\"lat\":43.6,\"lon\":-80.25}],"
+                        + "\"catches\":[{\"catchLogId\":\"C1\",\"species\":\"Carp, Common\",\"lat\":43.59,\"lon\":-80.24,\"mine\":true}]}"));
+
+        mockMvc.perform(get("/api/v1/river/mappoints/0C4A6E4C849C20C39E4F5E1CBD3A1A11")
+                        .header(McpCaller.USER_HEADER, "11111111-2222-3333-4444-555555555555")
+                        .header(ViewerRole.HEADER, "user"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.spots[0].lat").value(43.6))
+                .andExpect(jsonPath("$.data.catches[0].mine").value(true))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void mapPointsForAnAdminAndForNoUser() throws Exception {
+        when(queryRepository.mapPoints(anyString(), any(), anyBoolean()))
+                .thenReturn(objectMapper.readTree("{\"guid\":\"x\",\"spots\":[],\"catches\":[]}"));
+
+        mockMvc.perform(get("/api/v1/river/mappoints/0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11").header(ViewerRole.HEADER, "admin"))
+                .andExpect(status().isOk());
+        verify(queryRepository).mapPoints("0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11", null, true);
+
+        mockMvc.perform(get("/api/v1/river/mappoints/0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11").header(McpCaller.USER_HEADER, "not-a-guid"))
+                .andExpect(status().isOk());
+        verify(queryRepository).mapPoints("0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11", null, false);
+    }
+
+    @Test
+    void mapPointsOfAnUnknownGuidAre404AndOfAMalformedOne400() throws Exception {
+        when(queryRepository.mapPoints(anyString(), any(), anyBoolean())).thenReturn(null);
+        mockMvc.perform(get("/api/v1/river/mappoints/00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+
+        mockMvc.perform(get("/api/v1/river/mappoints/not-a-guid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_document"));
+        verify(queryRepository, never()).mapPoints(eq("not-a-guid"), any(), anyBoolean());
     }
 
     // ---- weather (1.35.0) ----

@@ -96,6 +96,18 @@ public interface RiverQueryRepository {
     JsonNode weather(String lakeId);
 
     /**
+     * The website river map's personal layers (1.38.0): the water body's fishing spots ({@code dbo.Spot}, drawn with a
+     * hook) and the catch logs the viewer may see with a position ({@code dbo.fn_catch_memo_list}: public complete
+     * ones, the viewer's own, all for an admin), newest first. Existing database objects only.
+     *
+     * @param viewerId the signed-in account (canonical GUID) or {@code null}; a guest gets no catch positions
+     * @param admin    true for an admin viewer
+     * @return {@code {guid, lakeName, spots:[{lat, lon}], catches:[{catchLogId, fishId, species, title, catchDate, lat,
+     *         lon, mine}]}}, or {@code null} for an unknown water body
+     */
+    JsonNode mapPoints(String lakeId, String viewerId, boolean admin);
+
+    /**
      * Water-body lookup and ranking by any combination of criteria; every non-null one must match (AND).
      * Backed by {@code dbo.fn_river_search_json}. The caller validates and normalizes the inputs, and at
      * least one criterion ({@link RiverSearchCriteria#hasCriterion}) is set. Region, type, sort and paging

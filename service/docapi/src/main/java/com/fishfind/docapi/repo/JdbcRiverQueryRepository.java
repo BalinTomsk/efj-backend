@@ -172,6 +172,31 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     /** The Weather tab (wfRiverViewWeather.aspx): stations, latest reading, today's forecast. 1.35.0. */
     static final String WEATHER_SQL = "SELECT dbo.fn_lake_weather_json(?)";
 
+    /**
+     * Fishing spots and visible catch logs with a position, for the app's map (1.38.0): the same two sources as the
+     * website's river map (wfRiverViewer.aspx GetFishPoints / GetCatchMemoPoints), on existing objects only. Parameters:
+     * viewer (for {@code mine}), viewer, admin bit, lake. Run on a real SQL Server (local envionx) before release.
+     */
+    static final String MAP_POINTS_SQL = """
+            SET NOCOUNT ON;
+            SELECT
+                l.Lake_id AS guid,
+                l.lake_name AS lakeName,
+                JSON_QUERY(COALESCE((SELECT s.spot_lat AS lat, s.spot_lon AS lon FROM dbo.Spot s
+                    WHERE s.lake_Id = l.Lake_id AND s.spot_lat IS NOT NULL AND s.spot_lon IS NOT NULL
+                    FOR JSON PATH), '[]')) AS spots,
+                JSON_QUERY(COALESCE((SELECT c.catch_memo_id AS catchLogId, c.catch_memo_fish_id AS fishId,
+                        c.catch_memo_species AS species, c.catch_memo_title AS title,
+                        CONVERT(char(10), c.catch_memo_catch_date, 23) AS catchDate,
+                        c.catch_memo_lat AS lat, c.catch_memo_lon AS lon,
+                        CAST(CASE WHEN c.catch_memo_userid = ? THEN 1 ELSE 0 END AS bit) AS mine
+                    FROM dbo.fn_catch_memo_list(l.Lake_id, ?, ?) c
+                    WHERE c.catch_memo_lat IS NOT NULL AND c.catch_memo_lon IS NOT NULL
+                    ORDER BY c.catch_memo_catch_date DESC, c.catch_memo_created DESC
+                    FOR JSON PATH), '[]')) AS catches
+            FROM dbo.Lake l WHERE l.Lake_id = ?
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER""";
+
     @Override
     @Retry(name = "sqlRetry")
     @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "weatherFallback")
@@ -194,6 +219,27 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
         List<String> rows = jdbc.query(BARRIERS_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
         String json = rows.isEmpty() ? null : rows.get(0);
         return (json == null || json.isBlank()) ? null : parse(json);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "mapPointsFallback")
+    public JsonNode mapPoints(String lakeId, String viewerId, boolean admin) {
+        // FOR JSON splits a long document over several rows of one column: join them.
+        List<String> rows = jdbc.query(MAP_POINTS_SQL, ps -> {
+            ps.setString(1, viewerId);
+            ps.setString(2, viewerId);
+            ps.setBoolean(3, admin);
+            ps.setString(4, lakeId);
+        }, (rs, i) -> rs.getString(1));
+        String json = String.join("", rows);
+        return json.isBlank() ? null : parse(json);
+    }
+
+    /** Circuit-breaker fallback for {@link #mapPoints}. */
+    @SuppressWarnings("unused")
+    public JsonNode mapPointsFallback(String lakeId, String viewerId, boolean admin, Throwable ex) {
+        throw new RuntimeException("SQL river-map-points query failed for id " + lakeId, ex);
     }
 
     /** Circuit-breaker fallback for {@link #barriers}. */

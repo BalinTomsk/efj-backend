@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -516,6 +517,32 @@ public class RiverController {
     public ApiResponse<JsonNode> barriers(@PathVariable String guid) {
         String id = normalizeGuid(guid);
         JsonNode document = queryRepository.barriers(id);
+        if (document == null) {
+            throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
+        }
+        return ApiResponse.ok(document);
+    }
+
+    /**
+     * The website river map's personal layers for one water body (1.38.0, for the envfish-droid Map tab): its fishing
+     * spots and the catch logs the caller may see that have a position, newest first. The caller is
+     * {@value McpCaller#USER_HEADER} / {@value ViewerRole#HEADER} as cproxy stamps them; without a user no catch has a
+     * position, so {@code catches} is empty. The GUID is validated before the repository is called.
+     *
+     * @param guid the water body's GUID (36-char, 32-hex or braced)
+     * @return {@code {guid, lakeName, spots:[{lat, lon}], catches:[{catchLogId, fishId, species, title, catchDate, lat,
+     *         lon, mine}]}}; empty arrays (never 404) when it has none
+     * @throws InvalidDocumentException  if {@code guid} is not a GUID (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping("/mappoints/{guid}")
+    public ApiResponse<JsonNode> mapPoints(
+            @PathVariable String guid,
+            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user,
+            @RequestHeader(value = ViewerRole.HEADER, required = false) String role) {
+        String id = normalizeGuid(guid);
+        McpCaller caller = McpCaller.fromHeaders(role, user);
+        JsonNode document = queryRepository.mapPoints(id, caller.userId(), caller.role() == ViewerRole.ADMIN);
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, id);
         }

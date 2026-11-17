@@ -2,7 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
-- 2026-11-17: **1.37.0 (built, not deployed) — saved spots for the Android app (envfish-droid P2-02).** New
+- 2026-11-17: **1.38.0 (built, not deployed) — the website river map's personal layers for the Android app (envfish-droid P1-16).**
+  `GET /api/v1/river/mappoints/{guid}` → `{guid, lakeName, spots:[{lat, lon}], catches:[{catchLogId, fishId, species, title,
+  catchDate, lat, lon, mine}]}`: the water body's fishing spots (`dbo.Spot`, the website's hook markers) and the catch logs
+  the caller may see that have a position (`dbo.fn_catch_memo_list(lake, viewer, admin)`: public complete ones, the
+  caller's own, all for an admin; newest first), the same two sources as `wfRiverViewer.aspx` GetFishPoints /
+  GetCatchMemoPoints. Caller = `X-Fish-User` + `X-Fish-Role` from cproxy; without a user no catch has a position, so
+  `catches` is empty. **Existing database objects only: no prod SQL step.** The JDBC SQL was run on a real engine (local
+  envionx: Guelph Lake, 6 catches, 9 ms). GUID validated first (400), unknown ⇒ 404. 439 tests (+3).
+- 2026-11-17: **1.37.0 (LIVE 2026-11-17 via CI, image 0f02d3f) — saved spots for the Android app (envfish-droid P2-02).** New
   `SpotController` on the new envfish-db table `dbo.user_spot` (apply to prod BEFORE this deploys):
   `GET /api/v1/spot/mine` (`fn_user_spot_list_json`), `POST /api/v1/spot` (`{spotId?, name, lat, lon, lakeId?, note?}`,
   `sp_user_spot_save`; the client's id makes a retry safe) and `POST /api/v1/spot/{id}/delete` (`sp_user_spot_delete`;
