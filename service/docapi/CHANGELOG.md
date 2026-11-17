@@ -2,7 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
-- 2026-11-17: **1.38.0 (built, not deployed) — the website river map's personal layers for the Android app (envfish-droid P1-16).**
+- 2026-11-17: **1.39.0 (built, not deployed) — follow water bodies and fish for the Android app (envfish-droid P2-06).**
+  New `FollowController` on the new envfish-db table `dbo.user_follow` (apply to prod BEFORE this deploys, or the
+  missing objects trip the shared breaker): `GET /api/v1/follow/mine` → `{waters:[{lakeId, lakeName, locType, state,
+  country, since}], fish:[{fishId, fishName, latin, since}]}` (`fn_user_follow_list_json`), `POST /api/v1/follow`
+  `{kind: "water"|"fish", id, follow: true|false}` → `{kind, id, following}` (`sp_user_follow_set`; repeating either is
+  harmless). Caller = `X-Fish-User` (401 without); an unknown water body or fish 404; a 501st follow 409
+  `too_many_follows`. The procedure answers with a result code, never an error; the JDBC SQL was run on a real engine.
+- 2026-11-17: **1.38.0 (LIVE 2026-11-17 via CI, efj-backend #142) — the website river map's personal layers for the Android app (envfish-droid P1-16).**
   `GET /api/v1/river/mappoints/{guid}` → `{guid, lakeName, spots:[{lat, lon}], catches:[{catchLogId, fishId, species, title,
   catchDate, lat, lon, mine}]}`: the water body's fishing spots (`dbo.Spot`, the website's hook markers) and the catch logs
   the caller may see that have a position (`dbo.fn_catch_memo_list(lake, viewer, admin)`: public complete ones, the
