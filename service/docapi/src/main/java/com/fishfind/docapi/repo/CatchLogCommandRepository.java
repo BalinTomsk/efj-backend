@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
 
-/** Writes catch logs ({@code dbo.catch_memo}) and their photos; used by the MCP write tools only. */
+/**
+ * Catch logs ({@code dbo.catch_memo}) and their photos: the MCP write tools, and since 1.36.0 the signed-in app's
+ * own catch log ({@code CatchLogController}).
+ */
 public interface CatchLogCommandRepository {
 
     /** Max visible photos per catch log, the limit {@code dbo.sp_add_catch_memo_photo} enforces. */
@@ -40,4 +43,16 @@ public interface CatchLogCommandRepository {
      * ({@link #photoCount}).
      */
     JsonNode addPhoto(String catchLogId, String userId, byte[] jpeg, int ord, String description, String author);
+
+    /** {@code userId}'s own catch logs, newest catch first, at most {@code limit} ({@code dbo.fn_catch_memo_mine_json}). */
+    JsonNode mine(String userId, int limit);
+
+    /**
+     * Whether {@code userId} may still change catch log {@code catchLogId}: its author, within the portal's 60 days
+     * ({@code dbo.fn_catch_memo_get}'s {@code can_edit}). {@code null} when the log does not exist.
+     */
+    Boolean canEdit(String catchLogId, String userId);
+
+    /** A visible photo's JPEG bytes ({@code dbo.fn_catch_memo_photo_handler}), or {@code null}. */
+    byte[] photo(String catchLogId, String photoId);
 }

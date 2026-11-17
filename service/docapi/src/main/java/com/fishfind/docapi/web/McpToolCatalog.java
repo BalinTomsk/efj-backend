@@ -126,7 +126,7 @@ public class McpToolCatalog {
      * The portal form's conditions ({@code ddlWeatherCondition}, {@code icon:text}): a {@code weather} value
      * naming one of them (any case) is stored with its icon, anything else as free text with none.
      */
-    private static final Map<String, String> WEATHER_ICONS = Map.of(
+    static final Map<String, String> WEATHER_ICONS = Map.of(
             "clear", "01d", "partly cloudy", "02d", "cloudy", "03d", "overcast", "04d",
             "rain", "10d", "thunderstorm", "11d", "snow", "13d", "fog", "50d");
 
@@ -181,6 +181,7 @@ public class McpToolCatalog {
     private final RegulationQueryRepository regulationRepository;
     private final FishQueryRepository fishRepository;
     private final CatchLogCommandRepository catchLogRepository;
+    private final CatchLogWriter catchLogWriter;
     private final CatchPhotoFetcher photoFetcher;
     private final ObjectMapper objectMapper;
     private final Set<String> writeUsers;
@@ -197,6 +198,7 @@ public class McpToolCatalog {
         this.regulationRepository = regulationRepository;
         this.fishRepository = fishRepository;
         this.catchLogRepository = catchLogRepository;
+        this.catchLogWriter = new CatchLogWriter(catchLogRepository);
         this.photoFetcher = photoFetcher;
         this.objectMapper = objectMapper;
         this.writeUsers = parseWriteUsers(writeUsers);
@@ -598,40 +600,7 @@ public class McpToolCatalog {
     // ---- write handlers (1.29.0) ---------------------------------------------------------------
 
     private JsonNode addCatchLog(JsonNode args, McpCaller caller) {
-        String userId = requireAuthor(caller);
-        String lakeId = optionalText(args, "lakeId");
-        if (lakeId == null) {
-            throw new InvalidDocumentException("lakeId is required (get it from search_water_bodies)");
-        }
-        lakeId = RiverController.normalizeGuid(lakeId);
-        CatchLog blank = new CatchLog(uuidV7(), lakeId, userId, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, false, CatchLog.Weather.NONE);
-        CatchLog log = merge(blank, args);
-        List<String> fromStation = new ArrayList<>();
-        if (log.catchDate() != null && !Boolean.FALSE.equals(optionalBoolean(args, "stationWeather"))) {
-            CatchLog.Weather given = log.weather();
-            CatchLog.Weather station = catchLogRepository.stationWeather(lakeId, log.catchDate().toLocalDate());
-            boolean text = given.text() == null && station.text() != null;
-            if (given.temp() == null && station.temp() != null) fromStation.add("airTemp");
-            if (text) fromStation.add("weather");
-            if (given.water() == null && station.water() != null) fromStation.add("waterTemp");
-            if (station.pressure() != null) fromStation.add("pressure");
-            log = log.withWeather(new CatchLog.Weather(
-                    given.temp() != null ? given.temp() : station.temp(),
-                    station.pressure(),
-                    text ? station.text() : given.text(),
-                    text ? station.icon() : given.icon(),
-                    given.water() != null ? given.water() : station.water()));
-        }
-        JsonNode stored = catchLogRepository.add(log);
-        if (stored == null) {
-            throw new DocumentNotFoundException(DocumentType.WATERBODY, lakeId);
-        }
-        if (stored instanceof ObjectNode out) {
-            ArrayNode list = out.putArray("stationWeather");
-            fromStation.forEach(list::add);
-        }
-        return stored;
+        return catchLogWriter.add(requireAuthor(caller), args);
     }
 
     private JsonNode updateCatchLog(JsonNode args, McpCaller caller) {
@@ -649,63 +618,15 @@ public class McpToolCatalog {
             throw new InvalidDocumentException("Catch log " + catchLogId + " was not added by this key's account; "
                     + "only its author's key can change it here (use the portal)");
         }
-        JsonNode stored = catchLogRepository.add(merge(current, args));
+        JsonNode stored = catchLogRepository.add(catchLogWriter.merge(current, args));
         if (stored == null) {
             throw new InvalidDocumentException("No catch log " + catchLogId);
         }
         return stored;
     }
 
-    /**
-     * {@code base} with every catch-log field present in {@code args} replaced: a value sets it, JSON null clears
-     * it, an absent key keeps {@code base}'s. Validates the result (units go with their values, lat with lon) and
-     * the species, so nothing malformed reaches SQL.
-     */
-    private CatchLog merge(CatchLog base, JsonNode args) {
-        String fishId = base.fishId();
-        if (args.has("fishId")) {
-            fishId = optionalText(args, "fishId");
-            if (fishId != null) fishId = RiverController.normalizeGuid(fishId);
-        }
-        Double weight = args.has("weight") ? optionalNumber(args, "weight", 0, 2000) : base.weight();
-        String weightUnit = args.has("weightUnit") ? unitValue(args, "weightUnit", Set.of("kg", "lb")) : base.weightUnit();
-        Double length = args.has("length") ? optionalNumber(args, "length", 0, 1000) : base.length();
-        String lengthUnit = args.has("lengthUnit") ? unitValue(args, "lengthUnit", Set.of("cm", "in")) : base.lengthUnit();
-        pair(weight, weightUnit, "weight", "weightUnit");
-        pair(length, lengthUnit, "length", "lengthUnit");
-        Double lat = args.has("lat") ? optionalNumber(args, "lat", -90, 90) : base.lat();
-        Double lon = args.has("lon") ? optionalNumber(args, "lon", -180, 180) : base.lon();
-        if ((lat == null) != (lon == null)) {
-            throw new InvalidDocumentException("lat and lon go together");
-        }
-        CatchLog.Weather w = base.weather();
-        Double temp = args.has("airTemp") ? optionalNumber(args, "airTemp", -60, 60) : w.temp();
-        Double water = args.has("waterTemp") ? optionalNumber(args, "waterTemp", -5, 45) : w.water();
-        String text = w.text();
-        String icon = w.icon();
-        if (args.has("weather")) {
-            text = boundedText(args, "weather", 64);
-            icon = text == null ? null : WEATHER_ICONS.get(text.toLowerCase(Locale.ROOT));
-        }
-        CatchLog log = new CatchLog(base.id(), base.lakeId(), base.userId(), fishId,
-                text(args, "species", 120, base.species()), text(args, "angler", 200, base.angler()),
-                text(args, "title", 200, base.title()), text(args, "notes", 4000, base.text()),
-                lat, lon, text(args, "method", 200, base.method()), text(args, "tackle", 200, base.tackle()),
-                text(args, "lure", 200, base.lure()),
-                args.has("catchDate") ? catchDate(optionalText(args, "catchDate")) : base.catchDate(),
-                weight, weightUnit, length, lengthUnit,
-                args.has("released") ? optionalBoolean(args, "released") : base.released(),
-                args.has("private") ? Boolean.TRUE.equals(optionalBoolean(args, "private")) : base.isPrivate(),
-                new CatchLog.Weather(temp, w.pressure(), text, icon, water));
-        // Checked before the write, outside it: an unknown species is the caller's mistake, never a breaker failure.
-        if (fishId != null && !fishId.equalsIgnoreCase(base.fishId()) && !catchLogRepository.fishExists(fishId)) {
-            throw new InvalidDocumentException("fishId " + fishId + " is not a known species (get it from search_fish)");
-        }
-        return log;
-    }
-
     /** A text field: {@code fallback} when the key is absent, else the bounded value (null clears it). */
-    private static String text(JsonNode args, String key, int max, String fallback) {
+    static String text(JsonNode args, String key, int max, String fallback) {
         return args.has(key) ? boundedText(args, key, max) : fallback;
     }
 
@@ -767,7 +688,7 @@ public class McpToolCatalog {
     }
 
     /** A unit argument, lower-cased and checked against {@code allowed}; null when absent or JSON null. */
-    private static String unitValue(JsonNode args, String key, Set<String> allowed) {
+    static String unitValue(JsonNode args, String key, Set<String> allowed) {
         String unit = optionalText(args, key);
         if (unit == null) return null;
         unit = unit.toLowerCase(Locale.ROOT);
@@ -778,7 +699,7 @@ public class McpToolCatalog {
     }
 
     /** A unit must come with its value and only with it. */
-    private static void pair(Double value, String unit, String valueKey, String unitKey) {
+    static void pair(Double value, String unit, String valueKey, String unitKey) {
         if (value != null && unit == null) throw new InvalidDocumentException(unitKey + " is required with " + valueKey);
         if (value == null && unit != null) throw new InvalidDocumentException(unitKey + " given without " + valueKey);
     }
@@ -792,7 +713,7 @@ public class McpToolCatalog {
     }
 
     /** A trimmed string of at most {@code max} characters, or null; longer is a caller error, never cut. */
-    private static String boundedText(JsonNode args, String key, int max) {
+    static String boundedText(JsonNode args, String key, int max) {
         String v = optionalText(args, key);
         if (v != null && v.length() > max) {
             throw new InvalidDocumentException(key + " must not exceed " + max + " characters");
@@ -801,7 +722,7 @@ public class McpToolCatalog {
     }
 
     /** A number in (min, max] for 0 minimums, [min, max] otherwise; null when absent. */
-    private static Double optionalNumber(JsonNode args, String key, double min, double max) {
+    static Double optionalNumber(JsonNode args, String key, double min, double max) {
         JsonNode node = args.get(key);
         if (node == null || node.isNull()) return null;
         if (!node.isNumber()) {
@@ -816,7 +737,7 @@ public class McpToolCatalog {
         return v;
     }
 
-    private static Boolean optionalBoolean(JsonNode args, String key) {
+    static Boolean optionalBoolean(JsonNode args, String key) {
         JsonNode node = args.get(key);
         if (node == null || node.isNull()) return null;
         if (!node.isBoolean()) {
@@ -948,7 +869,7 @@ public class McpToolCatalog {
     }
 
     /** A trimmed string argument, or {@code null} when absent/blank; a non-string is a caller error. */
-    private static String optionalText(JsonNode args, String key) {
+    static String optionalText(JsonNode args, String key) {
         JsonNode node = args.get(key);
         if (node == null || node.isNull()) return null;
         if (!node.isTextual()) {

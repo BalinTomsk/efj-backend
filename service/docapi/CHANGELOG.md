@@ -2,6 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-17: **1.36.0 (built, not deployed) — the signed-in user's own catch log for the Android app (envfish-droid Me tab).**
+  New `CatchLogController`: `GET /api/v1/catch/mine?limit=` (`dbo.fn_catch_memo_mine_json`, NEW in envfish-db: apply to
+  prod BEFORE this deploys, or the missing function trips the shared breaker), `POST /api/v1/catch` (JSON, the
+  `add_catch_log` fields; weather from the station forecast), `POST /api/v1/catch/{id}/photo` (raw JPEG, at most 5 MB, 3 per
+  log, 60-day window via `fn_catch_memo_get`.can_edit) and `GET /api/v1/catch/photo/{id}/{photoId}`
+  (`fn_catch_memo_photo_handler`). The caller is `X-Fish-User`, which cproxy 0.30.0 sets for a signed-in token: deploy
+  cproxy 0.30.0 first, or every route answers 401. Someone else's log is a 404; past 60 days 403 `locked`; a fourth photo
+  409. The MCP add/merge code moved into `CatchLogWriter`, shared with the tools (no MCP behaviour change). New
+  `ApiProblemException` (status + code). 429 tests (+9).
 - 2026-11-16: **1.35.0 (LIVE 2026-11-16, digest fda2ecf7…, rollback `docapi-prev` = 1.34.0) — a water body's Weather tab for the Android app (envfish-droid P1-12).**
   `GET /api/v1/river/weather/{guid}` returns `dbo.fn_lake_weather_json` (already in the database: the website's
   `wfRiverViewWeather.aspx` document, read by the admin Save JSON): each station of the water body with its latest

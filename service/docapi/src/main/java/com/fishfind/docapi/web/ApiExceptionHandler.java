@@ -1,5 +1,6 @@
 package com.fishfind.docapi.web;
 
+import com.fishfind.docapi.service.ApiProblemException;
 import com.fishfind.docapi.service.DocumentNotFoundException;
 import com.fishfind.docapi.service.InvalidDocumentException;
 import org.slf4j.Logger;
@@ -39,6 +40,11 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.fail("not_found", "No handler for the requested path"));
+    }
+
+    @ExceptionHandler(ApiProblemException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProblem(ApiProblemException ex) {
+        return ResponseEntity.status(ex.status()).body(ApiResponse.fail(ex.code(), ex.getMessage()));
     }
 
     @ExceptionHandler({InvalidDocumentException.class, HttpMessageNotReadableException.class})
