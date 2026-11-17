@@ -1,6 +1,7 @@
 package com.fishfind.docapi.repo;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import java.time.LocalDate;
 
@@ -37,6 +38,21 @@ public class InMemoryCatchLogCommandRepository implements CatchLogCommandReposit
 
     @Override
     public JsonNode addPhoto(String catchLogId, String userId, byte[] jpeg, int ord, String description, String author) {
+        return null;
+    }
+
+    @Override
+    public JsonNode mine(String userId, int limit) {
+        return JsonNodeFactory.instance.arrayNode();
+    }
+
+    @Override
+    public Boolean canEdit(String catchLogId, String userId) {
+        return null;
+    }
+
+    @Override
+    public byte[] photo(String catchLogId, String photoId) {
         return null;
     }
 }

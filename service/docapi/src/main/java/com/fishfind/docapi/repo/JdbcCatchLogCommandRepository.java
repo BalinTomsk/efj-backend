@@ -57,6 +57,15 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
     static final String WEATHER_SQL = "SELECT TOP 1 weather_temp, weather_pressure, weather_text, weather_icon, "
             + "water_temp FROM dbo.fn_catch_weather_snapshot(?, ?)";
 
+    /** One account's own logs as JSON (1.36.0, the app's catch log). */
+    static final String MINE_SQL = "SELECT dbo.fn_catch_memo_mine_json(?, ?)";
+
+    /** Author + 60-day lock, the portal's own rule; no row when the memo does not exist. */
+    static final String CAN_EDIT_SQL = "SELECT can_edit FROM dbo.fn_catch_memo_get(?, ?, 0)";
+
+    /** A visible photo's bytes, as the portal's image handler reads them. */
+    static final String PHOTO_SQL = "SELECT dbo.fn_catch_memo_photo_handler(?, ?)";
+
     private static final Logger log = LoggerFactory.getLogger(JdbcCatchLogCommandRepository.class);
 
     private final JdbcTemplate jdbc;
@@ -177,6 +186,49 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
             throw new IllegalStateException("sp_add_catch_memo_photo inserted nothing for " + catchLogId);
         }
         return read(catchLogId, after);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "mineFallback")
+    public JsonNode mine(String userId, int limit) {
+        String json = jdbc.queryForObject(MINE_SQL, String.class, userId, limit);
+        try {
+            return objectMapper.readTree(json == null || json.isBlank() ? "[]" : json);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Catch-log list JSON returned by the database is not valid JSON", ex);
+        }
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "canEditFallback")
+    public Boolean canEdit(String catchLogId, String userId) {
+        List<Boolean> rows = jdbc.query(CAN_EDIT_SQL, (rs, n) -> rs.getBoolean(1), catchLogId, userId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    @Override
+    @Retry(name = "sqlRetry")
+    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "photoFallback")
+    public byte[] photo(String catchLogId, String photoId) {
+        List<byte[]> rows = jdbc.query(PHOTO_SQL, (rs, n) -> rs.getBytes(1), catchLogId, photoId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    @SuppressWarnings("unused")
+    public JsonNode mineFallback(String userId, int limit, Throwable ex) {
+        throw new RuntimeException("SQL catch-log list failed", ex);
+    }
+
+    @SuppressWarnings("unused")
+    public Boolean canEditFallback(String catchLogId, String userId, Throwable ex) {
+        throw new RuntimeException("SQL catch-log edit check failed for " + catchLogId, ex);
+    }
+
+    @SuppressWarnings("unused")
+    public byte[] photoFallback(String catchLogId, String photoId, Throwable ex) {
+        throw new RuntimeException("SQL catch-log photo read failed for " + catchLogId, ex);
     }
 
     @SuppressWarnings("unused")
