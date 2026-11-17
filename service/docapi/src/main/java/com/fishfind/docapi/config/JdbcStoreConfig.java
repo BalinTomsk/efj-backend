@@ -2,6 +2,8 @@ package com.fishfind.docapi.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.DocumentStore;
+import com.fishfind.docapi.repo.JdbcSpotRepository;
+import com.fishfind.docapi.repo.SpotRepository;
 import com.fishfind.docapi.repo.FishDocumentRepository;
 import com.fishfind.docapi.repo.FishQueryRepository;
 import com.fishfind.docapi.repo.JdbcFishQueryRepository;
@@ -316,6 +318,12 @@ public class JdbcStoreConfig {
     @Bean
     public CatchLogCommandRepository catchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcCatchLogCommandRepository(jdbc, objectMapper);
+    }
+
+    /** Saved spots (1.37.0, {@code dbo.user_spot}), a bean so Resilience4j can proxy it. */
+    @Bean
+    public SpotRepository spotRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcSpotRepository(jdbc, objectMapper);
     }
 
     /**

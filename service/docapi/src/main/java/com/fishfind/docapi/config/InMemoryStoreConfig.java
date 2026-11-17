@@ -12,6 +12,8 @@ import com.fishfind.docapi.repo.InMemoryNewsWriteRepository;
 import com.fishfind.docapi.repo.InMemoryRiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.CatchLogCommandRepository;
 import com.fishfind.docapi.repo.InMemoryCatchLogCommandRepository;
+import com.fishfind.docapi.repo.InMemorySpotRepository;
+import com.fishfind.docapi.repo.SpotRepository;
 import com.fishfind.docapi.repo.InMemoryRiverFishCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.InMemoryRiverQueryRepository;
@@ -119,6 +121,11 @@ public class InMemoryStoreConfig {
     @Bean
     public CatchLogCommandRepository catchLogCommandRepository() {
         return new InMemoryCatchLogCommandRepository();
+    }
+
+    @Bean
+    public SpotRepository spotRepository() {
+        return new InMemorySpotRepository();
     }
 
     @Bean
