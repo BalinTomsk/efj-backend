@@ -2,6 +2,8 @@ package com.fishfind.docapi.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.DocumentStore;
+import com.fishfind.docapi.repo.FollowRepository;
+import com.fishfind.docapi.repo.JdbcFollowRepository;
 import com.fishfind.docapi.repo.JdbcSpotRepository;
 import com.fishfind.docapi.repo.SpotRepository;
 import com.fishfind.docapi.repo.FishDocumentRepository;
@@ -324,6 +326,12 @@ public class JdbcStoreConfig {
     @Bean
     public SpotRepository spotRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcSpotRepository(jdbc, objectMapper);
+    }
+
+    /** Follows (1.39.0, {@code dbo.user_follow}), a bean so Resilience4j can proxy it. */
+    @Bean
+    public FollowRepository followRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        return new JdbcFollowRepository(jdbc, objectMapper);
     }
 
     /**
