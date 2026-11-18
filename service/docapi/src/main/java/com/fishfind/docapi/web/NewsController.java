@@ -102,6 +102,44 @@ public class NewsController extends AbstractDocumentController {
     }
 
     /**
+     * One article's document, with the base64 lead {@code photo} left out when the caller asks
+     * {@code ?photo=false}. The photo is most of the response (0.6–0.9 MB for a typical story,
+     * against a few KB of text), and a client that draws it from {@code /news/photo/{id}} (the
+     * Android app) never reads it. Every other field is the same as the plain {@code GET /{id}}.
+     *
+     * <p>Mapped with {@code params = "photo"}, so it only takes requests that carry the parameter;
+     * without it the inherited {@code GET /{id}} answers unchanged. The value is parsed here
+     * rather than bound as a {@code boolean}, so a bad value is a 400 and never reaches the
+     * catch-all handler as a 500.
+     *
+     * @param id    the article id
+     * @param photo {@code false}/{@code 0} to leave the photo out, {@code true}/{@code 1} to keep it
+     * @return the document in the response envelope
+     * @throws InvalidDocumentException  for any other {@code photo} value (→ 400)
+     * @throws DocumentNotFoundException if the article is missing or unpublished (→ 404)
+     */
+    @GetMapping(value = "/{id}", params = "photo")
+    public ApiResponse<JsonNode> getWithPhotoChoice(@PathVariable String id, @RequestParam String photo) {
+        boolean withPhoto = parsePhotoFlag(photo);
+        JsonNode doc = newsService.get(id);
+        if (withPhoto || !(doc instanceof ObjectNode object)) {
+            return ApiResponse.ok(doc);
+        }
+        ObjectNode slim = object.deepCopy();
+        slim.remove("photo");
+        return ApiResponse.ok(slim);
+    }
+
+    private static boolean parsePhotoFlag(String photo) {
+        String value = photo == null ? "" : photo.trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "true", "1" -> true;
+            case "false", "0" -> false;
+            default -> throw new InvalidDocumentException("photo must be true or false");
+        };
+    }
+
+    /**
      * Exports one article as the {@code fn_news_json} interchange document — every field needed to
      * re-create it, with the 3 paragraph photos embedded as base64 (the same format the News.aspx
      * "Save JSON" link and the AddNews "Import from JSON" round-trip use).

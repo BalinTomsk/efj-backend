@@ -63,6 +63,46 @@ class NewsControllerTest {
     }
 
     @Test
+    void getWithPhotoFalseLeavesOutOnlyThePhoto() throws Exception {
+        when(service.get("7")).thenReturn(objectMapper.readTree(
+                "{\"title\":\"Opener\",\"credit\":\"Ann\",\"photo\":\"QUJD\"}"));
+
+        mockMvc.perform(get("/api/v1/news/7").param("photo", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("Opener"))
+                .andExpect(jsonPath("$.data.credit").value("Ann"))
+                .andExpect(jsonPath("$.data.photo").doesNotExist());
+    }
+
+    @Test
+    void getWithPhotoTrueOrNoParamKeepsThePhoto() throws Exception {
+        when(service.get("7")).thenAnswer(inv -> objectMapper.readTree(
+                "{\"title\":\"Opener\",\"photo\":\"QUJD\"}"));
+
+        mockMvc.perform(get("/api/v1/news/7").param("photo", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.photo").value("QUJD"));
+        mockMvc.perform(get("/api/v1/news/7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.photo").value("QUJD"));
+    }
+
+    @Test
+    void getWithBadPhotoValueIs400() throws Exception {
+        mockMvc.perform(get("/api/v1/news/7").param("photo", "maybe"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").exists());
+    }
+
+    @Test
+    void getWithPhotoFalseOnUnknownIdIs404() throws Exception {
+        when(service.get("nope")).thenThrow(new DocumentNotFoundException(DocumentType.NEWS, "nope"));
+
+        mockMvc.perform(get("/api/v1/news/nope").param("photo", "false"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void getUnknownIdReturns404WithErrorEnvelope() throws Exception {
         when(service.get("nope")).thenThrow(new DocumentNotFoundException(DocumentType.NEWS, "nope"));
 

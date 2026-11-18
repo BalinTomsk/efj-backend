@@ -2,6 +2,14 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-18: **1.40.0 (built, not deployed) — `GET /api/v1/news/{id}?photo=false` for the Android app (envfish-droid P2-09).**
+  The article document carries its lead photo as base64 in `photo`, 0.6–0.9 MB of a typical story's response; the app
+  draws the photo from `/news/photo/{id}` and never reads it, and one story took 9–18 s to open. `?photo=false` (or `0`)
+  answers the same document without that one key (a few KB); `photo=true`/`1` or no parameter is unchanged; any other
+  value is a 400 `invalid_document` (parsed by hand, so it never reaches the catch-all 500). A separate handler mapped
+  with `params = "photo"` in `NewsController`, so the inherited `GET /{id}` of the other document controllers is
+  untouched; the cached document is copied before the key is removed. **No SQL and no cproxy change** (cproxy forwards
+  the query verbatim and keys its cache on it). 448 tests (+4).
 - 2026-11-17: **1.39.0 (built, not deployed) — follow water bodies and fish for the Android app (envfish-droid P2-06).**
   New `FollowController` on the new envfish-db table `dbo.user_follow` (apply to prod BEFORE this deploys, or the
   missing objects trip the shared breaker): `GET /api/v1/follow/mine` → `{waters:[{lakeId, lakeName, locType, state,
