@@ -35,6 +35,7 @@ class ServiceStatusReporterTest {
         assertEquals("1.25.0", body.get("version").asText());
         assertEquals("2026-10-16T13:05:00Z", body.get("sentUtc").asText());
         assertEquals("GET /api/v1/river/{guid}", body.get("lastAction").asText());
+        assertEquals(1, body.get("requests").asLong());
         assertTrue(Instant.parse(body.get("processStartUtc").asText()).isBefore(Instant.now()));
     }
 
@@ -44,6 +45,7 @@ class ServiceStatusReporterTest {
                 reporter(new ServiceActivity(), "https://mq").body("start", Instant.now()));
 
         assertTrue(body.get("lastAction").isNull());
+        assertEquals(0, body.get("requests").asLong());
         assertTrue(body.get("lastActionUtc").isNull());
     }
 
