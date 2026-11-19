@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fishfind.docapi.domain.DocumentType;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
@@ -367,6 +368,54 @@ public class RiverController {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, guid);
         }
         return ApiResponse.ok(document);
+    }
+
+    /**
+     * The description document with the gallery's base64 photos left out when the caller asks
+     * {@code ?photo=false}. Each {@code images[]} entry keeps its {@code id}, {@code source},
+     * {@code author}, {@code link} and {@code date}; only {@code pic} goes. The photos are almost all
+     * of the response (Guelph Lake: 2 photos, ~499 KB of a ~3 KB document), and a client that does
+     * not show the gallery (the Android app) never reads them. Every other field is the same as the
+     * plain {@code GET /description/{guid}}.
+     *
+     * <p>Mapped with {@code params = "photo"}, so it only takes requests that carry the parameter;
+     * without it {@link #description} answers unchanged. The value is parsed here rather than bound
+     * as a {@code boolean}, so a bad value is a 400 and never reaches the catch-all handler as a 500.
+     * The document is copied before the photos are removed, so a cached copy is never changed.
+     *
+     * @param guid  the water body's GUID
+     * @param photo {@code false}/{@code 0} to leave the photos out, {@code true}/{@code 1} to keep them
+     * @return the document nested as real JSON in the response envelope
+     * @throws InvalidDocumentException  for any other {@code photo} value (→ 400)
+     * @throws DocumentNotFoundException if no water body exists for the id (→ 404)
+     */
+    @GetMapping(value = "/description/{guid}", params = "photo")
+    public ApiResponse<JsonNode> descriptionWithPhotoChoice(@PathVariable String guid, @RequestParam String photo) {
+        boolean withPhoto = parsePhotoFlag(photo);
+        ApiResponse<JsonNode> full = description(guid);
+        if (withPhoto || !(full.data() instanceof ObjectNode object)) {
+            return full;
+        }
+        ObjectNode slim = object.deepCopy();
+        JsonNode images = slim.get("images");
+        if (images != null && images.isArray()) {
+            images.forEach(image -> {
+                if (image instanceof ObjectNode entry) {
+                    entry.remove("pic");
+                }
+            });
+        }
+        return ApiResponse.ok(slim);
+    }
+
+    /** {@code true}/{@code 1} or {@code false}/{@code 0}, any case; anything else is a 400. */
+    static boolean parsePhotoFlag(String photo) {
+        String value = photo == null ? "" : photo.trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "true", "1" -> true;
+            case "false", "0" -> false;
+            default -> throw new InvalidDocumentException("photo must be true or false");
+        };
     }
 
     /**

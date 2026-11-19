@@ -2,6 +2,13 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-19: **1.41.0 (built, not deployed) — `GET /api/v1/river/description/{guid}?photo=false` for the Android app (envfish-droid P2-12).**
+  The description document's gallery carries each photo as base64 in `images[].pic` (Guelph Lake: 2 photos, ~499 KB of
+  a ~3 KB document); the app does not show the gallery. `?photo=false` (or `0`) answers the same document with `pic`
+  removed from every `images[]` entry (`id`, `source`, `author`, `link`, `date` stay); `photo=true`/`1` or no parameter
+  is unchanged; any other value is a 400 `invalid_document`. A separate handler mapped with `params = "photo"` in
+  `RiverController`, as 1.40.0 did for news; the document is copied before the pics are removed. **No SQL and no
+  cproxy change.** Tests +6.
 - 2026-11-18: **1.40.0 (built, not deployed) — `GET /api/v1/news/{id}?photo=false` for the Android app (envfish-droid P2-09).**
   The article document carries its lead photo as base64 in `photo`, 0.6–0.9 MB of a typical story's response; the app
   draws the photo from `/news/photo/{id}` and never reads it, and one story took 9–18 s to open. `?photo=false` (or `0`)
