@@ -4,6 +4,9 @@ All notable changes for this service must be recorded in this file.
 
 ## [Unreleased]
 
+### Added
+- **`requests` in every status message** — the number of stations processed since the process started, so the admin status page (`stats/Default.aspx`) can show requests per hour / day / month. A running total, not a per-heartbeat delta, so a lost or superseded heartbeat loses no count; adminservice 0.2.0 turns it into 5-minute buckets (`dbo.ServiceRequestCount`). An older adminservice ignores the field.
+
 - **`STATUS_INTERVAL_SECONDS` (env file): heartbeat period, minimum 60 s** (was a 10 s floor). Lower values are raised
   to 60, so a service never reports to RabbitMQ more often than once a minute; larger values cut traffic further (then
   raise the page's `ServiceStatusDeadAfterSeconds` to at least 3x). Default unchanged: 60.

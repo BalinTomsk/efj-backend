@@ -143,6 +143,7 @@ public class ServiceStatusReporter implements SmartLifecycle {
         ServiceActivity.Last last = activity.last();
         m.put("lastActionUtc", last == null ? null : last.at().toString());
         m.put("lastAction", last == null ? null : last.action());
+        m.put("requests", activity.requests());
         return write(m);
     }
 

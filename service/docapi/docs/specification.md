@@ -1402,5 +1402,5 @@ shutdown. Service name `docapi`; machine = `STATUS_MACHINE`, else the host name 
 `BuildProperties`. On only when `RABBITMQ_MANAGEMENT_URL`, `RABBITMQ_USERNAME` and `RABBITMQ_PASSWORD` are set (env or
 the dotenv file). `status/ServiceActivityFilter` (registered for `/api/*` by `status/ServiceStatusConfig`, deliberately
 not a `@Component` so `@WebMvcTest` slices do not load it) records each request as method + matched route pattern,
-e.g. `GET /api/v1/river/{guid}` — never ids or query strings. A failed publish logs one warning per outage. Consumer and
+e.g. `GET /api/v1/river/{guid}` — never ids or query strings — and counts it; every message carries `requests`, the count since the process started. A failed publish logs one warning per outage. Consumer and
 contract: `efcs-backend/service/adminservice/docs/specification.md`.

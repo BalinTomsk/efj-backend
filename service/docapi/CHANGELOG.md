@@ -2,6 +2,7 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-19: **Unreleased — `requests` in every status message:** the number of `/api/*` requests `ServiceActivityFilter` recorded since the process started, so the admin status page (`stats/Default.aspx`) can show requests per hour / day / month. A running total, not a per-heartbeat delta, so a lost or superseded heartbeat loses no count; adminservice 0.2.0 turns it into 5-minute buckets (`dbo.ServiceRequestCount`). An older adminservice ignores the field.
 - 2026-11-19: **1.41.0 (built, not deployed) — `GET /api/v1/river/description/{guid}?photo=false` for the Android app (envfish-droid P2-12).**
   The description document's gallery carries each photo as base64 in `images[].pic` (Guelph Lake: 2 photos, ~499 KB of
   a ~3 KB document); the app does not show the gallery. `?photo=false` (or `0`) answers the same document with `pic`
