@@ -1,5 +1,6 @@
 package com.fishfind.docapi.web;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishfind.docapi.repo.RiverDescriptionCommandRepository;
 import com.fishfind.docapi.repo.RiverFishCommandRepository;
@@ -113,6 +114,74 @@ class RiverControllerTest {
                 .andExpect(jsonPath("$.data.cgndb").value("FCYVT"))
                 .andExpect(jsonPath("$.error").doesNotExist())
                 .andExpect(jsonPath("$.meta.timestamp").exists());
+    }
+
+    private static final String GUELPH = "0c5343a8-849c-20c3-f4d1-0003eb237498";
+    private static final String WITH_GALLERY = "{\"lakeName\":\"Guelph Lake\",\"images\":["
+            + "{\"id\":1,\"author\":\"Ann\",\"date\":\"2019-05-01\",\"pic\":\"QUJD\"},"
+            + "{\"id\":2,\"author\":\"Bob\",\"pic\":\"REVG\"}]}";
+
+    @Test
+    void descriptionPhotoFalseLeavesOutOnlyThePics() throws Exception {
+        when(queryRepository.description(GUELPH)).thenReturn(objectMapper.readTree(WITH_GALLERY));
+
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH).param("photo", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lakeName").value("Guelph Lake"))
+                .andExpect(jsonPath("$.data.images.length()").value(2))
+                .andExpect(jsonPath("$.data.images[0].author").value("Ann"))
+                .andExpect(jsonPath("$.data.images[0].date").value("2019-05-01"))
+                .andExpect(jsonPath("$.data.images[0].pic").doesNotExist())
+                .andExpect(jsonPath("$.data.images[1].pic").doesNotExist());
+    }
+
+    @Test
+    void descriptionPhotoFalseDoesNotChangeTheRepositoryDocument() throws Exception {
+        JsonNode cached = objectMapper.readTree(WITH_GALLERY);
+        when(queryRepository.description(GUELPH)).thenReturn(cached);
+
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH).param("photo", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images[0].pic").doesNotExist());
+        org.junit.jupiter.api.Assertions.assertEquals("QUJD", cached.get("images").get(0).get("pic").asText());
+    }
+
+    @Test
+    void descriptionPhotoTrueOrNoParamKeepsThePics() throws Exception {
+        when(queryRepository.description(GUELPH)).thenAnswer(inv -> objectMapper.readTree(WITH_GALLERY));
+
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH).param("photo", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images[0].pic").value("QUJD"));
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images[1].pic").value("REVG"));
+    }
+
+    @Test
+    void descriptionPhotoFalseWithoutGalleryIsUnchanged() throws Exception {
+        when(queryRepository.description(GUELPH)).thenReturn(
+                objectMapper.readTree("{\"lakeName\":\"Undersill Lake\"}"));
+
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH).param("photo", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lakeName").value("Undersill Lake"));
+    }
+
+    @Test
+    void descriptionBadPhotoValueIs400() throws Exception {
+        mockMvc.perform(get("/api/v1/river/description/" + GUELPH).param("photo", "maybe"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").exists());
+    }
+
+    @Test
+    void descriptionPhotoFalseUnknownGuidIs404() throws Exception {
+        when(queryRepository.description("00000000-0000-0000-0000-000000000000")).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/river/description/00000000-0000-0000-0000-000000000000").param("photo", "false"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
     }
 
     @Test
