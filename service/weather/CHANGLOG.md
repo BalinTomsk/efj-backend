@@ -4,6 +4,8 @@ All notable changes for this service must be recorded in this file.
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-20
+
 ### Added
 - **`requests` in every status message** — the number of stations processed since the process started, so the admin status page (`stats/Default.aspx`) can show requests per hour / day / month. A running total, not a per-heartbeat delta, so a lost or superseded heartbeat loses no count; adminservice 0.2.0 turns it into 5-minute buckets (`dbo.ServiceRequestCount`). An older adminservice ignores the field.
 
