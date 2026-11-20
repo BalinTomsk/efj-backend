@@ -2,6 +2,13 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-21: **1.42.0 (built, not deployed) — `GET /api/v1/me` and the account type.** cproxy 0.32.0 forwards the
+  caller's `dbo.Users.userType` bitmask (`1` registered, `2` paid, `4` scientist, `8` editor, `16` ai_agent, `32` admin,
+  any combination; an admin is always also paid + scientist + editor) in decimal as `X-Fish-User-Type`;
+  `UserType.maskFromHeader` reads it (blank, non-numeric, 0 or unknown bits → null; ignored without `X-Fish-User`).
+  `/api/v1/me` answers `{role, userId, userType, userTypes}` (mask + its codes, admin first) from the three cproxy
+  headers, no SQL, `no-store`. The type grants nothing yet: admin is still `X-Fish-Role: admin`. Tests +5
+  (`MeControllerTest`).
 - 2026-11-19: **Unreleased — `requests` in every status message:** the number of `/api/*` requests `ServiceActivityFilter` recorded since the process started, so the admin status page (`stats/Default.aspx`) can show requests per hour / day / month. A running total, not a per-heartbeat delta, so a lost or superseded heartbeat loses no count; adminservice 0.2.0 turns it into 5-minute buckets (`dbo.ServiceRequestCount`). An older adminservice ignores the field.
 - 2026-11-19: **1.41.0 (built, not deployed) — `GET /api/v1/river/description/{guid}?photo=false` for the Android app (envfish-droid P2-12).**
   The description document's gallery carries each photo as base64 in `images[].pic` (Guelph Lake: 2 photos, ~499 KB of

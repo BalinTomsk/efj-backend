@@ -456,6 +456,33 @@
     </div>
   </section>
 
+  <!-- ============================= ME ============================= -->
+  <section class="block" id="me">
+    <div class="block-head">
+      <h2 class="display">Me</h2>
+      <span class="tag">MeController · 1.42.0</span>
+    </div>
+    <p class="prose" style="margin-bottom:20px;">Who cproxy says the caller is, from its own headers only: <code>X-Fish-Role</code>, <code>X-Fish-User</code> and (cproxy 0.32.0) <code>X-Fish-User-Type</code>. <code>userType</code> is the <code>dbo.Users.userType</code> bitmask &mdash; <code>1</code> registered, <code>2</code> paid, <code>4</code> scientist, <code>8</code> editor, <code>16</code> ai_agent, <code>32</code> admin, any combination (an admin is always also paid + scientist + editor) &mdash; and <code>userTypes</code> lists its codes, admin first. Both are empty (<code>null</code> / <code>[]</code>) for a guest, an unreadable mask, or while a new account&rsquo;s type has not reached cproxy&rsquo;s mirror. No SQL; <code>Cache-Control: no-store</code>.</p>
+
+    <div class="endpoint">
+      <div class="specimen-tag">
+        <div class="path-row"><span class="verb verb-get">GET</span><span class="path mono">/api/v1/me</span></div>
+        <span class="specimen-label">caller</span>
+      </div>
+      <div class="endpoint-body" style="padding-bottom:20px;">
+        <div class="example-grid">
+          <div class="example">
+            <div class="example-head"><span class="caption">signed in</span><span class="status-code status-200">200</span></div>
+            <div class="example-body">
+              <div class="req-line"><span class="verb-inline">GET</span>/api/v1/me</div>
+              <pre class="json"><button class="copy-btn" type="button" data-copy>Copy</button><span class="p">{</span><span class="k">"data"</span><span class="p">: {</span><span class="k">"role"</span><span class="p">:</span> <span class="s">"user"</span><span class="p">,</span> <span class="k">"userId"</span><span class="p">:</span> <span class="s">"0190aaaa-0000-7000-8000-000000000001"</span><span class="p">,</span> <span class="k">"userType"</span><span class="p">:</span> <span class="n">6</span><span class="p">,</span> <span class="k">"userTypes"</span><span class="p">: [</span><span class="s">"paid"</span><span class="p">,</span> <span class="s">"scientist"</span><span class="p">]}, </span><span class="k">"error"</span><span class="p">:</span> <span class="n">null</span><span class="p">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============================= GENERIC DOCUMENT CRUD ============================= -->
   <section class="block" id="crud">
     <div class="block-head">
