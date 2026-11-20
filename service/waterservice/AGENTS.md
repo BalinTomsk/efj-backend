@@ -238,6 +238,9 @@ spring:
   `water.worker.cron` (default `0 0 * * * *`), running `runCountryCycle(country)`: that country's pass, then
   post-processing. A slow CA pass must not hold back the US refresh (one task awaiting both passes once held
   US data to a refresh per ~28 h). Post-processing is lock-serialised between the two tasks.
+- A scheduled pass that fails **before its first station** (backoff refresh, station list, USGS snapshot) is
+  retried in the same cycle (`pass-start-retries` x `pass-start-retry-delay-ms`); a DB outage at the top of the
+  hour used to cost that country the whole cycle (2026-11-20). A later failure is never retried.
 
 ### Console cycle (`runCycle`)
 
@@ -265,6 +268,8 @@ water:
     pause-between-stations-ms: 500    # default (1000 made the CA pass overrun the hour)
     connect-timeout-ms: 15000         # default
     read-timeout-ms: 30000            # default
+    pass-start-retries: 3             # default; retries of a scheduled pass that failed before its first station
+    pass-start-retry-delay-ms: 60000  # default; longer than the 30 s sqlBreaker open state
 ```
 
 ---

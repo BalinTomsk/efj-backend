@@ -75,6 +75,14 @@ public class StationWorker implements ApplicationRunner {
     @Value("${water.worker.enabled:true}")
     private boolean enabled;
 
+    /** Retries of a scheduled pass that failed before its first station; 0 disables. */
+    @Value("${water.worker.pass-start-retries:3}")
+    private int passStartRetries;
+
+    /** Wait before each such retry; longer than the 30 s sqlBreaker open state. */
+    @Value("${water.worker.pass-start-retry-delay-ms:60000}")
+    private long passStartRetryDelayMs;
+
     public StationWorker(WaterStationRepository repo,
                          StationProcessorCA processorCA,
                          StationProcessorUS processorUS,
@@ -238,17 +246,32 @@ public class StationWorker implements ApplicationRunner {
     /**
      * Runs one country's scheduled cycle: its pass on the calling (scheduler) thread, then post-processing.
      *
+     * <p>A pass that fails before its first station (backoff refresh, station list or USGS snapshot) is retried
+     * up to {@code water.worker.pass-start-retries} times, {@code pass-start-retry-delay-ms} apart: on
+     * 2026-11-20 a DB outage at the top of the hour could cost a country its whole cycle (for US, whose pass
+     * overruns the hour, about 2 h). Only that early failure is retried, so a pass that has started writing is
+     * never repeated; a later failure ends the pass as before.
+     *
      * @param country country code to process
      * @return the number of stations processed successfully
      */
     public int runCountryCycle(String country) {
         String correlationId = UUID.randomUUID().toString().substring(0, 8);
-        PassStats stats;
-        try {
-            stats = runPass(country, null, correlationId);
-        } catch (RuntimeException ex) {
-            log.error("Station pass failed. country={}", country, ex);
-            stats = PassStats.empty(country);
+        PassStats stats = null;
+        for (int attempt = 0; stats == null; attempt++) {
+            try {
+                stats = runPass(country, null, correlationId);
+            } catch (PassStartException ex) {
+                log.error("Station pass failed. country={}", country, ex.getCause());
+                if (attempt >= passStartRetries) {
+                    stats = PassStats.empty(country);
+                } else if (!sleepBeforeRetry(country, attempt + 1, correlationId)) {
+                    stats = PassStats.empty(country);
+                }
+            } catch (RuntimeException ex) {
+                log.error("Station pass failed. country={}", country, ex);
+                stats = PassStats.empty(country);
+            }
         }
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
@@ -268,6 +291,31 @@ public class StationWorker implements ApplicationRunner {
             MDC.remove(MDC_CORRELATION_ID);
         }
         return stats.succeeded();
+    }
+
+    /**
+     * Logs and waits before a pass-start retry.
+     *
+     * @return {@code false} when interrupted (shutdown), so the caller gives up instead of retrying
+     */
+    private boolean sleepBeforeRetry(String country, int retry, String correlationId) {
+        MDC.put(MDC_CORRELATION_ID, correlationId);
+        try {
+            log.warn("Station pass could not start; retrying. country={} retry={}/{} delayMs={}",
+                    country, retry, passStartRetries, passStartRetryDelayMs);
+        } finally {
+            MDC.remove(MDC_CORRELATION_ID);
+        }
+        if (passStartRetryDelayMs <= 0) {
+            return true;
+        }
+        try {
+            Thread.sleep(passStartRetryDelayMs);
+            return true;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /**
@@ -368,19 +416,30 @@ public class StationWorker implements ApplicationRunner {
      * @return the number of stations processed successfully
      */
     public int runOnce(String country, String requestedMli) {
-        return runOnceStats(country, requestedMli).succeeded();
+        try {
+            return runOnceStats(country, requestedMli).succeeded();
+        } catch (PassStartException ex) {
+            // Callers outside the scheduler see the original failure, not the internal retry marker.
+            throw ex.getCause();
+        }
     }
 
     private PassStats runOnceStats(String country, String requestedMli) {
         LocalDate today = LocalDate.now();
-        http503BackoffService.refreshDue(today);
-        var stations = repo.findSupported(country);
-        log.info("Loaded supported stations. country={} count={} requestedStation={}",
-                country, stations.size(),
-                requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
+        List<StationRef> stations;
+        try {
+            http503BackoffService.refreshDue(today);
+            stations = repo.findSupported(country);
+            log.info("Loaded supported stations. country={} count={} requestedStation={}",
+                    country, stations.size(),
+                    requestedMli == null || requestedMli.isBlank() ? "<all>" : requestedMli);
 
-        // US stations are read from one USGS snapshot per pass rather than one request per station.
-        prepareUsSnapshot(country, stations.stream().map(StationRef::mli).toList(), requestedMli);
+            // US stations are read from one USGS snapshot per pass rather than one request per station.
+            prepareUsSnapshot(country, stations.stream().map(StationRef::mli).toList(), requestedMli);
+        } catch (RuntimeException ex) {
+            // Nothing written yet, so the scheduled cycle may safely run the pass again.
+            throw new PassStartException(ex);
+        }
 
         int succeeded = 0;
         int failed = 0;
@@ -474,6 +533,18 @@ public class StationWorker implements ApplicationRunner {
 
     private String logValue(String value) {
         return value == null ? "<none>" : value;
+    }
+
+    /** A pass failed while loading its stations, before any station was processed. */
+    private static final class PassStartException extends RuntimeException {
+        PassStartException(RuntimeException cause) {
+            super(cause.getMessage(), cause);
+        }
+
+        @Override
+        public synchronized RuntimeException getCause() {
+            return (RuntimeException) super.getCause();
+        }
     }
 
     private record PassStats(
