@@ -49,6 +49,46 @@ class StationWorkerTest {
         ReflectionTestUtils.setField(worker, "pauseBetweenStationsMs", 0L);
         ReflectionTestUtils.setField(worker, "cron", "0 0 * * * *");
         ReflectionTestUtils.setField(worker, "enabled", true);
+        ReflectionTestUtils.setField(worker, "passStartRetries", 3);
+        ReflectionTestUtils.setField(worker, "passStartRetryDelayMs", 0L);
+    }
+
+    @Test
+    void runCountryCycleRetriesAPassThatCouldNotStart() {
+        // 2026-11-20: a DB outage at the top of the hour failed the station load and nothing retried the pass
+        // until the next cron fire (for US, ~2 h, since its pass overruns the hour).
+        when(repo.findSupported("US"))
+                .thenThrow(new RuntimeException("Connect timed out"))
+                .thenReturn(List.of(new StationRef("08313000", "NY", -5)));
+        when(processorUS.processWithOutcome("08313000", "NY", -5)).thenReturn(ProcessingOutcome.PROCESSED);
+
+        assertEquals(1, worker.runCountryCycle("US"));
+        verify(repo, times(2)).findSupported("US");
+        verify(postProcessingService).runAfterStationProcessing();
+        verify(postProcessingService).cleanOldWaterData();
+    }
+
+    @Test
+    void runCountryCycleGivesUpAfterTheConfiguredRetries() {
+        ReflectionTestUtils.setField(worker, "passStartRetries", 2);
+        when(repo.findSupported("US")).thenThrow(new RuntimeException("Connect timed out"));
+
+        assertEquals(0, worker.runCountryCycle("US"));
+        verify(repo, times(3)).findSupported("US"); // first try + 2 retries
+        verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService).cleanOldWaterData();
+    }
+
+    @Test
+    void runCountryCycleDoesNotRetryAPassThatHadStartedWriting() {
+        when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
+        when(processorCA.processWithOutcome("A", "QC", -5)).thenReturn(ProcessingOutcome.PROCESSED);
+        doThrow(new RuntimeException("db down mid-pass")).when(http503BackoffService)
+                .recordProcessed(any(), any(), any());
+
+        assertEquals(0, worker.runCountryCycle("CA"));
+        verify(repo, times(1)).findSupported("CA");
+        verify(processorCA, times(1)).processWithOutcome("A", "QC", -5);
     }
 
     @Test

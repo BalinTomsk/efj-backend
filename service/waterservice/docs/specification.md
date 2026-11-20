@@ -108,6 +108,15 @@ Worker behavior
     scheduler. `awaitPass` handles both `CompletionException` and `CancellationException`.
   - This replaces the previous design where each of the two worker threads ran post-processing independently,
     causing the same stored procedure to execute twice concurrently every hour.
+- `StationWorker.runCountryCycle(country)` (each scheduled cron task): a pass that throws **before its first
+  station** (`refreshDue`, `findSupported` or the US `prepareCycle` snapshot; wrapped internally as
+  `PassStartException`) is retried in the same cycle, up to `water.worker.pass-start-retries` (3) more times,
+  `pass-start-retry-delay-ms` (60000, longer than the 30 s `sqlBreaker` open state) apart, each logged at WARN as
+  `Station pass could not start; retrying. country= retry=n/N delayMs=`; an interrupt (shutdown) ends the retries.
+  Reason: on 2026-11-20 a DB outage at the top of the hour could cost a country its whole cycle (for US, whose
+  pass overruns the hour, about 2 h). A failure after the first station is not retried (the pass has started
+  writing) and ends the pass as before. `runOnce` and console `runCycle` do not retry; `runOnce` rethrows the
+  original exception.
 - `StationWorker.runOnce(country, requestedMli)`:
   - Load supported stations for the country, process matching stations one by one, sleeping
     `pause-between-stations-ms` BETWEEN CA stations only (US stations come from one snapshot and never pause) (never after the final station) (interrupt-aware: stops the pass early if interrupted).
@@ -119,6 +128,8 @@ Worker behavior
   - `water.worker.pause-between-stations-ms` default `500` (at `1000` the CA pass took ~66 min and overran the hour)
   - `water.worker.connect-timeout-ms` default `15000`
   - `water.worker.read-timeout-ms` default `30000`
+  - `water.worker.pass-start-retries` default `3` (`0` disables the pass-start retry)
+  - `water.worker.pass-start-retry-delay-ms` default `60000`
 
 Console mode
 - Add a console/debug runner activated by `--console` (`ConsoleDebugRunner`, `@Order(0)`).
