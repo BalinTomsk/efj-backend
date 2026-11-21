@@ -272,6 +272,9 @@ weather:
     max-response-bytes: 5242880          # cap on fetched payload size (5 MB)
     post-processing:
       max-failure-rate: 0.5              # skip post-processing above this failure rate
+    pressure-backfill:                   # Open-Meteo pressure_msl for Weather.gov forecasts (1.18.0)
+      enabled: ${OPEN_METEO_PRESSURE_ENABLE:true}
+      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}   # ledger key OpenMeteoPressure
   report:
     to: ${REPORT_EMAIL_TO:}             # recipient; blank = weekly email silently disabled
     from: ${REPORT_EMAIL_FROM:}         # optional; falls back to spring.mail.username
@@ -668,10 +671,16 @@ StationProcessorOpen:
   4. Log station processed at DEBUG.
 
 StationProcessorWeatherGov:
-  1. Fetch latest-observation JSON from Weather.gov using station.mli as the station id.
-  2. Log save start with payload byte count at DEBUG.
-  3. Update dbo.ows_meteo via WeatherDataRepository.
-  4. Log station processed at DEBUG.
+  1. Fetch the gridpoint forecast JSON from Weather.gov for the station lat/lon.
+  2. Convert to the canonical envelope (WeatherGovConverter); /forecast has no pressure.
+  3. PressureBackfill.fill: if any day lacks pressureHpa and pressure-backfill.enabled, charge one slot
+     under ledger key OpenMeteoPressure (daily-limit), call OpenMeteoFetcher.fetchPressure
+     ({base}?latitude=&longitude=&hourly=pressure_msl&forecast_days=8&timezone=auto) and fill each
+     pressure-less day from the last hour of that local date (PressureFill, rounded half away from 0).
+     Disabled / budget spent / any failure -> forecast unchanged, WARN logged, station still processed.
+  4. Log save start with payload byte count at DEBUG.
+  5. Update dbo.ows_meteo via WeatherDataRepository.
+  6. Log station processed at DEBUG.
 
 StationPostProcessingService calls procedures in this exact order:
   1. dbo.spPushSpeciesFromLakeToStation

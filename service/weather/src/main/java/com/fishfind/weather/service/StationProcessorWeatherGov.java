@@ -8,6 +8,7 @@ import com.fishfind.weather.repo.WeatherDataRepository;
 import java.io.FileNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,12 +23,25 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
     private final WeatherDataRepository weatherDataRepository;
     private final WeatherGovConverter converter;
     private final ObjectMapper mapper;
+    private final PressureBackfill pressureBackfill;
 
+    /** Without pressure backfill; kept for tests that exercise only the Weather.gov path. */
     public StationProcessorWeatherGov(WeatherGovFetcher fetcher,
                                       WeatherGovStationResolver resolver,
                                       WeatherDataRepository weatherDataRepository,
                                       WeatherGovConverter converter,
                                       ObjectMapper mapper) {
+        this(fetcher, resolver, weatherDataRepository, converter, mapper, null);
+    }
+
+    @Autowired
+    public StationProcessorWeatherGov(WeatherGovFetcher fetcher,
+                                      WeatherGovStationResolver resolver,
+                                      WeatherDataRepository weatherDataRepository,
+                                      WeatherGovConverter converter,
+                                      ObjectMapper mapper,
+                                      PressureBackfill pressureBackfill) {
+        this.pressureBackfill = pressureBackfill;
         this.fetcher = fetcher;
         this.resolver = resolver;
         this.weatherDataRepository = weatherDataRepository;
@@ -41,6 +55,10 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
         // Convert HERE, not in the database. A shape the converter does not recognise throws and is
         // counted as a failed station; the old T-SQL parser could only fail silently.
         CanonicalForecast forecast = converter.convert(json, station.mli());
+        // /forecast has no pressure; Open-Meteo fills it so the pressure forecast factor covers US stations.
+        if (pressureBackfill != null) {
+            forecast = pressureBackfill.fill(forecast, station);
+        }
         String canonical = mapper.writeValueAsString(forecast);
         log.debug("Saving Weather.gov payload. station={} state={} days={} bytes={}",
                 station.mli(), station.state(), forecast.days().size(), canonical.length());

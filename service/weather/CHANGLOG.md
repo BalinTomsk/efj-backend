@@ -4,6 +4,17 @@ All notable changes for this service must be recorded in this file.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-21 (LIVE on debian-jnode 2026-11-21)
+
+### Added
+- **Open-Meteo pressure for Weather.gov forecasts.** NWS `/forecast` has no pressure, so US stations had none in
+  `dbo.weather_Forecast`, and the FishFind pressure forecast factor needs a daily pressure series. After converting,
+  `StationProcessorWeatherGov` asks Open-Meteo for `hourly=pressure_msl` only (`OpenMeteoFetcher.fetchPressure`) and fills
+  `pressureHpa` on days without it from the last hour of each local day (`canonical/PressureFill`, `service/PressureBackfill`).
+  Own ledger key `OpenMeteoPressure`, `weather.worker.pressure-backfill.daily-limit` 1000 (`OPEN_METEO_PRESSURE_DAILY_LIMIT`),
+  `enabled` true (`OPEN_METEO_PRESSURE_ENABLE`); defaults need no env change. Best-effort: a failed call saves the
+  forecast without pressure. Mirrors efcs-backend WeatherService 10.5.0.
+
 ## [1.17.0] - 2026-11-20
 
 ### Added
