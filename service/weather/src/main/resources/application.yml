@@ -225,6 +225,11 @@ weather:
       weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:2300} # ditto; CA-native provider
     post-processing:
       max-failure-rate: 0.5
+    pressure-backfill:
+      # Open-Meteo pressure_msl for Weather.gov forecasts (which carry none). Own ledger key
+      # OpenMeteoPressure, separate from open-meteo above. Failure saves the forecast without pressure.
+      enabled: ${OPEN_METEO_PRESSURE_ENABLE:true}
+      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}   # > weather-gov 900, the only caller
   report:
     to: ${REPORT_EMAIL_TO:}          # recipient; blank = weekly email disabled
     from: ${REPORT_EMAIL_FROM:}      # optional; falls back to spring.mail.username

@@ -65,7 +65,23 @@ public class OpenMeteoFetcher {
     @CircuitBreaker(name = "openMeteo")
     @RateLimiter(name = "openMeteo")
     public String fetch(double latitude, double longitude) throws IOException {
-        String url = buildUrl(latitude, longitude);
+        return fetchUrl(buildUrl(latitude, longitude));
+    }
+
+    /**
+     * Fetches hourly {@code pressure_msl} only, for {@link PressureBackfill}. {@code timezone=auto} keeps
+     * the hour stamps local, so their dates line up with the other provider's forecast days.
+     */
+    @Retry(name = "openMeteo")
+    @CircuitBreaker(name = "openMeteo")
+    @RateLimiter(name = "openMeteo")
+    public String fetchPressure(double latitude, double longitude) throws IOException {
+        return fetchUrl(baseUrl + "?latitude=" + latitude
+                + "&longitude=" + longitude
+                + "&hourly=pressure_msl&forecast_days=8&timezone=auto");
+    }
+
+    private String fetchUrl(String url) throws IOException {
 
         int rateLimitWaits = 0;
         while (true) {
@@ -101,7 +117,7 @@ public class OpenMeteoFetcher {
                     }
                     String json = new String(body, StandardCharsets.UTF_8);
                     requireJsonObjectShape(json, url);
-                    log.debug("Open-Meteo fetch succeeded. latitude={} longitude={}", latitude, longitude);
+                    log.debug("Open-Meteo fetch succeeded. url={}", url);
                     return json;
                 }
             } finally {
