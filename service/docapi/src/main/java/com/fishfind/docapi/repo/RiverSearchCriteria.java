@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * The normalized arguments of one water-body search, {@code dbo.fn_river_search_json} (1.26.0). Built by
- * {@code RiverController.search} and {@code McpToolCatalog} ({@code search_water_bodies}), which validate every
+ * {@code RiverController.search} (also behind the MCP tool {@code search_water_bodies} of mcp-env), which validates every
  * field first; {@code null} means "not given".
  *
  * @param name    part of the name — {@code lake_name}, {@code alt_name} or {@code french_name}

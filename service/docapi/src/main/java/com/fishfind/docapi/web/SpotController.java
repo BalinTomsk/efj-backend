@@ -26,7 +26,7 @@ import java.util.Map;
  *       one of the caller's (same {@code spotId}). The client may send its own id so a retry cannot duplicate.</li>
  *   <li>{@code POST /api/v1/spot/{id}/delete} — POST, because the gateway forwards only GET, POST and PATCH.</li>
  * </ul>
- * The caller is {@value McpCaller#USER_HEADER} from cproxy 0.30.0 (401 without). Another account's spot is a 404;
+ * The caller is {@value Caller#USER_HEADER} from cproxy 0.30.0 (401 without). Another account's spot is a 404;
  * a 501st spot is {@code 409 too_many_spots}.
  */
 @RestController
@@ -44,20 +44,20 @@ public class SpotController {
 
     /** @return the caller's spots as a JSON array, empty when none */
     @GetMapping("/mine")
-    public ResponseEntity<ApiResponse<JsonNode>> mine(@RequestHeader(value = McpCaller.USER_HEADER, required = false) String user) {
+    public ResponseEntity<ApiResponse<JsonNode>> mine(@RequestHeader(value = Caller.USER_HEADER, required = false) String user) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.ok(repository.mine(signedIn(user))));
     }
 
     /** @return {@code {spotId, created}}: created is false when an existing spot was changed */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ApiResponse<Map<String, Object>>> save(
-            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user, @RequestBody JsonNode body) {
+            @RequestHeader(value = Caller.USER_HEADER, required = false) String user, @RequestBody JsonNode body) {
         String userId = signedIn(user);
         if (body == null || !body.isObject()) {
             throw new InvalidDocumentException("The body must be a JSON object");
         }
         String id = text(body, "spotId", 64);
-        id = id == null ? McpToolCatalog.uuidV7() : RiverController.normalizeGuid(id);
+        id = id == null ? CatchLogArgs.uuidV7() : RiverController.normalizeGuid(id);
         String name = text(body, "name", MAX_NAME);
         if (name == null) {
             throw new InvalidDocumentException("name is required");
@@ -83,7 +83,7 @@ public class SpotController {
     /** @return {@code {spotId, deleted: true}}; 404 when it is not one of the caller's spots */
     @PostMapping("/{id}/delete")
     public ResponseEntity<ApiResponse<Map<String, Object>>> delete(
-            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user, @PathVariable String id) {
+            @RequestHeader(value = Caller.USER_HEADER, required = false) String user, @PathVariable String id) {
         String userId = signedIn(user);
         String spotId = RiverController.normalizeGuid(id);
         if (!repository.delete(spotId, userId)) {
@@ -93,7 +93,7 @@ public class SpotController {
     }
 
     private static String signedIn(String header) {
-        String userId = McpCaller.fromHeaders(null, header).userId();
+        String userId = Caller.fromHeaders(null, header).userId();
         if (userId == null) {
             throw new ApiProblemException(HttpStatus.UNAUTHORIZED, "sign_in_required", "Sign in to use saved spots");
         }

@@ -2,6 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-22: **1.43.0 (built, not deployed) — the MCP server moves out to mcp-env.** `POST /api/v1/mcp` is gone:
+  `McpController`, `McpToolCatalog` (and `McpControllerTest`), the URL download of `CatchPhotoFetcher` and
+  `docapi.mcp.write-users` are removed. The MCP server is now **mcp-env** (C++23, on the cproxy droplet, cproxy 0.34.0
+  forwards the MCP path to it) and reads through docapi's REST API. Three REST additions so it can:
+  `GET /api/v1/fish/{guid}/waters?country=&state=&locType=&minProbability=&limit=` (for `find_water_bodies_by_fish`),
+  `PATCH /api/v1/catch/{id}` (for `update_catch_log`: the caller's own log, 60-day window → 403 `locked`), and
+  `POST /api/v1/catch/{id}/photo` accepting `image/png` / `image/webp`, converted to JPEG (`CatchPhotoImage`). Renames:
+  `McpCaller` → `Caller`; argument helpers, `uuidV7`, `stripPhotos` → `CatchLogArgs`. **No SQL change.** Deploy after
+  mcp-env 0.1.0 and cproxy 0.34.0 (mcp-env `docs/do-update.md`). Tests 468, all pass (+9 new, −52 MCP, −2 URL fetch).
 - 2026-11-21: **1.42.0 (built, not deployed) — `GET /api/v1/me` and the account type.** cproxy 0.32.0 forwards the
   caller's `dbo.Users.userType` bitmask (`1` registered, `2` paid, `4` scientist, `8` editor, `16` ai_agent, `32` admin,
   any combination; an admin is always also paid + scientist + editor) in decimal as `X-Fish-User-Type`;

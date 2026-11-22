@@ -261,7 +261,7 @@ public class RiverController {
                                    String country, String state, Integer locType, String sort) {
     }
 
-    /** {@code sort}, lower-cased: one of {@link RiverSearchCriteria#SORTS}, absent = {@code name}; shared with MCP. */
+    /** {@code sort}, lower-cased: one of {@link RiverSearchCriteria#SORTS}, absent = {@code name}. */
     static String requireSort(String sort) {
         if (sort == null) return RiverSearchCriteria.SORT_NAME;
         String s = sort.trim().toLowerCase(Locale.ROOT);
@@ -272,7 +272,7 @@ public class RiverController {
     }
 
     /** {@code locType}: absent = any type; otherwise a bitmask 1..{@value #LOC_TYPE_ALL}, else 400. */
-    private static Integer parseLocType(String value) {
+    static Integer parseLocType(String value) {
         if (value == null) return null;
         try {
             int n = Integer.parseInt(value);
@@ -575,7 +575,7 @@ public class RiverController {
     /**
      * The website river map's personal layers for one water body (1.38.0, for the envfish-droid Map tab): its fishing
      * spots and the catch logs the caller may see that have a position, newest first. The caller is
-     * {@value McpCaller#USER_HEADER} / {@value ViewerRole#HEADER} as cproxy stamps them; without a user no catch has a
+     * {@value Caller#USER_HEADER} / {@value ViewerRole#HEADER} as cproxy stamps them; without a user no catch has a
      * position, so {@code catches} is empty. The GUID is validated before the repository is called.
      *
      * @param guid the water body's GUID (36-char, 32-hex or braced)
@@ -587,10 +587,10 @@ public class RiverController {
     @GetMapping("/mappoints/{guid}")
     public ApiResponse<JsonNode> mapPoints(
             @PathVariable String guid,
-            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user,
+            @RequestHeader(value = Caller.USER_HEADER, required = false) String user,
             @RequestHeader(value = ViewerRole.HEADER, required = false) String role) {
         String id = normalizeGuid(guid);
-        McpCaller caller = McpCaller.fromHeaders(role, user);
+        Caller caller = Caller.fromHeaders(role, user);
         JsonNode document = queryRepository.mapPoints(id, caller.userId(), caller.role() == ViewerRole.ADMIN);
         if (document == null) {
             throw new DocumentNotFoundException(DocumentType.WATERBODY, id);

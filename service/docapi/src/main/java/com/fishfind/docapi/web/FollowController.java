@@ -26,7 +26,7 @@ import java.util.Map;
  *   <li>{@code POST /api/v1/follow} — JSON {@code {kind: "water" | "fish", id, follow: true | false}}; repeating
  *       either is harmless. Answers {@code {kind, id, following}}.</li>
  * </ul>
- * The caller is {@value McpCaller#USER_HEADER} from cproxy 0.30.0 (401 without). An unknown water body or fish is 404;
+ * The caller is {@value Caller#USER_HEADER} from cproxy 0.30.0 (401 without). An unknown water body or fish is 404;
  * a 501st follow is {@code 409 too_many_follows}.
  */
 @RestController
@@ -41,14 +41,14 @@ public class FollowController {
 
     /** @return the caller's follows, both lists, uncached */
     @GetMapping("/mine")
-    public ResponseEntity<ApiResponse<JsonNode>> mine(@RequestHeader(value = McpCaller.USER_HEADER, required = false) String user) {
+    public ResponseEntity<ApiResponse<JsonNode>> mine(@RequestHeader(value = Caller.USER_HEADER, required = false) String user) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.ok(repository.mine(signedIn(user))));
     }
 
     /** @return {@code {kind, id, following}} */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ApiResponse<Map<String, Object>>> set(
-            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user, @RequestBody JsonNode body) {
+            @RequestHeader(value = Caller.USER_HEADER, required = false) String user, @RequestBody JsonNode body) {
         String userId = signedIn(user);
         if (body == null || !body.isObject()) {
             throw new InvalidDocumentException("The body must be a JSON object");
@@ -80,7 +80,7 @@ public class FollowController {
     }
 
     private static String signedIn(String header) {
-        String userId = McpCaller.fromHeaders(null, header).userId();
+        String userId = Caller.fromHeaders(null, header).userId();
         if (userId == null) {
             throw new ApiProblemException(HttpStatus.UNAUTHORIZED, "sign_in_required", "Sign in to follow");
         }

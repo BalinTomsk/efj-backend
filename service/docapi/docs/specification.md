@@ -79,7 +79,8 @@ already exists in `envfish-db`; see [Data access](#data-access)):
 | `GET` | `/api/v1/fish/search?q=` | 200 | `{ items:[{ fishId, name, latin, rank }], total, query }` (best match first; blank/missing `q` ⇒ 400) |
 | `GET` | `/api/v1/fish/page/{guid}?waters=` | 200 | **1.32.0** (envfish-droid P0-09). The app's fish page in one call: `{ fish, photos, waters, news }` — `fish` is the `/fish/{guid}` document; `photos` = `[{ imageId, isDefault, male, juvenile, author, source, link, label, url }]`, default picture first (`fn_fish_image_gallery` + `fn_edit_fish_general` + `fn_fish_image_info`, no bytes), `url` = `/api/v1/fish/photo/{guid}/{imageId}`; `waters` = `fn_fish_water_bodies_json` `{ total, limit, items }`, highest probability first, `waters` default 20, cap 50; `news` = `/news/fish/{guid}` with limit 5, or `null` if MySQL fails (the page still answers). Non-GUID ⇒ 400 before SQL; unknown species ⇒ 404. No new DB object |
 | `GET` | `/api/v1/fish/photo/{guid}/{imageId}` | 200 | **1.32.0.** One photo's raw bytes (`fn_fish_image_handler`, joined to `fn_fish_image_gallery` so an id that is not this species' is a 404 instead of the function's newest-picture fallback). Content type sniffed; `Cache-Control: public, max-age=604800`; ETag `"<guid>-<imageId>-<length>"`; `If-None-Match` ⇒ 304. Non-GUID ⇒ 400 before SQL |
-| `GET` | `/api/v1/fish/{guid}` | 200 | **1.28.0.** The species document: `dbo.fn_fish_info_json` via `FishQueryRepository.info`, everything about one species except images (same document as the MCP tool `get_fish`, one helper `FishController.species`). Overrides the inherited document read, whose `dbo.fn_fish_doc` never existed (every call was a 500). Non-GUID ⇒ 400 before SQL; unknown species ⇒ 404. Species news stays on `/api/v1/news/fish/{guid}` |
+| `GET` | `/api/v1/fish/{guid}` | 200 | **1.28.0.** The species document: `dbo.fn_fish_info_json` via `FishQueryRepository.info`, everything about one species except images (same document the MCP tool `get_fish` of mcp-env reads through this endpoint; one helper `FishController.species`). Overrides the inherited document read, whose `dbo.fn_fish_doc` never existed (every call was a 500). Non-GUID ⇒ 400 before SQL; unknown species ⇒ 404. Species news stays on `/api/v1/news/fish/{guid}` |
+| `GET` | `/api/v1/fish/{guid}/waters?country=&state=&locType=&minProbability=&limit=` | 200 | **1.43.0.** The water bodies where the species is recorded, each once at its strongest record, highest probability first: `dbo.fn_fish_water_bodies_json` via `FishQueryRepository.waterBodies` → `{ total, limit, items, query:{ fishId, country, state, locType, minProbability } }`. `country` `CA`/`US` (else 400), `state` two letters (else 400), `locType` 1..16383 bitmask (else 400), `minProbability` 0..100 and `limit` 1..50 (default 20) clamped, garbage ⇒ default. A malformed GUID is a 400 before any SQL. Behind the MCP tool `find_water_bodies_by_fish` (mcp-env); `/fish/page/{guid}` uses the same function unfiltered |
 
 - `GET /api/v1/fish/search` — relevance-ranked species search backed by `dbo.SearchFishList(@q)`,
   matching the term against the primary name, Latin name, and `alt_name` synonyms (the same lookup the
@@ -375,8 +376,7 @@ News.aspx "Save JSON" link and `AddNews.aspx` "Import from JSON" round-trip use)
   retry/breaker as the document reads.
 
 All non-health responses use the envelope `{ data, error, meta }` where `meta` carries a
-`timestamp`. Exactly one of `data` / `error` is populated. **Exception: `/api/v1/mcp`** speaks JSON-RPC 2.0,
-not the envelope (below).
+`timestamp`. Exactly one of `data` / `error` is populated.
 
 ### Forecast — `/api/v1/forecast` (1.31.0)
 
@@ -403,72 +403,42 @@ repository is called (400 `invalid_document`, never a SQL error on the shared `s
 |----------|-----|-------|
 | `GET /map/shapes?bbox=west,south,east,north&zoom=&limit=` | `SELECT dbo.fn_shapes_bbox_geojson(?, ?, ?, ?, ?, ?)` | The `dbo.Lake_Shape` shapes (lake outlines, river lines) crossing the box, found through the `SIDX_Lake_Shape` spatial index: `{type:"FeatureCollection", bbox, zoom, toleranceM, truncated, features:[{type:"Feature", properties:{id, lakeId, lakeName, locType, kind}, geometry}]}`, `kind` `line`/`outline`/`shape`, geometry LineString / MultiLineString / Polygon / MultiPolygon in [lon, lat]. Each shape is simplified (geography `Reduce`) to one 256-px web-map pixel at `zoom` and the box's middle latitude (`toleranceM`), and left out when its length / perimeter is under two pixels; shapes are whole, not clipped. `bbox` required: four numbers, west < east, south < north, latitudes ±85, at most 5° each way, no antimeridian crossing, rounded to 1e-5°; `zoom` required 0..22; a box over 4,096 px across at that zoom is a 400 (ask per tile). `limit` default 500, cap 2000, longest first; `truncated` = more shapes crossed the box. Empty box ⇒ empty `features` (never 404). Without the `jdbc` profile every box is empty. |
 
-### MCP server — `/api/v1/mcp` (1.20.0)
+### Catch log — `/api/v1/catch` (1.36.0; PATCH and PNG/WebP 1.43.0)
 
-A Model Context Protocol server for Claude Desktop / Claude Code (`McpController` + `McpToolCatalog`).
-Transport: **Streamable HTTP, stateless, JSON responses only.**
+`CatchLogController`: the caller's own catch logs on the portal's tables and procedures. **Who** is the account
+cproxy names in `X-Fish-User` (`Caller.USER_HEADER`; cproxy 0.30.0 for a signed-in token, 0.27.0 for a
+self-service MCP key, which is how mcp-env's write tools arrive). Without it every route is `401
+sign_in_required`. A log that is not the caller's reads as `404`, never as someone else's. Shared field rules:
+`CatchLogWriter` + `CatchLogArgs` (moved out of the retired `McpToolCatalog` in 1.43.0, unchanged).
 
-| Verb | Path | Status | Body |
-|------|------|--------|------|
-| `POST` | `/api/v1/mcp` | 200 | one JSON-RPC response (or an array of them for a batch) |
-| `POST` | `/api/v1/mcp` | 202 | none — the message was a notification or a client response |
-| `POST` | `/api/v1/mcp` | 400 | JSON-RPC error: unparseable body (`-32700`), empty batch / not JSON-RPC 2.0 (`-32600`), unsupported `MCP-Protocol-Version` header |
-| `POST` | `/api/v1/mcp` | 403 | JSON-RPC error: the request carries an `Origin` header (a browser; DNS-rebinding guard) |
-| `GET` / `DELETE` | `/api/v1/mcp` | 405 | none, `Allow: POST` — no SSE stream, no session |
+| Verb | Path | Status | Notes |
+|------|------|--------|-------|
+| `GET` | `/api/v1/catch/mine?limit=` | 200 | The caller's logs on every water body, newest catch first (`dbo.fn_catch_memo_mine_json`), each with its visible photo ids; `limit` default 50, cap 200; `Cache-Control: no-store` |
+| `POST` | `/api/v1/catch` | 200 | JSON: `lakeId` (GUID, required); optional `fishId`, `species` ≤120, `angler` ≤200, `title` ≤200, `notes` ≤4000, `catchDate` (`YYYY-MM-DD` / `YYYY-MM-DDTHH:MM`, not in the future), `weight`+`weightUnit` (`kg`/`lb`, (0, 2000]), `length`+`lengthUnit` (`cm`/`in`, (0, 1000]), `method`/`tackle`/`lure` ≤200, `airTemp` −60..60, `weather` ≤64 (Clear, Partly Cloudy, Cloudy, Overcast, Rain, Thunderstorm, Snow, Fog get the portal icon), `waterTemp` −5..45, `released`, `lat`+`lon` together, `private`, `stationWeather` (default true: weather values left out are filled from `dbo.fn_catch_weather_snapshot` for the catch date). `CatchLogCommandRepository.fishExists` (outside the write) → `.add` → `dbo.sp_add_catch_memo` (version-7 id) → read back with `dbo.fn_catch_memo_json` plus `catchLogId`, `imageCount` and `stationWeather` (the values that came from the station). A rule broken ⇒ 400 before SQL; unknown lake ⇒ 404. MCP tool `add_catch_log` |
+| `PATCH` | `/api/v1/catch/{id}` | 200 | **1.43.0.** Corrects one of the caller's logs: only the keys given change, JSON `null` clears one, an absent key keeps the stored value (`CatchLogWriter.merge`, same rules as POST); `lakeId`/`userId` in the body ⇒ 400; nothing is filled from the station. Not the caller's (or unknown) ⇒ 404; past the portal's 60-day edit window (`canEdit` false) ⇒ `403 locked`. `.find` → merge → `.add` (the `sp_add_catch_memo` update branch) → the log read back. MCP tool `update_catch_log` |
+| `POST` | `/api/v1/catch/{id}/photo?caption=&credit=` | 200 | Raw body `image/jpeg`, **since 1.43.0 also `image/png` / `image/webp`** (≤ 5,000,000 bytes). A JPEG (by its `FF D8 FF` signature) is stored as sent; PNG/WebP are decoded and re-encoded as JPEG at quality 0.9 on white (`CatchPhotoImage`, TwelveMonkeys WebP reader; > 40 Mpx refused); anything else ⇒ 400. Not the caller's ⇒ 404, locked ⇒ 403, a 4th photo ⇒ `409 too_many_photos`. `.addPhoto` → `dbo.sp_add_catch_memo_photo` (credit = photo author) → the log without any photo field (`CatchLogArgs.stripPhotos`), with `imageCount`. MCP tool `add_catch_log_photo` (mcp-env downloads the image and posts the bytes) |
+| `GET` | `/api/v1/catch/photo/{id}/{photoId}` | 200 | The JPEG of one of the caller's photos, `Cache-Control: private, max-age=86400`; not the author ⇒ 404 |
 
-Methods: `initialize` (echoes the client's `protocolVersion` when it is one of `2025-11-25`, `2025-06-18`,
-`2025-03-26`, else offers the newest; capabilities `{tools:{listChanged:false}}`; no `Mcp-Session-Id`),
-`ping`, `tools/list`, `tools/call`. Anything else is `-32601`; an unknown tool or non-object `arguments` is
-`-32602`.
+### MCP — moved out to mcp-env (1.43.0)
 
-| Tool | Arguments | Backing |
-|------|-----------|---------|
-| `search_water_bodies` | `name` (2–64) / `cgndb` (1–10 alnum) / `stateId` (1–32, 1.23.0) / `mli` (≤64) / `country` (`CA`/`US`) / `state` (two letters) — at least one; `types` (names → `locType` bitmask, as `find_water_bodies_by_fish`), `sort` (`name`, `length_desc`, `length_asc`, `area_desc`, `depth_desc`), `offset` 0..100000 (1.26.0); `limit` default 20, clamped 1..50 | `RiverQueryRepository.search(RiverSearchCriteria)` → `{total, limit, offset, items, query:{country, state, locType, sort}}`; `total` counts every match, so a ranking ("the longest river in Maine") is one call — the server `instructions` say so (1.26.0) |
-| `get_water_body` | `guid` | `RiverQueryRepository.description` (carries `waterfalls` / `dams` since the 1.24.0 SQL) |
-| `get_water_body_fish` (admin) | `guid` | `RiverQueryRepository.fish` |
-| `get_water_body_links` | `guid` | `source` + `mouth` → `{source, mouth}` |
-| `get_water_body_tributaries` (1.22.0) | `guid`; `limit` 1..50 (default 20) | `RiverQueryRepository.tributaries` (`limit`) → `{guid, lakeName, total, limit, tributaries}` as the REST endpoint returns it; `total` counts every inflow |
-| `get_water_body_barriers` (1.24.0) | `guid` | `RiverQueryRepository.barriers` → `{guid, lakeName, waterfalls, dams}` |
-| `get_water_body_regulations` | `guid` | `RegulationQueryRepository.lakeRegulation` |
-| `get_region_regulations` | `country` `CA` or `US` (required), optional `state` | `RegulationQueryRepository.region` |
-| `search_fish` (admin) | `query` (trimmed, cut at 64) | `FishQueryRepository.search` |
-| `get_fish` (1.27.0, admin) | `fishId` (GUID, required) | `FishQueryRepository.info` → `dbo.fn_fish_info_json`: everything about one species except images — names, family, description, uses, types / water types / abilities (labels decoded as `Resources/wfFishViewer.aspx` does), habitat + its water-condition intervals, zoology (`maxLengthCm`, `maxWeightKg`, `longevityYears`...), spawn (maturity, eggs, spawn `periods` with habitat and conditions), food, regional `codes`, `topRanks`, `catchByMonth` (index, baseline month 100), `catchByMoonDay` (28-day, 1 = new moon), `moonSensitive` / `migrates`, `predators` / `prey`, `records` (`weightLb`, `lengthIn`), `documents` (label only); unknown species ⇒ not-found tool error |
-| `find_water_bodies_by_fish` (1.20.2, admin) | `fishId` (GUID, required); `country` `CA` or `US` (absent = both), `state`; `types` (names → `locType` bitmask); `min_probability` 0..100 (default 0); `limit` 1..50 (default 20) | `FishQueryRepository.waterBodies` → `dbo.fn_fish_water_bodies_json` → `{total, limit, items, query}`; each water body once, at its highest probability |
-| `add_catch_log` (1.29.0, write; `docapi.mcp.write-users` only) | `lakeId` (GUID, required); optional `fishId`, `species` ≤120, `angler` ≤200, `title` ≤200, `notes` ≤4000, `catchDate` (`YYYY-MM-DD` / `YYYY-MM-DDTHH:MM`, not future), `weight`+`weightUnit` (`kg`/`lb`), `length`+`lengthUnit` (`cm`/`in`), `method`/`tackle`/`lure` ≤200, `airTemp` °C, `weather` ≤64, `waterTemp` °C (1.30.0), `released`, `lat`+`lon`, `private`, `stationWeather` (1.30.0, default true: omitted weather values from `dbo.fn_catch_weather_snapshot`, listed in the result's `stationWeather`) | Listed/callable only when `X-Fish-User` (cproxy 0.27.0: the self-service key's owning account) is in `docapi.mcp.write-users` (env `DOCAPI_MCP_WRITE_USERS`, default the portal's two admin ids from `TDbLayer`), whatever the role. `CatchLogCommandRepository.fishExists` (outside the write, so a bad species never counts on `sqlBreaker`), then `.add` → `dbo.sp_add_catch_memo` (`@angler`, `@is_admin = 1`, version-7 id) → read back with `dbo.fn_catch_memo_json(id, 0)` (keys `catch_memo_*`) plus `catchLogId`, `imageCount`; checks through `dbo.fn_catch_log_write_state`, never a table; absent fields are `NULL`; unknown lake ⇒ not-found tool error |
-| `update_catch_log` (1.30.0, write; `docapi.mcp.write-users` only) | `catchLogId` (required); any `add_catch_log` field but `lakeId`/`stationWeather`; `null` clears | `.find` (`fn_catch_memo_json`; author must be the key's account) → merge → `.add` → `dbo.sp_add_catch_memo` update branch → the row read back |
-| `add_catch_log_photo` (1.29.0, write; `docapi.mcp.write-users` only) | `catchLogId`, `imageUrl` (https ≤2048), `credit` ≤200 (required); `caption` ≤500 | `CatchPhotoFetcher` downloads it (public hosts only, 443, ≤3 redirects, 6 s, ≤5 MB, JPEG; WebP/PNG re-encoded as JPEG since 1.30.0), `photoCount` (<3) checked first, then `.addPhoto` → `dbo.sp_add_catch_memo_photo` (credit = photo author) → the row read back |
+docapi served a Model Context Protocol endpoint, `POST /api/v1/mcp`, from 1.20.0 to 1.42.0 (`McpController`,
+`McpToolCatalog`, `CatchPhotoFetcher`'s URL download, `docapi.mcp.write-users`). **1.43.0 removes all of it**:
+the server is now its own C++23 service, **mcp-env** (`c:\envoinx\fishfind\mcp-env`, spec in its
+`docs/specification.md`), on the cproxy droplet; cproxy 0.34.0 forwards the MCP path there
+(`CPROXY_MCP_UPSTREAM`). mcp-env reads FishFind data through this service's REST endpoints with the caller's
+`X-Fish-Role` / `X-Fish-User`, so the tools' data rules now live in the endpoints they call:
 
-Rules:
+| MCP tool | docapi endpoint |
+|---|---|
+| `search_water_bodies` | `GET /api/v1/river/search` |
+| `get_water_body`, `get_water_body_fish`, `get_water_body_links`, `get_water_body_tributaries`, `get_water_body_barriers` | `GET /api/v1/river/description`, `/fish`, `/source` + `/mouth`, `/tributaries`, `/barriers` `/{guid}` |
+| `get_water_body_regulations`, `get_region_regulations` | `GET /api/v1/river/regulation/{guid}`, `GET /api/v1/region/regulation/{country}[/{state}]` |
+| `search_fish`, `get_fish`, `find_water_bodies_by_fish` | `GET /api/v1/fish/search`, `GET /api/v1/fish/{guid}`, `GET /api/v1/fish/{guid}/waters` (1.43.0) |
+| `add_catch_log`, `update_catch_log`, `add_catch_log_photo` | `POST /api/v1/catch`, `PATCH /api/v1/catch/{id}` (1.43.0), `POST /api/v1/catch/{id}/photo` (PNG/WebP 1.43.0) |
 
-- **Canada and the USA (1.25.0).** 1.21.0 limited every tool to Canadian water bodies (a CGNDB/CGNDM code, or a
-  source/mouth in `CA`, via `RiverQueryRepository.canadianIds` → `dbo.fn_lake_canadian_ids_json`). That block was removed
-  on request on 2026-10-17: no tool filters by country, `canadianIds` is gone from the repository, and the regulation and
-  species tools take `CA` or `US`. `dbo.fn_lake_canadian_ids_json` is left in the database, unused.
-- **Fish information for admins only (1.21.0).** The role is `X-Fish-Role`, which cproxy sets from the MCP
-  key's owning account (`admin` for `users_sync.access = 255` and for hand-made operator keys, else `user`).
-  Tools marked admin are absent from `tools/list` and `-32602 Unknown tool` on `tools/call` for any other
-  role; `get_water_body` drops its `fish` array. A missing or unknown role is GUEST (fail closed).
-- **Read-only, public data only.** No write, no `/unfished`, no news. Every tool is annotated
-  `readOnlyHint:true`, `openWorldHint:false`.
-- **One entry per species (1.20.1).** `lake_fish`'s key is `(lake_Id, fish_Id, probability)`, so a species
-  can have one row per probability level. Each row is a separate evidence entry, and the REST endpoints
-  return them all. `McpToolCatalog.uniqueSpecies` collapses the `fish` array of `get_water_body_fish` and
-  `get_water_body` to one entry per `fishId`:
-  - It keeps the highest `probability`; on a tie, or with no probability, the first entry.
-  - Name order is kept, and an entry without a `fishId` passes through unchanged.
-- **No photos.** `McpToolCatalog.stripPhotos` runs on every result and removes, at any depth, any key named
-  `pic`/`pics`/`image`/`images`/`picture`/`pictures` or starting with `photo` (case-insensitive). Applied
-  centrally in `add()` so a new tool cannot leak one by omission.
-- **Validate before the repository.** A GUID is normalized with `RiverController.normalizeGuid` (36-char,
-  32-hex or braced); a bad one is a tool error and SQL is never called — a non-GUID string would otherwise be
-  a conversion failure counted by the shared `sqlBreaker`.
-- **Errors.** A caller mistake (`InvalidDocumentException`, `DocumentNotFoundException`) is a `tools/call`
-  result with `isError:true` and the message; any other exception is logged (WARN) and returned as
-  `isError:true` "temporarily unavailable" with no detail. Never an HTTP 5xx; `ApiExceptionHandler` is not
-  involved. Each call logs one INFO line `MCP tools/call <tool> -> ok|rejected|failed (<ms>ms)`.
-- **Results** carry `content:[{type:"text", text:<compact JSON>}]` plus `structuredContent` (the same object).
-- **Who may call is cproxy's decision.** docapi is reachable only through cproxy, which authenticates the MCP
-  key (cproxy 0.20.0+) and stamps the role header; docapi trusts that header (1.21.0) and nothing else.
+Changing one of those endpoints' shape or messages changes what the model sees: update mcp-env's spec with it.
+`Caller` (was `McpCaller`) stays: it is the shared reader of `X-Fish-Role` + `X-Fish-User` for the per-user
+routes (`/catch`, `/follow`, `/spot`, `/me`, `/river/weather`). A `POST /api/v1/mcp` to docapi 1.43.0 is a 404.
 
 ## Required files (complete list)
 
@@ -1371,14 +1341,16 @@ build artifacts. Never bake a real `.env` into the image.
   POST→GET→PUT→GET round-trip, 404 on unknown id, all four entities accept documents, and the News
   `/list` + `/default` queries return well-formed empty payloads with no DB.
 - `HealthControllerTest` — version-from-build-info and fallback.
-- `McpControllerTest` — `@WebMvcTest(McpController.class)` + `@Import(McpToolCatalog.class)`, `@MockBean` river/
-  regulation/fish query repositories (52 tests; 1.27.0 the get_fish cases, 1.26.0 the ranking search cases, the search schema and the instructions line; 1.20.1 added the one-entry-per-species cases, 1.20.2 the
-  `find_water_bodies_by_fish` cases, 1.21.0 the role cases, 1.22.0 the tributaries cases, 1.24.0 the barriers cases, 1.25.0 the US cases that replaced
-  the Canada-only ones; requests run as admin unless a test says otherwise): initialize (version echo, newest offered for an unknown one, no
-  session header), 202 for a notification, ping, `tools/list` (11 tools for admin, 7 for anyone else, all read-only), `-32601`/`-32602`/
-  `-32700`, 403 on `Origin`, 400 on an unknown `MCP-Protocol-Version`, GET/DELETE 405, a batch, each tool's
-  happy path, a malformed GUID never reaching the repository, photos stripped from description and source/mouth
-  (including a `Photo0` key, and an `img` key since 1.27.0), and a repository exception becoming a temporary tool error with no SQL detail.
+- `CatchLogControllerTest` (12) — `@WebMvcTest(CatchLogController.class)`, `@MockBean CatchLogCommandRepository`:
+  every route needs `X-Fish-User`; `/mine`; POST with station weather and its 400/404s; photo on an open own log,
+  someone else's (404) / locked (403), a 4th photo (409) or a non-image (400); **1.43.0**: a PNG stored as JPEG,
+  PATCH changing only the given fields (lake and author kept), PATCH 404 / 403 / 400 (`lakeId`, unit rule) / 401.
+- `CatchPhotoImageTest` (4, 1.43.0; was `CatchPhotoFetcherTest`) — a JPEG kept as sent, WebP and transparent PNG
+  converted, garbage a 400.
+- `FishControllerTest` — 1.43.0 adds `/fish/{guid}/waters`: filters normalized and echoed in `query`, limit
+  clamped; a bad GUID / country / state / locType is a 400 with the repository never called.
+- (`McpControllerTest`, 52 tests, was deleted with the MCP server in 1.43.0; its protocol and tool cases now
+  live in mcp-env's `tests/mcp_server_test.cpp`.)
 - Test resources: `application.properties` (`spring.profiles.active=test`) and `application-test.yml`
   (no datasource — small resilience4j config, WARN logging; the JDBC datasource for
   `DocApiJdbcWiringTest` comes from its `@TestPropertySource`).
