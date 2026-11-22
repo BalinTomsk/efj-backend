@@ -15,7 +15,7 @@ import java.util.Map;
  * {@code GET /api/v1/me} (1.42.0) — who cproxy says the caller is: {@code {role, userId, userType, userTypes}}.
  * <ul>
  *   <li>{@code role} — {@code guest | user | admin} ({@value ViewerRole#HEADER});</li>
- *   <li>{@code userId} — the account ({@value McpCaller#USER_HEADER}), {@code null} for a guest;</li>
+ *   <li>{@code userId} — the account ({@value Caller#USER_HEADER}), {@code null} for a guest;</li>
  *   <li>{@code userType} — the account-type bitmask ({@value UserType#HEADER}: 1 registered, 2 paid, 4 scientist,
  *       8 editor, 16 ai_agent, 32 admin), {@code null} for a guest or while the type has not reached the mirror;</li>
  *   <li>{@code userTypes} — the same mask as codes, admin first ({@code []} when {@code userType} is null).</li>
@@ -30,9 +30,9 @@ public class MeController {
     @GetMapping("/api/v1/me")
     public ResponseEntity<ApiResponse<Map<String, Object>>> me(
             @RequestHeader(value = ViewerRole.HEADER, required = false) String role,
-            @RequestHeader(value = McpCaller.USER_HEADER, required = false) String user,
+            @RequestHeader(value = Caller.USER_HEADER, required = false) String user,
             @RequestHeader(value = UserType.HEADER, required = false) String type) {
-        McpCaller caller = McpCaller.fromHeaders(role, user);
+        Caller caller = Caller.fromHeaders(role, user);
         Integer mask = caller.userId() == null ? null : UserType.maskFromHeader(type);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("role", caller.role().name().toLowerCase(Locale.ROOT));

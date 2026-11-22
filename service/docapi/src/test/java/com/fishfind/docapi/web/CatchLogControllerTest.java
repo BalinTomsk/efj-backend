@@ -23,6 +23,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -175,5 +176,65 @@ class CatchLogControllerTest {
 
         mockMvc.perform(get("/api/v1/catch/photo/" + MEMO + "/" + PHOTO).header("X-Fish-User", OTHER))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aPngPhotoIsStoredAsAJpeg() throws Exception {
+        when(repository.canEdit(MEMO, ME)).thenReturn(true);
+        when(repository.photoCount(MEMO)).thenReturn(0);
+        when(repository.addPhoto(eq(MEMO), eq(ME), any(), eq(0), any(), eq("Wired2Fish")))
+                .thenReturn(objectMapper.createObjectNode().put("catchLogId", MEMO).put("imageCount", 1));
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", png);
+
+        mockMvc.perform(post("/api/v1/catch/" + MEMO + "/photo").header("X-Fish-User", ME).param("credit", "Wired2Fish")
+                        .contentType(MediaType.IMAGE_PNG).content(png.toByteArray()))
+                .andExpect(status().isOk());
+        ArgumentCaptor<byte[]> stored = ArgumentCaptor.forClass(byte[].class);
+        verify(repository).addPhoto(eq(MEMO), eq(ME), stored.capture(), eq(0), any(), eq("Wired2Fish"));
+        org.junit.jupiter.api.Assertions.assertTrue(CatchPhotoImage.isJpeg(stored.getValue()));
+    }
+
+    @Test
+    void patchChangesOnlyTheGivenFieldsOfTheCallersOpenLog() throws Exception {
+        when(repository.find(MEMO)).thenReturn(logBy(ME));
+        when(repository.canEdit(MEMO, ME)).thenReturn(true);
+        when(repository.add(any())).thenReturn(objectMapper.createObjectNode().put("catchLogId", MEMO));
+
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).header("X-Fish-User", ME)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weight\":2.5,\"weightUnit\":\"kg\",\"species\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.catchLogId").value(MEMO));
+        ArgumentCaptor<CatchLog> saved = ArgumentCaptor.forClass(CatchLog.class);
+        verify(repository).add(saved.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(2.5, saved.getValue().weight());
+        org.junit.jupiter.api.Assertions.assertNull(saved.getValue().species());
+        org.junit.jupiter.api.Assertions.assertEquals(LAKE, saved.getValue().lakeId());
+        org.junit.jupiter.api.Assertions.assertEquals(ME, saved.getValue().userId());
+    }
+
+    @Test
+    void patchRefusesSomeoneElsesLockedOrMalformedChanges() throws Exception {
+        when(repository.find(MEMO)).thenReturn(logBy(OTHER));
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).header("X-Fish-User", ME)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"x\"}"))
+                .andExpect(status().isNotFound());
+
+        when(repository.find(MEMO)).thenReturn(logBy(ME));
+        when(repository.canEdit(MEMO, ME)).thenReturn(false);
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).header("X-Fish-User", ME)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"x\"}"))
+                .andExpect(status().isForbidden());
+
+        when(repository.canEdit(MEMO, ME)).thenReturn(true);
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).header("X-Fish-User", ME)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"weight\":2.5}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).header("X-Fish-User", ME)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"lakeId\":\"" + LAKE + "\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(patch("/api/v1/catch/" + MEMO).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        verify(repository, never()).add(any());
     }
 }

@@ -161,6 +161,62 @@ public class FishController extends AbstractDocumentController {
         return ApiResponse.ok(out);
     }
 
+    /** Water bodies per {@code /waters} call unless {@code limit} says otherwise, and the most it may ask for. */
+    static final int WATERS_DEFAULT = 20;
+    static final int WATERS_MAX = 50;
+
+    /**
+     * The water bodies where one species is recorded (1.43.0), each once with the probability of the species'
+     * strongest record there, highest first: {@code {total, limit, items}} from {@code dbo.fn_fish_water_bodies_json},
+     * plus the echoed {@code query}. Behind the MCP tool {@code find_water_bodies_by_fish} (mcp-env), which moved out
+     * of docapi in 1.43.0 and needed its filters as REST parameters.
+     *
+     * @param guid           the species GUID, any case, braces allowed
+     * @param country        {@code CA} or {@code US}; absent = both
+     * @param state          two-letter province/state code; absent = all
+     * @param locType        {@code dbo.lake.locType} bitmask (1..16383); absent = every type
+     * @param minProbability 0..100, default 0 (clamped)
+     * @param limit          default {@value #WATERS_DEFAULT}, 1..{@value #WATERS_MAX} (clamped)
+     * @throws InvalidDocumentException on a malformed GUID, country, state or locType (→ 400, no SQL)
+     */
+    @GetMapping("/{guid}/waters")
+    public ApiResponse<JsonNode> waters(@PathVariable String guid,
+                                        @RequestParam(required = false) String country,
+                                        @RequestParam(required = false) String state,
+                                        @RequestParam(required = false) String locType,
+                                        @RequestParam(required = false) String minProbability,
+                                        @RequestParam(required = false) String limit) {
+        String fishId = RiverController.normalizeGuid(guid);
+        String c = country == null || country.isBlank() ? null : RegulationController.requireCode(country, "country");
+        if (c != null && !c.equals("CA") && !c.equals("US")) {
+            throw new InvalidDocumentException("country must be CA or US");
+        }
+        String s = state == null || state.isBlank() ? null : RegulationController.requireCode(state, "state");
+        Integer types = locType == null || locType.isBlank() ? null : RiverController.parseLocType(locType.trim());
+        int min = clampInt(minProbability, 0, 0, 100);
+        int n = clampInt(limit, WATERS_DEFAULT, 1, WATERS_MAX);
+        JsonNode result = queryRepository.waterBodies(fishId, c, s, types, min, n);
+        if (result instanceof ObjectNode out) {
+            ObjectNode query = out.putObject("query");
+            query.put("fishId", fishId);
+            query.put("country", c);
+            query.put("state", s);
+            query.put("locType", types);
+            query.put("minProbability", min);
+        }
+        return ApiResponse.ok(result);
+    }
+
+    /** An integer parameter: the default when absent or not a number, clamped to min..max. */
+    static int clampInt(String raw, int fallback, int min, int max) {
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            return Math.max(min, Math.min(Integer.parseInt(raw.trim()), max));
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
     /**
      * One photo of one species, the bytes behind a {@code photos[].url} of {@link #page} (docapi 1.32.0). Cached
      * like {@code /news/photo/{id}}: public {@code max-age}, an ETag of {@code "<fish>-<image>-<length>"},

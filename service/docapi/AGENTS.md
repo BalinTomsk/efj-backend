@@ -28,14 +28,24 @@ live: POST/GET/PUT round-trip works in-memory and the startup log shows no Hikar
 
 ---
 
-## Water bodies (River endpoints + the MCP server) — read `envfish-db/docs/water-bodies.md`
+## Water bodies (River endpoints, and the MCP tools that read them) — read `envfish-db/docs/water-bodies.md`
 
-What the `/api/v1/river/*` endpoints and the FishFind MCP tools (`search_water_bodies`, `get_water_body*`,
-`find_water_bodies_by_fish`) return is described at the data level in
-[`envfish-db/docs/water-bodies.md`](../../../envfish-db/docs/water-bodies.md): `locType` bits behind
-`McpToolCatalog.WATER_BODY_TYPES`, CGNDB vs US GNIS ids, why "in a state" means the source OR the mouth, units of
-`length`/`area`/`depth`, one `lake_fish` row per evidence level. Read it before changing a water-body endpoint or
-MCP tool description.
+What the `/api/v1/river/*` endpoints return — and through them the FishFind MCP tools (`search_water_bodies`,
+`get_water_body*`, `find_water_bodies_by_fish`) — is described at the data level in
+[`envfish-db/docs/water-bodies.md`](../../../envfish-db/docs/water-bodies.md): `locType` bits (the `?locType=`
+bitmask; mcp-env maps the tool's `types` names onto them), CGNDB vs US GNIS ids, why "in a state" means the source
+OR the mouth, units of `length`/`area`/`depth`, one `lake_fish` row per evidence level. Read it before changing a
+water-body endpoint.
+
+## MCP lives in mcp-env since 1.43.0 — not here
+
+docapi served `POST /api/v1/mcp` from 1.20.0 to 1.42.0. 1.43.0 removed `McpController`, `McpToolCatalog`, the URL
+download in `CatchPhotoFetcher` and `docapi.mcp.write-users`. The MCP server is now **mcp-env**
+(`c:\envoinx\fishfind\mcp-env`, C++23, on the cproxy droplet; its `docs/specification.md` is the source of truth).
+It calls docapi's REST endpoints (`/river/*`, `/region/regulation/*`, `/fish/search`, `/fish/{guid}`,
+`/fish/{guid}/waters`, `/catch`, `PATCH /catch/{id}`, `/catch/{id}/photo`) with the caller's `X-Fish-Role` /
+`X-Fish-User`. **A change to one of those endpoints' shape or error messages changes what the model sees**: update
+mcp-env's spec and `api-reference.html` in the same change. Do not add an MCP endpoint back here.
 
 ---
 
@@ -220,14 +230,12 @@ com.fishfind.docapi
     │                              #   (LakeRegulation.aspx "regulation dialog" duplicate — water-body + region scopes)
     ├── WaterbodyController … (one @RestController per entity, @RequestMapping base path only)
     ├── HealthController           # GET /health → { status, version, uptime }
-    ├── McpController              # POST /api/v1/mcp -- MCP (JSON-RPC, stateless, JSON-only; GET/DELETE 405)
-    │                              #   for Claude Desktop/Code, 1.20.0. Tool errors are isError results, never 5xx
-    ├── McpToolCatalog             # the 11 read-only water-body/fish/regulation tools (get_fish 1.27.0); validates before any
-    │                              #   repository call; Canada + USA (Canada-only filter removed 1.25.0); fish tools for ADMIN
-    │                              #   only (X-Fish-Role from cproxy, 1.21.0);
-    │                              #   repository call; strips EVERY photo field from every result (stripPhotos);
-    │                              #   one entry per species, highest probability (uniqueSpecies, 1.20.1);
-    │                              #   find_water_bodies_by_fish -> FishQueryRepository.waterBodies (1.20.2)
+    ├── CatchLogController          # /api/v1/catch: GET /mine, POST, PATCH /{id} (1.43.0), POST /{id}/photo (JPEG, PNG/WebP
+    │                              #   converted 1.43.0), GET /photo/{id}/{photoId}; the caller is X-Fish-User
+    ├── CatchLogWriter / CatchLogArgs # catch-log field rules + station-weather fill (CatchLogArgs = the argument helpers,
+    │                              #   uuidV7 and stripPhotos moved out of the retired McpToolCatalog, 1.43.0)
+    ├── CatchPhotoImage            # JPEG/PNG/WebP signatures + PNG/WebP -> JPEG (was CatchPhotoFetcher; no URL fetch since 1.43.0)
+    ├── Caller                     # record (role, userId) from X-Fish-Role + X-Fish-User (was McpCaller until 1.43.0)
     ├── ViewerRole                 # enum GUEST / USER / ADMIN from cproxy's X-Fish-Role header;
     │                              #   fails closed to GUEST (1.18.1)
     ├── ApiResponse                # { data, error, meta } envelope (record)

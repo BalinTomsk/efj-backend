@@ -499,7 +499,7 @@ class RiverControllerTest {
                         + "\"catches\":[{\"catchLogId\":\"C1\",\"species\":\"Carp, Common\",\"lat\":43.59,\"lon\":-80.24,\"mine\":true}]}"));
 
         mockMvc.perform(get("/api/v1/river/mappoints/0C4A6E4C849C20C39E4F5E1CBD3A1A11")
-                        .header(McpCaller.USER_HEADER, "11111111-2222-3333-4444-555555555555")
+                        .header(Caller.USER_HEADER, "11111111-2222-3333-4444-555555555555")
                         .header(ViewerRole.HEADER, "user"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.spots[0].lat").value(43.6))
@@ -516,7 +516,7 @@ class RiverControllerTest {
                 .andExpect(status().isOk());
         verify(queryRepository).mapPoints("0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11", null, true);
 
-        mockMvc.perform(get("/api/v1/river/mappoints/0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11").header(McpCaller.USER_HEADER, "not-a-guid"))
+        mockMvc.perform(get("/api/v1/river/mappoints/0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11").header(Caller.USER_HEADER, "not-a-guid"))
                 .andExpect(status().isOk());
         verify(queryRepository).mapPoints("0c4a6e4c-849c-20c3-9e4f-5e1cbd3a1a11", null, false);
     }

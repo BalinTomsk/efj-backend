@@ -407,4 +407,28 @@ class FishControllerTest {
     private static ArgumentCaptor<List<String>> captorOfList() {
         return ArgumentCaptor.forClass(List.class);
     }
+
+    @Test
+    void watersPassesTheFiltersNormalizedAndEchoesThem() throws Exception {
+        String id = "0d012b12-849c-20c3-8532-2f7a21cfcc58";
+        when(queryRepository.waterBodies(id, "CA", "ON", 3, 50, FishController.WATERS_MAX))
+                .thenReturn(objectMapper.readTree("{\"total\":7,\"limit\":50,\"items\":[]}"));
+
+        mockMvc.perform(get("/api/v1/fish/" + id.toUpperCase() + "/waters").param("country", "ca").param("state", "on")
+                        .param("locType", "3").param("minProbability", "50").param("limit", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(7))
+                .andExpect(jsonPath("$.data.query.fishId").value(id))
+                .andExpect(jsonPath("$.data.query.locType").value(3));
+    }
+
+    @Test
+    void watersRefusesBadFiltersBeforeAnySql() throws Exception {
+        String id = "0d012b12-849c-20c3-8532-2f7a21cfcc58";
+        mockMvc.perform(get("/api/v1/fish/not-a-guid/waters")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/fish/" + id + "/waters").param("country", "FR")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/fish/" + id + "/waters").param("state", "ONT")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/fish/" + id + "/waters").param("locType", "0")).andExpect(status().isBadRequest());
+        verify(queryRepository, never()).waterBodies(anyString(), any(), any(), any(), anyInt(), anyInt());
+    }
 }
