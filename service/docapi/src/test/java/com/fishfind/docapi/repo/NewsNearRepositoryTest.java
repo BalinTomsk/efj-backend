@@ -20,7 +20,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** {@link JdbcNewsNearRepository}: statements, binding and row mapping. */
+/** {@link JdbcNewsNearRepository}: the csnews-env read, and the SQL Server statement's binding and mapping. */
 class NewsNearRepositoryTest {
 
     private final ObjectMapper om = new ObjectMapper();
@@ -34,24 +34,24 @@ class NewsNearRepositoryTest {
     }
 
     @Test
-    void taggedNewsReadsNarrowColumnsOnly() throws Exception {
-        JdbcTemplate mysql = mock(JdbcTemplate.class);
-        PreparedStatement ps = mock(PreparedStatement.class);
-        ResultSet rs = mock(ResultSet.class);
-        when(rs.getString("news_id")).thenReturn("n1");
-        when(rs.getString("title")).thenReturn("A story");
-        when(rs.getString("source")).thenReturn("src");
-        when(rs.getString("stamp")).thenReturn("2026-11-14");
-        when(rs.getString("country")).thenReturn("CA");
-        when(rs.getString("lake_id")).thenReturn("0c44dfc7-849c-20c3-9db6-f2c06fc97a1f");
-        answer(mysql, JdbcNewsNearRepository.TAGGED_SQL, ps, rs);
+    void taggedNewsComesFromCsNews() {
+        CsNewsClient csnews = mock(CsNewsClient.class);
+        when(csnews.get("/tagged?limit=2000")).thenReturn(om.createArrayNode().add(om.createObjectNode()
+                .put("newsId", "n1").put("title", "A story").put("source", "src").put("stamp", "2026-11-14")
+                .put("country", "CA").put("lakeId", "0c44dfc7-849c-20c3-9db6-f2c06fc97a1f")));
 
-        List<NewsNearRepository.TaggedNews> rows = new JdbcNewsNearRepository(mock(JdbcTemplate.class), mysql, om).taggedNews(2000);
+        List<NewsNearRepository.TaggedNews> rows =
+                new JdbcNewsNearRepository(mock(JdbcTemplate.class), csnews, om).taggedNews(2000);
 
         assertThat(rows).containsExactly(new NewsNearRepository.TaggedNews(
                 "n1", "A story", "src", "2026-11-14", "CA", "0c44dfc7-849c-20c3-9db6-f2c06fc97a1f"));
-        verify(ps).setInt(1, 2000);
-        assertThat(JdbcNewsNearRepository.TAGGED_SQL).doesNotContain("photo").doesNotContain("paragraph");
+    }
+
+    @Test
+    void aMissingTaggedListIsUnavailableNotEmpty() {
+        CsNewsClient csnews = mock(CsNewsClient.class);
+        assertThatThrownBy(() -> new JdbcNewsNearRepository(mock(JdbcTemplate.class), csnews, om).taggedNews(10))
+                .isInstanceOf(CsNewsUnavailableException.class);
     }
 
     @Test
@@ -62,7 +62,7 @@ class NewsNearRepositoryTest {
         when(rs.getString(1)).thenReturn("[{\"lakeId\":\"A\",\"distanceKm\":3.1}]");
         answer(sqlServer, JdbcNewsNearRepository.NEAR_SQL, ps, rs);
 
-        JsonNode near = new JdbcNewsNearRepository(sqlServer, mock(JdbcTemplate.class), om)
+        JsonNode near = new JdbcNewsNearRepository(sqlServer, mock(CsNewsClient.class), om)
                 .lakesNear("[\"a\"]", 43.45, -80.49, 100);
 
         assertThat(near.get(0).get("distanceKm").asDouble()).isEqualTo(3.1);
@@ -78,7 +78,7 @@ class NewsNearRepositoryTest {
         ResultSet rs = mock(ResultSet.class);
         answer(sqlServer, JdbcNewsNearRepository.NEAR_SQL, mock(PreparedStatement.class), rs);
 
-        assertThatThrownBy(() -> new JdbcNewsNearRepository(sqlServer, mock(JdbcTemplate.class), om)
+        assertThatThrownBy(() -> new JdbcNewsNearRepository(sqlServer, mock(CsNewsClient.class), om)
                 .lakesNear("[]", 1, 1, 10)).isInstanceOf(IllegalStateException.class);
     }
 }

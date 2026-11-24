@@ -1,5 +1,6 @@
 package com.fishfind.docapi;
 
+import com.fishfind.docapi.repo.CsNewsClient;
 import com.fishfind.docapi.repo.DocumentStore;
 import com.fishfind.docapi.repo.NewsQueryRepository;
 import com.zaxxer.hikari.HikariDataSource;
@@ -7,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.yaml.snakeyaml.Yaml;
-import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,12 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.datasource.driver-class-name=org.h2.Driver",
-        // Never actually connected in this test: HikariDataSource built via the no-arg constructor +
-        // setters (see JdbcStoreConfig.mysqlNewsJdbcTemplate) initializes its pool lazily on first
-        // getConnection(), so a placeholder URL is enough to satisfy the @Value bind at startup.
-        "newsmysql.datasource.url=jdbc:mysql://localhost:3306/unused",
-        "newsmysql.datasource.username=unused",
-        "newsmysql.datasource.password=unused"
+        // Never called in this test (CsNewsClient connects lazily per request); the bind only needs a value.
+        "csnews.url=http://127.0.0.1:1"
 })
 class DocApiJdbcWiringTest {
 
@@ -67,46 +63,39 @@ class DocApiJdbcWiringTest {
     }
 
     /**
-     * Resilience4j's {@code @Retry} / {@code @CircuitBreaker} are applied by AOP, which Spring can only
-     * do to beans it manages. Constructing the SQL repository with {@code new} inside a cache would
-     * leave those annotations silently inert — the SQL calls would lose their retry and breaker
-     * without any compile or startup error. Assert the delegates really are advised proxies.
+     * docapi 1.44.0: no bean talks to MySQL. Every bean behind the news controllers holds the one
+     * {@link CsNewsClient} (csnews-env), and the MySQL template and its bootstraps are gone. Checked against the
+     * real target object's field, not a name, so a future re-wiring to a database fails here.
      */
     @Test
-    void sqlDelegatesBehindTheCachesAreStillResilienceProxies() {
-        Object queryDelegate = context.getBean("jdbcNewsQueryRepository");
-        Object storeDelegate = context.getBean("jdbcNewsStore");
+    void everyNewsBeanTalksToCsNewsOnly() throws Exception {
+        assertThat(context.containsBean("mysqlNewsJdbcTemplate")).isFalse();
+        assertThat(context.containsBean("newsIndexBootstrap")).isFalse();
+        assertThat(context.containsBean("newsPhotoTriggerBootstrap")).isFalse();
 
-        assertThat(AopUtils.isAopProxy(queryDelegate))
-                .as("jdbcNewsQueryRepository must be an AOP proxy so @Retry/@CircuitBreaker apply")
-                .isTrue();
-        assertThat(AopUtils.isAopProxy(storeDelegate))
-                .as("jdbcNewsStore must be an AOP proxy so @Retry/@CircuitBreaker apply")
-                .isTrue();
+        CsNewsClient csnews = context.getBean(CsNewsClient.class);
+        for (String name : List.of("jdbcNewsStore", "jdbcNewsQueryRepository", "newsWriteRepository",
+                "newsAdminCommandRepository", "newsNearRepository")) {
+            Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(context.getBean(name));
+            var field = target.getClass().getDeclaredField("csnews");
+            field.setAccessible(true);
+            assertThat(field.get(target)).as("%s must hold the csnews-env client", name).isSameAs(csnews);
+        }
     }
 
-    /**
-     * docapi 1.16.0: every bean behind NewsController -- reads and writes alike -- holds the MySQL
-     * news template, and the two SQL Server news beans ({@code sqlServerNewsStore},
-     * {@code sqlServerNewsQueryRepository}) are gone. Before this, POST/PUT /api/v1/news and
-     * /news/import still wrote SQL Server's dbo.news through them. Checked against the real target
-     * object's JdbcTemplate, not a name, so a future re-wiring to the SQL Server pool fails here.
-     */
+    /** No MySQL driver on the classpath: docapi cannot reach the news database even by accident. */
     @Test
-    void everyNewsBeanTalksToMySqlOnly() throws Exception {
-        assertThat(context.containsBean("sqlServerNewsStore")).isFalse();
-        assertThat(context.containsBean("sqlServerNewsQueryRepository")).isFalse();
+    void theMySqlDriverIsGone() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Class.forName("com.mysql.cj.jdbc.Driver"))
+                .isInstanceOf(ClassNotFoundException.class);
+    }
 
-        JdbcTemplate mysql = (JdbcTemplate) context.getBean("mysqlNewsJdbcTemplate");
-        for (String name : List.of("jdbcNewsStore", "jdbcNewsQueryRepository", "newsWriteRepository",
-                "newsAdminCommandRepository")) {
-            Object bean = context.getBean(name);
-            assertThat(AopUtils.isAopProxy(bean)).as("%s must be an AOP proxy", name).isTrue();
-            Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(bean);
-            var field = target.getClass().getDeclaredField("mysqlJdbc");
-            field.setAccessible(true);
-            assertThat(field.get(target)).as("%s must hold the MySQL news template", name).isSameAs(mysql);
-        }
+    /** csnews-env's budget fits inside cproxy's 10 s read timeout, like the database paths. */
+    @Test
+    void csNewsRequestFitsInsideTheProxyReadTimeout() throws Exception {
+        var field = CsNewsClient.class.getDeclaredField("requestTimeout");
+        field.setAccessible(true);
+        assertThat((Duration) field.get(context.getBean(CsNewsClient.class))).isLessThan(Duration.ofSeconds(10));
     }
 
     /**
@@ -260,67 +249,29 @@ class DocApiJdbcWiringTest {
     /**
      * Hikari's connect timeout only bounds how long the POOL waits; without a driver-level login
      * timeout the underlying socket can still sit far longer on a dropped TCP handshake, which is
-     * silence rather than a refusal. Both pools must set one.
+     * silence rather than a refusal.
      */
     @Test
-    void bothPoolsSetADriverLevelConnectTimeout() {
+    void theSqlServerPoolSetsADriverLevelConnectTimeout() {
         HikariDataSource sqlServer = (HikariDataSource) context.getBean(DataSource.class);
         // mssql-jdbc spells it loginTimeout, in SECONDS. (H2 stands in for the driver here; the
         // property is passed through either way, so this asserts the wiring, not H2's behaviour.)
         assertThat(sqlServer.getDataSourceProperties().getProperty("loginTimeout"))
                 .as("SQL Server pool must set a driver loginTimeout")
                 .isNotNull();
-
-        // Connector/J spells it connectTimeout, in MILLISECONDS - a unit mismatch here would be an
-        // easy and very expensive mistake, so both are asserted explicitly.
-        assertThat(mysqlNewsPool().getDataSourceProperties().getProperty("connectTimeout"))
-                .as("MySQL news pool must set a driver connectTimeout")
-                .isNotNull();
-        assertThat(mysqlNewsPool().getConnectionTimeout())
-                .as("MySQL news pool shares the same budget as the SQL Server pool")
-                .isLessThan(Duration.ofSeconds(10).toMillis());
     }
 
     /**
-     * The bare {@code JdbcTemplate} that every SQL-Server-backed repository injects must be bound to
-     * the SQL SERVER datasource — not the MySQL news pool.
-     *
-     * <p>This is the bug that took most of the API down between the MySQL news migration
-     * (2026-08-31) and 2026-09-02. {@code mysqlNewsJdbcTemplate} registers a {@link JdbcTemplate}
-     * bean, and Spring Boot's {@code JdbcTemplateAutoConfiguration} is
-     * {@code @ConditionalOnMissingBean(JdbcOperations.class)} — so it backed off entirely, the SQL
-     * Server template was never created, and all thirteen beans that inject {@code JdbcTemplate} by
-     * type silently received the MySQL one. Production then sent T-SQL to MySQL and every
-     * SQL-Server-backed endpoint 500'd with
-     * {@code "check the manual that corresponds to your MySQL server version"}.
-     *
-     * <p>The class comment on {@code mysqlNewsJdbcTemplate} documents this exact hazard one layer
-     * down, for {@code DataSource}, and dodges it by keeping the {@link HikariDataSource} local. The
-     * same trap exists for {@code JdbcTemplate}, and nothing caught it: the pre-existing wiring tests
-     * only asserted that beans were AOP proxies, never which database they pointed at.
+     * The bare {@code JdbcTemplate} every SQL-Server-backed repository injects must be the SQL Server pool.
+     * Between the MySQL news migration (2026-08-31) and 2026-09-02 a second (MySQL) template made Spring
+     * Boot's auto-configured one back off, and T-SQL went to MySQL. That template is gone since 1.44.0; this
+     * keeps any future second template from repeating it.
      */
     @Test
-    void sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne() {
+    void sqlServerRepositoriesGetTheSqlServerTemplate() {
         JdbcTemplate primary = context.getBean(JdbcTemplate.class);
         assertThat(primary.getDataSource()).isInstanceOf(HikariDataSource.class);
-        HikariDataSource primaryPool = (HikariDataSource) primary.getDataSource();
-
-        assertThat(primaryPool.getPoolName())
-                .as("the by-type JdbcTemplate (injected by fishQueryRepository, riverQueryRepository, "
-                        + "regulation*, station/fish/waterbody stores, ...) must be the SQL Server "
-                        + "pool; getting the MySQL pool here means T-SQL is being sent to MySQL")
-                .isEqualTo("docapi-hikari");
-
-        // ...and it must be a genuinely different pool from the news one, not the same object.
-        assertThat(primaryPool)
-                .as("SQL Server and MySQL news pools must be distinct")
-                .isNotSameAs(mysqlNewsPool());
-        assertThat(mysqlNewsPool().getPoolName()).isEqualTo("docapi-news-mysql-hikari");
-    }
-
-    /** The MySQL pool is deliberately not a DataSource bean, so reach it through its JdbcTemplate. */
-    private HikariDataSource mysqlNewsPool() {
-        var jdbc = (org.springframework.jdbc.core.JdbcTemplate) context.getBean("mysqlNewsJdbcTemplate");
-        return (HikariDataSource) jdbc.getDataSource();
+        assertThat(((HikariDataSource) primary.getDataSource()).getPoolName()).isEqualTo("docapi-hikari");
+        assertThat(context.getBeansOfType(JdbcTemplate.class)).hasSize(1);
     }
 }

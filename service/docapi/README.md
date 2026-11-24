@@ -49,16 +49,17 @@ src/main/java/com/fishfind/docapi/
 │   ├── DocumentStore.java              # storage interface (get / add / update)
 │   ├── InMemoryDocumentStore.java      # default backing, process-local, no DB
 │   ├── JdbcDocumentRepository.java     # abstract SQL backing (jdbc profile)
-│   ├── MySqlNewsDocumentRepository.java # news GET (MySQL); read-only since 1.16.0
+│   ├── CsNewsClient.java               # 1.44.0: HTTP client to csnews-env (the only MySQL news client)
+│   ├── HttpNewsDocumentRepository.java # news GET via csnews-env; read-only
 │   ├── WaterbodyDocumentRepository.java
 │   ├── FishDocumentRepository.java
 │   ├── StationDocumentRepository.java
 │   ├── NewsQueryRepository.java        # interface for news-page queries (list + default)
 │   ├── InMemoryNewsQueryRepository.java
-│   ├── MySqlNewsQueryRepository.java   # every news query (MySQL)
+│   ├── HttpNewsQueryRepository.java    # every news query via csnews-env
 │   ├── NewsWriteRepository.java        # news POST / PUT / import (1.16.0)
 │   ├── InMemoryNewsWriteRepository.java
-│   └── MySqlNewsWriteRepository.java   # sp_news_doc_insert / sp_news_doc_update
+│   └── HttpNewsWriteRepository.java    # news POST/PUT/import via csnews-env
 ├── service/
 │   ├── DocumentService.java            # abstract: validation + not-found handling
 │   ├── NewsDocumentService.java …      # one per entity
@@ -97,9 +98,8 @@ The `jdbc` profile requires:
 - `DB_URL` (SQL Server — waterbody, fish, station entities + news writes)
 - `DB_USERNAME`
 - `DB_PASSWORD`
-- `MYSQL_NEWS_URL` (MySQL — news **reads** only: `GET /{id}`, `/news/list`, `/news/default`; as of 2026-08-31)
-- `MYSQL_NEWS_USERNAME`
-- `MYSQL_NEWS_PASSWORD`
+- `CSNEWS_URL` (1.44.0) — csnews-env's origin, e.g. `http://<csnode-vpc>:8091`. Every news read and write goes
+  there; docapi has no MySQL access and no `MYSQL_NEWS_*` keys any more.
 
 Example `.env` (project root, do **not** commit — `.env.example` holds placeholders only):
 
@@ -108,16 +108,18 @@ DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=your_database;enc
 DB_USERNAME=your_username
 DB_PASSWORD=your_password
 
-MYSQL_NEWS_URL=jdbc:mysql://my06.winhost.com:3306/mysql_111487_envfish
-MYSQL_NEWS_USERNAME=your_mysql_user
-MYSQL_NEWS_PASSWORD=your_mysql_password
+CSNEWS_URL=http://localhost:8091
 ```
 
-**Why separate MySQL for news?** The `news` table migrated to Winhost MySQL on 2026-08-31 to match the `fishfind-frontend`'s `News.aspx` data source. The three news read endpoints now read from MySQL; everything else on `NewsController` (POST/PUT/{id}, `/search`, `/export`, `/import`) and all other entities (waterbody, fish, station) remain on SQL Server.
+**Why csnews-env for news?** The `news` table lives in Winhost MySQL (since 2026-08-31). Since 1.44.0 the only
+service with that database's credentials is **csnews-env** (`efcs-backend/service/csnews-env`, csnode). docapi keeps
+the public `/api/v1/news/*` routes, validation, role rules and caches, and calls csnews-env's internal
+`/api/v1/csnews/*` API on a miss. csnews-env down → uncached news routes answer `503 unavailable`.
 
 - Real process environment variables / JVM system properties always win over `.env`.
 - Override the dotenv file location with `DOTENV_PATH`.
-- **MySQL is optional**: if you run without MySQL config, the `jdbc` profile still starts (SQL Server only), news reads return empty/404, and writes + all other entities work normally. This is useful for local dev when you don't have MySQL access.
+- **`CSNEWS_URL` is required under `jdbc`** (startup fails without it). It is only called on a request, so a
+  local docapi pointed at a stopped csnews-env starts fine and answers news routes with 503.
 
 ## Build & run
 
