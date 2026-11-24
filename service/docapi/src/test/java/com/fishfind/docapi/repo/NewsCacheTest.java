@@ -662,32 +662,25 @@ class NewsCacheTest {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
         NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), any(Class.class))).thenReturn(1);
-
         queryCache.list("US", 0, 5);
         docCache.getDocument("g1");
 
-        new NewsCacheEvictor(queryCache, docCache, jdbc).dailyEviction();
+        new NewsCacheEvictor(queryCache, docCache, () -> true).dailyEviction();
 
         assertThat(queryCache.sizes()).containsExactly(0, 0, 0, 0, 0, 0, 0, 0, 0);
         assertThat(docCache.size()).isZero();
     }
 
     @Test
-    void evictionIsDeferredWhileSqlIsUnreachableSoStaleEntriesKeepServing() {
+    void evictionIsDeferredWhileTheNewsDatabaseIsUnreachableSoStaleEntriesKeepServing() {
         CountingRepo repo = new CountingRepo(500);
         NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
         NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), any(Class.class)))
-                .thenThrow(new DataAccessResourceFailureException("connection refused"));
-
         queryCache.list("US", 0, 5);
         docCache.getDocument("g1");
-        NewsCacheEvictor evictor = new NewsCacheEvictor(queryCache, docCache, jdbc);
+        NewsCacheEvictor evictor = new NewsCacheEvictor(queryCache, docCache, () -> false);
 
         evictor.dailyEviction();
 
@@ -709,14 +702,17 @@ class NewsCacheTest {
         DocumentStore delegate = mock(DocumentStore.class);
         when(delegate.getDocument(anyString())).thenReturn("{\"a\":1}");
         NewsDocumentCache docCache = new NewsDocumentCache(delegate, CACHE_PROPS);
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), any(Class.class)))
-                .thenThrow(new DataAccessResourceFailureException("down"))
-                .thenReturn(1);
+        java.util.concurrent.atomic.AtomicInteger probes = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.BooleanSupplier reachable = () -> {
+            if (probes.incrementAndGet() == 1) {
+                throw new IllegalStateException("down");   // a throwing probe counts as unreachable
+            }
+            return true;
+        };
 
         queryCache.list("US", 0, 5);
         docCache.getDocument("g1");
-        NewsCacheEvictor evictor = new NewsCacheEvictor(queryCache, docCache, jdbc);
+        NewsCacheEvictor evictor = new NewsCacheEvictor(queryCache, docCache, reachable);
 
         evictor.dailyEviction();               // deferred
         assertThat(evictor.isEvictionPending()).isTrue();
@@ -733,13 +729,13 @@ class NewsCacheTest {
         CountingRepo repo = new CountingRepo(500);
         NewsQueryCache queryCache = new NewsQueryCache(repo, CACHE_PROPS);
         NewsDocumentCache docCache = new NewsDocumentCache(mock(DocumentStore.class), CACHE_PROPS);
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        java.util.concurrent.atomic.AtomicInteger probes = new java.util.concurrent.atomic.AtomicInteger();
         queryCache.list("US", 0, 5);
 
-        new NewsCacheEvictor(queryCache, docCache, jdbc).retryPendingEviction();
+        new NewsCacheEvictor(queryCache, docCache, () -> probes.incrementAndGet() > 0).retryPendingEviction();
 
         // No probe, no clear — the cache is untouched on a healthy day.
-        org.mockito.Mockito.verifyNoInteractions(jdbc);
+        assertThat(probes.get()).isZero();
         assertThat(queryCache.sizes()[0]).isEqualTo(NewsQueryCache.BUCKET_ROWS);
     }
 

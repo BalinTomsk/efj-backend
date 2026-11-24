@@ -47,6 +47,40 @@ It calls docapi's REST endpoints (`/river/*`, `/region/regulation/*`, `/fish/sea
 `X-Fish-User`. **A change to one of those endpoints' shape or error messages changes what the model sees**: update
 mcp-env's spec and `api-reference.html` in the same change. Do not add an MCP endpoint back here.
 
+## News lives in csnews-env since 1.44.0 — docapi has NO MySQL access
+
+docapi 1.44.0 removed every MySQL path: the `mysql-connector-j` dependency, `JdbcStoreConfig.mysqlNewsJdbcTemplate`,
+`MySqlNewsDocumentRepository`, `MySqlNewsQueryRepository`, `MySqlNewsWriteRepository`,
+`MySqlNewsAdminCommandRepository`, the MySQL half of `JdbcNewsNearRepository`, `NewsIndexBootstrap`,
+`NewsPhotoTriggerBootstrap` and the `MYSQL_NEWS_*` keys. That SQL moved, unchanged, to **csnews-env**
+(`efcs-backend/service/csnews-env`, C#, on csnode; renamed from news_search), the **only** service with the news
+database's credentials. docapi keeps the public `/api/v1/news/*` routes, their validation (`NewsWriteParser`), role
+rules, and the caches (`NewsQueryCache`, `NewsDocumentCache`, `/news/near`'s `TtlLru`), and calls csnews-env's
+internal news data API (`/api/v1/csnews/*`) over the VPC on a miss:
+
+| docapi bean (unchanged name) | class since 1.44.0 | csnews-env route |
+|---|---|---|
+| `jdbcNewsStore` | `HttpNewsDocumentRepository` | `GET doc/{id}` |
+| `jdbcNewsQueryRepository` | `HttpNewsQueryRepository` | `GET list`, `default`, `photo/{id}`, `export/{id}`, `search`, `lake/{id}`, `fish/{id}` |
+| `newsWriteRepository` | `HttpNewsWriteRepository` | `POST doc`, `PUT doc/{id}` |
+| `newsAdminCommandRepository` | `HttpNewsAdminCommandRepository` | `POST admin/draft`, `POST admin/publish`, `PUT admin/{id}/photo/{index}` |
+| `newsNearRepository` | `JdbcNewsNearRepository` (news half) | `GET tagged` (distances stay on SQL Server) |
+| `newsCacheEvictor` | `NewsCacheEvictor` | `GET ping` before the nightly clear |
+
+- **`CsNewsClient`** (java.net.http): `CSNEWS_URL` (`csnews.url`), connect 2 s, request 8 s (inside cproxy's 10 s),
+  one retry of a GET whose connection failed, never of a write. It uses its own Resilience4j breaker
+  **`csnewsBreaker`** (application.yml), never `sqlBreaker`: a news outage must not fail SQL Server endpoints.
+  csnews-env 404 → `null` (as the MySQL repositories returned); 400 → `InvalidDocumentException`; anything else →
+  `CsNewsUnavailableException` = **503 `unavailable`** "News is temporarily unavailable" (detail logged), never 500.
+- **Wherever the sections below say "MySQL" or name a `MySqlNews*` class, read "csnews-env" and the `HttpNews*`
+  class.** The SQL descriptions there are history and now describe csnews-env's `MySqlNewsStore`; the source of
+  truth for that SQL is csnews-env's `docs/specification.md`.
+- **Never add a MySQL driver or credential back to docapi.** A new news read/write = a csnews-env route + an
+  `HttpNews*` method. A change to a `/api/v1/csnews/*` shape changes both repos in the same change.
+- Tests: `CsNewsClientTest` (real JDK `HttpServer` standing in for csnews-env), `CsNewsEndToEndTest` (opt-in,
+  `CSNEWS_E2E_URL`, against a live csnews-env on a throwaway MySQL), `DocApiJdbcWiringTest.everyNewsBeanTalksToCsNewsOnly`
+  and `theMySqlDriverIsGone`. The old `MySqlNews*RepositoryTest` classes moved to csnews-env as real-engine tests.
+
 ---
 
 ## Keeping docs in sync — IMPORTANT
@@ -139,17 +173,19 @@ com.fishfind.docapi
 │   ├── DocumentStore              # interface: get/add/update (String id, String json)
 │   ├── InMemoryDocumentStore      # default backing — ConcurrentHashMap, ids like "news-1", no DB
 │   ├── JdbcDocumentRepository     # abstract SQL base: per-entity SQL + Resilience4j (jdbc profile)
-│   ├── MySqlNewsDocumentRepository # news GET (sp_news_doc_get, MySQL). READ-ONLY since 1.16.0:
+│   ├── CsNewsClient               # 1.44.0: HTTP client to csnews-env /api/v1/csnews/* (csnewsBreaker)
+│   ├── CsNewsUnavailableException # 503 unavailable when csnews-env / its MySQL is down
+│   ├── HttpNewsDocumentRepository # news GET via csnews-env doc/{id}. READ-ONLY:
 │   │                              #   addDocument/updateDocument throw -- news writes bypass the store
 │   ├── NewsWriteRepository        # interface: insert/update(NewsWrite) -- POST/PUT /news + /import
-│   ├── InMemoryNewsWriteRepository / MySqlNewsWriteRepository (sp_news_doc_insert /
-│   │                              #   sp_news_doc_update, 1.16.0) -- typed params, validated upstream
+│   ├── InMemoryNewsWriteRepository / HttpNewsWriteRepository (csnews-env POST doc / PUT doc/{id},
+│   │                              #   1.44.0; was MySQL sp_news_doc_insert/update) -- validated upstream
 │   ├── NewsWrite                  # record: one parsed + validated news write (3 photo slots)
 │   ├── NewsCaches                 # evictAll(): clears both news caches after any news write
 │   ├── NewsAdminCommandRepository # interface: createDraft/publish/updatePhoto (Editor/AddNews.aspx
 │   │                              #   admin writes, 1.13.0) -- flat `news` row, not a JSON document
-│   ├── InMemoryNewsAdminCommandRepository / MySqlNewsAdminCommandRepository (sp_news_admin_draft_create
-│   │                              #   / sp_news_admin_publish / sp_news_admin_photo_update)
+│   ├── InMemoryNewsAdminCommandRepository / HttpNewsAdminCommandRepository (csnews-env admin/draft,
+│   │                              #   admin/publish, admin/{id}/photo/{index}; 1.44.0)
 │   ├── WaterbodyDocumentRepository
 │   ├── FishDocumentRepository
 │   ├── StationDocumentRepository
@@ -159,10 +195,8 @@ com.fishfind.docapi
 │   ├── NewsListOrder              # enum DATE / EDITED -- the /news/list order, chosen by the controller
 │   │                              #   from the caller's role, never by the caller (1.18.1)
 │   ├── InMemoryNewsQueryRepository # default backing — empty results (no DB)
-│   ├── MySqlNewsQueryRepository   # every news query on MySQL — list/defaultNews/newsPhoto
-│   │                              #   (2026-08-31), search (1.10.0), lakeNews/fishNews (1.11.0/
-│   │                              #   1.12.0), export (2026-09-17). No SQL Server delegate since
-│   │                              #   1.16.0; JdbcNewsQueryRepository + NewsDocumentRepository deleted
+│   ├── HttpNewsQueryRepository    # every news query via csnews-env (1.44.0; was MySqlNewsQueryRepository)
+│   │                              #   list/defaultNews/newsPhoto/search/lakeNews/fishNews/export
 │   ├── FishQueryRepository        # interface: search(query) + codesToLatin(...) + namesToLatin(...) + waterBodies(...) + info(fishId) (1.27.0) + photos/photo (1.32.0)
 │   ├── InMemoryFishQueryRepository # default backing — empty results (no DB)
 │   ├── JdbcFishQueryRepository    # JDBC backing — dbo.SearchFishList, fn_fish_code_latin_json,
@@ -177,7 +211,7 @@ com.fishfind.docapi
 │   │                              #   fn_fish_reasoning_json)
 │   ├── CachingForecastQueryRepository # @Primary in jdbc: 5-min TTL LRU (500) per method, misses not stored
 │   ├── TtlLru                     # the bounded TTL LRU both caching decorators use (1.33.0)
-│   ├── NewsNearRepository         # interface: taggedNews(limit) (MySQL) + lakesNear(ids, lat, lon, km) (SQL Server)
+│   ├── NewsNearRepository         # interface: taggedNews(limit) (csnews-env) + lakesNear(ids, lat, lon, km) (SQL Server)
 │   ├── JdbcNewsNearRepository / InMemoryNewsNearRepository (1.34.0, /news/near; dbo.fn_lakes_near_json)
 │   ├── MapQueryRepository         # interface: shapes(west, south, east, north, zoom, limit) (1.33.0, /api/v1/map)
 │   ├── InMemoryMapQueryRepository / JdbcMapQueryRepository (dbo.fn_shapes_bbox_geojson) /
@@ -257,13 +291,11 @@ store configs register beans under the same names, so switching profiles swaps t
   actuator `db` health indicator off.
 - **`jdbc` profile** — `application-jdbc.yml` clears the exclusion and configures the Hikari datasource
   (SQL Server) from `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`; `JdbcStoreConfig` provides four
-  `JdbcDocumentRepository` beans (news's is MySQL-backed) plus the MySQL news query/write repositories; the `db` health indicator +
-  readiness `db` group are re-enabled. Run with `--spring.profiles.active=jdbc`. **This same profile
-  also builds a second, dedicated MySQL `JdbcTemplate`** (`JdbcStoreConfig.mysqlNewsJdbcTemplate`,
-  from `MYSQL_NEWS_URL`/`MYSQL_NEWS_USERNAME`/`MYSQL_NEWS_PASSWORD`) used by **every** news bean, reads
-  and (since 1.16.0) writes — see "MySQL backing for news reads" below. It's deliberately never registered as a `DataSource`
-  bean (only the `JdbcTemplate` it builds is), so it can't collide with the primary SQL Server
-  datasource via Spring Boot's `@ConditionalOnMissingBean(DataSource.class)`.
+  `JdbcDocumentRepository` beans (news's reads csnews-env) plus the HTTP news query/write repositories; the `db` health
+  indicator + readiness `db` group are re-enabled. Run with `--spring.profiles.active=jdbc`. **This same profile
+  builds the `CsNewsClient`** from `CSNEWS_URL` (required: startup fails without it) used by **every** news bean,
+  reads and writes — see "News lives in csnews-env since 1.44.0" above. Until 1.43.0 it built a second, MySQL
+  `JdbcTemplate` from `MYSQL_NEWS_*`; that is gone.
 
 ---
 
@@ -792,9 +824,9 @@ back off entirely**. `JdbcStoreConfig.mysqlNewsJdbcTemplate` does exactly that, 
 2026-08-31 and 2026-09-02 left the SQL Server template uncreated and handed the MySQL one to all
 thirteen beans that inject `JdbcTemplate` by type — production sent T-SQL to MySQL and every
 SQL-Server-backed endpoint 500'd, while `docapi-hikari` never even started. The SQL Server
-`JdbcTemplate` is therefore declared explicitly and marked `@Primary`; MySQL consumers must keep
-using `@Qualifier("mysqlNewsJdbcTemplate")`. **If you add a third datasource, qualify everything and
-extend `DocApiJdbcWiringTest.sqlServerRepositoriesGetTheSqlServerTemplateNotTheMysqlOne`** — that
+`JdbcTemplate` is therefore declared explicitly and marked `@Primary` (kept after 1.44.0 removed the MySQL
+template). **If you ever add a second datasource, qualify everything and extend
+`DocApiJdbcWiringTest.sqlServerRepositoriesGetTheSqlServerTemplate`** — that
 test asserts pool *names*, because H2 stands in for SQL Server in tests and a misdirected template
 otherwise still appears to work.
 

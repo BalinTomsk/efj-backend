@@ -2,6 +2,22 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-23: **1.44.0 (built, not deployed) — no MySQL access: news goes through csnews-env.** Owner decision: all
+  access to the MySQL news database lives in **csnews-env** (`efcs-backend/service/csnews-env`, csnode; news_search
+  renamed, 0.6.0); docapi keeps only the REST surface and the caches. Removed: `mysql-connector-j`,
+  `JdbcStoreConfig.mysqlNewsJdbcTemplate`, `MySqlNewsDocumentRepository`, `MySqlNewsQueryRepository`,
+  `MySqlNewsWriteRepository`, `MySqlNewsAdminCommandRepository`, `NewsIndexBootstrap`, `NewsPhotoTriggerBootstrap`,
+  `newsmysql.*` / `MYSQL_NEWS_*`. Added: `CsNewsClient` (`CSNEWS_URL`, connect 2 s / request 8 s, own breaker
+  `csnewsBreaker`, GET retried once on a connect failure), `CsNewsUnavailableException` (503 `unavailable`),
+  `HttpNewsDocumentRepository`, `HttpNewsQueryRepository`, `HttpNewsWriteRepository`,
+  `HttpNewsAdminCommandRepository`; `JdbcNewsNearRepository` reads tagged stories from csnews-env (distances still
+  SQL Server); `NewsCacheEvictor` probes csnews-env `/ping` instead of SQL Server. Bean names, routes, shapes,
+  validation and caches unchanged; the one visible change is **503 instead of 500** when news cannot be read.
+  Tests 381 + 1 opt-in, all pass: +12 `CsNewsClientTest` (real HTTP), `CsNewsEndToEndTest` (passed against a live
+  csnews-env on MySQL 8.0), wiring rewritten (`everyNewsBeanTalksToCsNewsOnly`, `theMySqlDriverIsGone`); the 33
+  `MySqlNews*RepositoryTest` cases moved to csnews-env as real-engine tests. **Deploy after csnews-env 0.6.0 and with
+  `CSNEWS_URL` in the env file — a merge to main deploys through CI** (`docs/do-update.md`, Step 0).
+
 - 2026-11-22: **1.43.0 (built, not deployed) — the MCP server moves out to mcp-env.** `POST /api/v1/mcp` is gone:
   `McpController`, `McpToolCatalog` (and `McpControllerTest`), the URL download of `CatchPhotoFetcher` and
   `docapi.mcp.write-users` are removed. The MCP server is now **mcp-env** (C++23, on the cproxy droplet, cproxy 0.34.0

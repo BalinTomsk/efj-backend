@@ -19,6 +19,14 @@ background worker (no scheduler, no worker threads, no upstream feed fetching).
 The default profile excludes JDBC/datasource auto-configuration entirely, so nothing tries to reach a
 database unless `jdbc` is active.
 
+**News is not in any database docapi can reach (since 1.44.0).** The MySQL `news` database belongs to
+**csnews-env** (`efcs-backend/service/csnews-env`, C#, csnode; ex news_search), the only service with its
+credentials. Under `jdbc`, every news bean calls csnews-env's internal news data API (`/api/v1/csnews/*`) over the
+VPC through `CsNewsClient`; docapi keeps the public `/api/v1/news/*` routes, validation, role rules and caches. See
+"News via csnews-env (1.44.0)" under Data access. **Read every later "MySQL" in this document as "MySQL, through
+csnews-env"**: those sections describe the statements csnews-env now runs (its `docs/specification.md` is the source
+of truth for them) and the docapi behaviour around them, which is unchanged.
+
 ## Project identity
 
 | Key | Value |
@@ -27,7 +35,7 @@ database unless `jdbc` is active.
 | Language | Java 21 |
 | Build | Maven |
 | Framework | Spring Boot 3.3.13 |
-| groupId / artifactId / version | `com.fishfind` / `docapi` / `1.0.0` |
+| groupId / artifactId / version | `com.fishfind` / `docapi` / `1.44.0` (pom) |
 | Root package | `com.fishfind.docapi` |
 | Main class | `com.fishfind.docapi.DocApiApplication` |
 | App/health port | 8080 |
@@ -459,7 +467,10 @@ src/main/java/com/fishfind/docapi/domain/DocumentType.java
 src/main/java/com/fishfind/docapi/repo/DocumentStore.java
 src/main/java/com/fishfind/docapi/repo/InMemoryDocumentStore.java
 src/main/java/com/fishfind/docapi/repo/JdbcDocumentRepository.java
-src/main/java/com/fishfind/docapi/repo/MySqlNewsDocumentRepository.java
+src/main/java/com/fishfind/docapi/repo/CsNewsClient.java
+src/main/java/com/fishfind/docapi/repo/CsNewsUnavailableException.java
+src/main/java/com/fishfind/docapi/repo/HttpNewsDocumentRepository.java
+src/main/java/com/fishfind/docapi/repo/HttpNewsAdminCommandRepository.java
 src/main/java/com/fishfind/docapi/repo/WaterbodyDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/FishDocumentRepository.java
 src/main/java/com/fishfind/docapi/repo/StationDocumentRepository.java
@@ -468,9 +479,9 @@ src/main/java/com/fishfind/docapi/repo/InMemoryNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsWrite.java
 src/main/java/com/fishfind/docapi/repo/NewsWriteRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryNewsWriteRepository.java
-src/main/java/com/fishfind/docapi/repo/MySqlNewsWriteRepository.java
+src/main/java/com/fishfind/docapi/repo/HttpNewsWriteRepository.java
 src/main/java/com/fishfind/docapi/repo/NewsCaches.java
-src/main/java/com/fishfind/docapi/repo/MySqlNewsQueryRepository.java
+src/main/java/com/fishfind/docapi/repo/HttpNewsQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/FishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/InMemoryFishQueryRepository.java
 src/main/java/com/fishfind/docapi/repo/JdbcFishQueryRepository.java
@@ -517,8 +528,8 @@ src/test/java/com/fishfind/docapi/DocApiApplicationTest.java
 src/test/java/com/fishfind/docapi/DocApiContextTest.java
 src/test/java/com/fishfind/docapi/DocApiJdbcWiringTest.java
 src/test/java/com/fishfind/docapi/repo/NewsDocumentRepositoryTest.java
-src/test/java/com/fishfind/docapi/repo/MySqlNewsDocumentRepositoryTest.java
-src/test/java/com/fishfind/docapi/repo/MySqlNewsQueryRepositoryTest.java
+src/test/java/com/fishfind/docapi/repo/CsNewsClientTest.java
+src/test/java/com/fishfind/docapi/repo/CsNewsEndToEndTest.java
 src/test/java/com/fishfind/docapi/service/DocumentServiceTest.java
 src/test/java/com/fishfind/docapi/web/DocumentRoundTripTest.java
 src/test/java/com/fishfind/docapi/web/HealthControllerTest.java
@@ -539,7 +550,7 @@ Parent `spring-boot-starter-parent` 3.3.13; `java.version` 21; `mssql-jdbc.versi
 - `micrometer-registry-prometheus` (runtime)
 - `resilience4j-spring-boot3` 2.2.0
 - `mssql-jdbc`
-- `mysql-connector-j` (runtime) — dedicated news datasource, see "MySQL backing" above
+- (no MySQL driver since 1.44.0 — news goes through csnews-env over HTTP with the JDK `java.net.http` client)
 - `dotenv-java` 3.2.0
 - `slf4j-api`, `logback-classic`, `logstash-logback-encoder` 7.4
 - test: `spring-boot-starter-test`, `h2`, `mockito-inline` 5.2.0
@@ -570,10 +581,10 @@ registered per profile:
   `JdbcTemplateAutoConfiguration`, and disables the actuator `db` health indicator (readiness group =
   `readinessState` only).
 - **`jdbc` profile** — `JdbcStoreConfig` (`@Profile("jdbc")`) registers four `JdbcDocumentRepository`
-  beans under the **same names** (three taking the shared SQL Server `JdbcTemplate`; `news` is the
-  MySQL-backed `MySqlNewsDocumentRepository`), the MySQL-backed `MySqlNewsQueryRepository` and
-  `MySqlNewsWriteRepository` beans, one `JdbcFishQueryRepository` bean, and one
-  `JdbcRiverQueryRepository` bean.
+  beans under the **same names** (three taking the shared SQL Server `JdbcTemplate`; `news` is
+  `HttpNewsDocumentRepository`, which reads csnews-env), the `CsNewsClient`, the HTTP news beans
+  (`HttpNewsQueryRepository`, `HttpNewsWriteRepository`, `HttpNewsAdminCommandRepository`), one
+  `JdbcFishQueryRepository` bean, and one `JdbcRiverQueryRepository` bean. `CSNEWS_URL` is required under `jdbc`.
   `application-jdbc.yml` clears the auto-configure
   exclusion, configures the datasource, and re-enables the `db` health indicator + readiness `db` group.
 
@@ -607,10 +618,17 @@ spring:
 **TIME BUDGET.** cproxy fronts this service with a 10s read timeout (and one retry for idempotent
 GETs), so any request docapi cannot answer in roughly that window reaches the caller as an opaque
 `502`. The whole DB failure path must therefore fit inside it: currently ≈ 6.5s worst case
-(2 attempts × 3s connect + one 500ms retry wait). The MySQL news pool
-(`JdbcStoreConfig.mysqlNewsJdbcTemplate`) carries the same budget with Connector/J's
-`connectTimeout` — note the unit differs from mssql-jdbc's `loginTimeout`: **milliseconds vs
-seconds**.
+(2 attempts × 3s connect + one 500ms retry wait). The csnews-env client fits the same window: connect 2 s,
+whole request 8 s (`csnews.connect-timeout` / `csnews.request-timeout`); csnews-env bounds its own MySQL connect to
+4 s. `DocApiJdbcWiringTest.csNewsRequestFitsInsideTheProxyReadTimeout` asserts it. (Until 1.43.0 a MySQL pool here
+carried the same budget with Connector/J's `connectTimeout`.)
+
+```yaml
+csnews:                      # application-jdbc.yml, 1.44.0
+  url: ${CSNEWS_URL}         # e.g. http://<csnode-vpc>:8091
+  connect-timeout: 2s
+  request-timeout: 8s
+```
 
 Until 2026-09-02 this was 30s connect with no driver timeouts and `sqlRetry` at 3×/2s — a worst case
 near **94s per request**. Combined with an intermittently lossy network path to the Winhost DB hosts
@@ -620,6 +638,37 @@ now asserts the budget, reading the retry values from the production yaml becaus
 `application-test.yml` overrides them for speed.
 
 ## Data access
+
+### News via csnews-env (1.44.0)
+
+docapi holds no MySQL driver, pool or credential. Every news bean takes the one `CsNewsClient`:
+
+| Bean | Class | csnews-env (`/api/v1/csnews/…`) |
+|---|---|---|
+| `jdbcNewsStore` (behind `newsStore` = `NewsDocumentCache`) | `HttpNewsDocumentRepository` | `GET doc/{id}` → the document's JSON text; 404 → `null` |
+| `jdbcNewsQueryRepository` (behind `NewsQueryCache`, `@Primary`) | `HttpNewsQueryRepository` | `list?offset&limit&order=date\|edited&country`, `default`, `photo/{id}` (raw bytes), `export/{id}`, `search?q&offset&limit&country&fishId…`, `lake/{id}?limit`, `fish/{id}?limit` |
+| `newsWriteRepository` | `HttpNewsWriteRepository` | `POST doc` (201 `{newsId}`), `PUT doc/{id}` (`{found}`; 404 → `false`) |
+| `newsAdminCommandRepository` | `HttpNewsAdminCommandRepository` | `POST admin/draft`, `POST admin/publish`, `PUT admin/{id}/photo/{index}` |
+| `newsNearRepository` | `JdbcNewsNearRepository` | `GET tagged?limit` (distances: SQL Server `fn_lakes_near_json`, unchanged) |
+| `newsCacheEvictor` | `NewsCacheEvictor(…, csNewsClient::reachable)` | `GET ping` (200 = MySQL up) before the nightly clear |
+
+**`CsNewsClient`** (`repo/CsNewsClient.java`, JDK `java.net.http`, HTTP/1.1): base `csnews.url` (blank → startup
+fails); answers are the `{data,error,meta}` envelope and the client returns `data`. Status mapping: 2xx → data;
+404 → `null`; 400 → `InvalidDocumentException` (400 to the caller; docapi validated first, so it should not happen);
+any other status, an I/O failure, a timeout, or the breaker open → `CsNewsUnavailableException`
+(`ApiProblemException` 503, code `unavailable`, message "News is temporarily unavailable"; the detail is logged at
+WARN, never sent). A GET is retried once after 200 ms only on `ConnectException`; writes never. Every call runs
+through the Resilience4j breaker **`csnewsBreaker`** (programmatic, from `CircuitBreakerRegistry`): window 10,
+minimum 5, 50 %, open 30 s, `InvalidDocumentException` ignored. It is separate from `sqlBreaker`, so a news outage
+never fails SQL Server endpoints, and SQL Server faults never block news. `reachable()` bypasses the breaker.
+
+Bodies: writes are camelCase maps — the 15 text/tag fields, `stamp` as a zone-less
+`yyyy-MM-dd'T'HH:mm:ss.SSS` (from `Timestamp.toLocalDateTime()`) or null, photos as `{data (base64), author, alt}`
+(`photo1`/`photo2` on insert only). Reads bind straight into `NewsController`'s records (`NewsListPage`,
+`NewsSearchPage`, `NewsLakePage`, `NewsFishPage`), which csnews-env mirrors field for field.
+
+Deployment: csnews-env first (with the `MYSQL_NEWS_*` keys moved to it), then `CSNEWS_URL` in docapi's env file, then
+docapi 1.44.0. jnode must reach csnode's VPC address (peering route).
 
 ### `DocumentStore` (interface)
 
@@ -1265,6 +1314,7 @@ keeps the whole feature on cproxy's existing `GET`/`PATCH`-only allow-list.
 
 - `DocumentNotFoundException` → 404 `fail("not_found", …)`.
 - `InvalidDocumentException` / `HttpMessageNotReadableException` → 400 `fail("invalid_document", …)`.
+- `ApiProblemException` → its own status/code (e.g. `CsNewsUnavailableException` → 503 `unavailable`, 1.44.0).
 - `Exception` → log error, 500 `fail("internal_error", "An unexpected error occurred")` (no internal
   details leaked).
 
@@ -1284,7 +1334,8 @@ resilience4j:
                     failure-rate-threshold: 50, wait-duration-in-open-state: 30s }
 ```
 
-No HTTP-feed retry/breakers (this service makes no upstream HTTP calls).
+Plus `csnewsBreaker` (1.44.0; same window as `sqlBreaker`, `ignore-exceptions: [InvalidDocumentException]`), used
+programmatically by `CsNewsClient` for its calls to csnews-env — docapi's only upstream HTTP dependency.
 
 ## Logging (`logback-spring.xml`)
 
@@ -1361,6 +1412,7 @@ build artifacts. Never bake a real `.env` into the image.
 DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=your_database;encrypt=true;trustServerCertificate=true
 DB_USERNAME=your_username
 DB_PASSWORD=your_password
+CSNEWS_URL=http://csnews-env-host:8091
 # DOTENV_PATH=/app/.env
 # JAVA_OPTS=-Xms256m -Xmx512m
 ```

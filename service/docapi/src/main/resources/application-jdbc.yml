@@ -50,11 +50,10 @@ management:
     db:
       enabled: true
 
-# Dedicated news datasource (MySQL, Winhost `news` table) -- read via a plain @Value-bound
-# JdbcTemplate in JdbcStoreConfig.mysqlNewsJdbcTemplate, not Spring Boot's datasource
-# auto-configuration, so it never competes with the primary SQL Server DataSource bean above.
-newsmysql:
-  datasource:
-    url: ${MYSQL_NEWS_URL}
-    username: ${MYSQL_NEWS_USERNAME}
-    password: ${MYSQL_NEWS_PASSWORD}
+# News (1.44.0): docapi has NO MySQL access. Every news read/write goes to csnews-env's internal news data API
+# (efcs-backend/service/csnews-env, on csnode, /api/v1/csnews/*), over the VPC. See CsNewsClient.
+# CSNEWS_URL is the origin, e.g. http://<csnode-vpc-address>:8091 (no trailing path).
+csnews:
+  url: ${CSNEWS_URL}
+  connect-timeout: 2s
+  request-timeout: 8s    # inside cproxy's 10 s read timeout

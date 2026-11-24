@@ -7,54 +7,47 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * JDBC side of {@code /news/near} (1.34.0): the tagged stories from MySQL (the same narrow columns as
- * {@code MySqlNewsQueryRepository.LAKE_SQL}, never a photo or paragraph column) and the distances from SQL Server
- * ({@code dbo.fn_lakes_near_json}, envfish-db 2026-11-15). Both reads go through the shared {@code sqlRetry} /
- * {@code sqlBreaker} like every other repository bean.
+ * The two reads of {@code /news/near} (1.34.0). The tagged stories come from csnews-env
+ * ({@code GET /api/v1/csnews/tagged}, since docapi 1.44.0 -- docapi has no MySQL access; the same narrow columns,
+ * never a photo or paragraph column) and the distances from SQL Server ({@code dbo.fn_lakes_near_json},
+ * envfish-db 2026-11-15). Only the SQL Server read goes through {@code sqlRetry}/{@code sqlBreaker}; the news read
+ * has the {@code csnewsBreaker} inside {@link CsNewsClient}, so a news outage never trips the SQL breaker.
  */
 public class JdbcNewsNearRepository implements NewsNearRepository {
-
-    static final String TAGGED_SQL = """
-            SELECT news_id, news_title AS title, news_source AS source,
-                   DATE_FORMAT(news_stamp, '%Y-%m-%d') AS stamp, country, lake_id
-              FROM news
-             WHERE news_publish = 1
-               AND lake_id IS NOT NULL
-               AND lake_id <> ''
-             ORDER BY news_stamp DESC, news_id DESC
-             LIMIT ?""";
 
     static final String NEAR_SQL = "SELECT dbo.fn_lakes_near_json(?, ?, ?, ?)";
 
     private final JdbcTemplate sqlServer;
-    private final JdbcTemplate mysql;
+    private final CsNewsClient csnews;
     private final ObjectMapper objectMapper;
 
-    public JdbcNewsNearRepository(JdbcTemplate sqlServer, JdbcTemplate mysql, ObjectMapper objectMapper) {
+    public JdbcNewsNearRepository(JdbcTemplate sqlServer, CsNewsClient csnews, ObjectMapper objectMapper) {
         this.sqlServer = sqlServer;
-        this.mysql = mysql;
+        this.csnews = csnews;
         this.objectMapper = objectMapper;
     }
 
     @Override
-    @Retry(name = "sqlRetry")
-    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "taggedNewsFallback")
     public List<TaggedNews> taggedNews(int limit) {
-        return mysql.query(TAGGED_SQL, ps -> ps.setInt(1, limit), (rs, i) -> new TaggedNews(
-                rs.getString("news_id"),
-                rs.getString("title"),
-                rs.getString("source"),
-                rs.getString("stamp"),
-                rs.getString("country"),
-                rs.getString("lake_id")));
-    }
-
-    @SuppressWarnings("unused")
-    public List<TaggedNews> taggedNewsFallback(int limit, Throwable ex) {
-        throw new RuntimeException("MySQL tagged-news query failed", ex);
+        JsonNode data = csnews.get("/tagged?limit=" + limit);
+        if (data == null || !data.isArray()) {
+            throw new CsNewsUnavailableException("csnews-env /tagged returned no list", null);
+        }
+        List<TaggedNews> out = new ArrayList<>(data.size());
+        for (JsonNode n : data) {
+            out.add(new TaggedNews(
+                    n.path("newsId").asText(null),
+                    n.path("title").asText(null),
+                    n.path("source").asText(null),
+                    n.path("stamp").asText(null),
+                    n.path("country").asText(null),
+                    n.path("lakeId").asText(null)));
+        }
+        return out;
     }
 
     @Override

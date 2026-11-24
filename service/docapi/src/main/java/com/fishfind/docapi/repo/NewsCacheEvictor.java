@@ -2,16 +2,17 @@ package com.fishfind.docapi.repo;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 /**
  * Clears the news caches once a day, at <strong>00:00 UTC</strong>.
  *
  * <h2>Why this is not just a TTL</h2>
- * The clear is <strong>skipped while SQL Server is unreachable</strong>. Clearing during an outage
+ * The clear is <strong>skipped while the news database is unreachable</strong> (since 1.44.0: csnews-env and its
+ * MySQL, probed by {@code GET /api/v1/csnews/ping}; before, SQL Server). Clearing during an outage
  * would be the worst possible moment: every subsequent request would miss, fail to reload, and return
  * 500 — turning a database outage into a total content outage. Keeping the stale entries means the
  * service keeps answering from memory until the database comes back.
@@ -21,10 +22,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * succeeds — so the caches are refreshed as soon as the connection is restored, rather than waiting
  * for the next day's tick.
  *
- * <p>Reachability is decided by a real {@code SELECT 1} round-trip rather than by inspecting the
- * circuit breaker, so the probe reflects the database itself and not the breaker's recent history.
- * The probe runs through the plain {@link JdbcTemplate} and is intentionally not wrapped in the
- * Resilience4j retry/breaker: a failure here is an expected, handled outcome, not an error to retry.
+ * <p>Reachability is decided by a real round trip ({@link CsNewsClient#reachable()}: csnews-env runs
+ * {@code SELECT 1} on MySQL) rather than by inspecting a circuit breaker, so the probe reflects the database
+ * itself. It bypasses the breaker on purpose: a failure here is an expected, handled outcome.
  */
 public class NewsCacheEvictor {
 
@@ -35,15 +35,16 @@ public class NewsCacheEvictor {
 
     private final NewsQueryCache queryCache;
     private final NewsDocumentCache documentCache;
-    private final JdbcTemplate jdbc;
+    private final BooleanSupplier newsReachable;
 
     /** True when a daily clear was due but deferred because the database was unreachable. */
     private final AtomicBoolean evictionPending = new AtomicBoolean(false);
 
-    public NewsCacheEvictor(NewsQueryCache queryCache, NewsDocumentCache documentCache, JdbcTemplate jdbc) {
+    /** @param newsReachable true when the news database answers (production: {@link CsNewsClient#reachable()}) */
+    public NewsCacheEvictor(NewsQueryCache queryCache, NewsDocumentCache documentCache, BooleanSupplier newsReachable) {
         this.queryCache = queryCache;
         this.documentCache = documentCache;
-        this.jdbc = jdbc;
+        this.newsReachable = newsReachable;
     }
 
     /**
@@ -69,7 +70,7 @@ public class NewsCacheEvictor {
 
     private void attemptEviction(String reason) {
         if (!databaseReachable()) {
-            log.warn("News cache {} eviction deferred — SQL Server unreachable; serving stale entries "
+            log.warn("News cache {} eviction deferred — news database unreachable; serving stale entries "
                     + "and retrying every {} ms until the connection is restored", reason, RETRY_INTERVAL_MS);
             return;
         }
@@ -79,15 +80,11 @@ public class NewsCacheEvictor {
         log.info("News caches cleared ({} eviction); next request repopulates them from the database", reason);
     }
 
-    /**
-     * @return true when a {@code SELECT 1} round-trip succeeds
-     */
     private boolean databaseReachable() {
         try {
-            jdbc.queryForObject("SELECT 1", Integer.class);
-            return true;
+            return newsReachable.getAsBoolean();
         } catch (RuntimeException ex) {
-            log.debug("SQL reachability probe failed: {}", ex.toString());
+            log.debug("News reachability probe failed: {}", ex.toString());
             return false;
         }
     }
