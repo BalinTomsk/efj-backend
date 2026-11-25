@@ -35,7 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.datasource.password=",
         "spring.datasource.driver-class-name=org.h2.Driver",
         // Never called in this test (CsNewsClient connects lazily per request); the bind only needs a value.
-        "csnews.url=http://127.0.0.1:1"
+        "csnews.url=http://127.0.0.1:1",
+        "env.url=http://127.0.0.1:1"
 })
 class DocApiJdbcWiringTest {
 

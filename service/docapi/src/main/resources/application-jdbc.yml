@@ -53,6 +53,14 @@ management:
 # News (1.44.0): docapi has NO MySQL access. Every news read/write goes to csnews-env's internal news data API
 # (efcs-backend/service/csnews-env, on csnode, /api/v1/csnews/*), over the VPC. See CsNewsClient.
 # CSNEWS_URL is the origin, e.g. http://<csnode-vpc-address>:8091 (no trailing path).
+# Water and weather (1.45.0, env_service plan step 6c): the forecast documents, the river Weather tab and the catch-log
+# weather fill come from env_service's read API (efcs-backend/service/env_service, on csnode, /api/v1/env/*), over the VPC.
+# See EnvClient. ENV_URL is the origin, e.g. http://<csnode-vpc-address>:8092 (no trailing path).
+env:
+  url: ${ENV_URL}
+  connect-timeout: 2s
+  request-timeout: 8s    # inside cproxy's 10 s read timeout
+
 csnews:
   url: ${CSNEWS_URL}
   connect-timeout: 2s

@@ -2,6 +2,21 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-25: **1.45.0 (built, not deployed) — water and weather through env_service** (env_service plan step 6c). The
+  forecast documents, the river Weather tab and the catch-log weather fill no longer read SQL Server's water/weather
+  tables: they ask env_service (`efcs-backend/service/env_service`, csnode, `/api/v1/env/*`) over the VPC. Added:
+  `EnvClient` (`ENV_URL`, connect 2 s / request 8 s, own breaker `envBreaker`, GET retried once on a connect failure),
+  `EnvUnavailableException` (503 `unavailable`), `HttpForecastQueryRepository` (env_service's bodies passed through;
+  `CachingForecastQueryRepository` stays in front), `EnvRiverQueryRepository` (`@Primary`; `weather` = the lake name from
+  SQL Server + env_service's stations rendered in 1.35.0's exact shape, the other ten methods go to the SQL repository),
+  `JdbcCatchLogCommandRepository.stationWeather` from env_service (the first station with weather that day; pressure
+  converted to **hPa**, which `catch_memo_weather_pressure` holds and the website labels). **Breaking for clients:**
+  pressure is mm Hg and RENAMED (plan decision 2: an old app finds no pressure rather than mm drawn as hPa): plot
+  `pressure[]` → `pressureMm[]` (`units.pressure` `mmHg`), reasoning `pressure.hpa` → `pressure.mm`, `swingHpa` →
+  `swingMm`, `change1d` in mm, `series[].hpa` → `series[].mm`. Reasoning has no `water.velocity` (nothing collects it).
+  Release with the envfish-droid build that reads mm. Needs `ENV_URL` in the droplet's env file. Tests 490/490
+  (`EnvClientTest` 7 new). `JdbcForecastQueryRepository` is kept for the in-memory comparison tests only.
+
 - 2026-11-23: **1.44.0 (built, not deployed) — no MySQL access: news goes through csnews-env.** Owner decision: all
   access to the MySQL news database lives in **csnews-env** (`efcs-backend/service/csnews-env`, csnode; news_search
   renamed, 0.6.0); docapi keeps only the REST surface and the caches. Removed: `mysql-connector-j`,

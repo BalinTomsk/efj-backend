@@ -68,12 +68,22 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
 
     private static final Logger log = LoggerFactory.getLogger(JdbcCatchLogCommandRepository.class);
 
+    /** mm Hg to hPa: env_service speaks mm Hg, catch_memo_weather_pressure holds hPa (the website labels it so). */
+    static final double HPA_PER_MM_HG = 1.333224;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    /** The station weather source from 1.45.0 (env_service); null = the SQL snapshot (tests, the in-memory profile). */
+    private final EnvClient env;
 
     public JdbcCatchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        this(jdbc, objectMapper, null);
+    }
+
+    public JdbcCatchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, EnvClient env) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.env = env;
     }
 
     @Override
@@ -111,9 +121,36 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
                 m.path("catch_memo_private").asBoolean(false), weather);
     }
 
-    /** Not guarded: like the portal's form, a failed lookup is no forecast, never a save failure. */
+    /**
+     * Not guarded: like the portal's form, a failed lookup is no forecast, never a save failure. From 1.45.0 the weather
+     * of the catch date comes from env_service ({@code /lakes/{lakeId}/weather?date=}): the first station of the water
+     * body (by mli) that has weather that day; temperature = the day's high, pressure converted to hPa. A date outside
+     * env_service's 15-days-each-way window, or no station with weather, is no forecast, as the SQL snapshot was.
+     */
     @Override
     public CatchLog.Weather stationWeather(String lakeId, LocalDate date) {
+        if (env != null) {
+            try {
+                JsonNode data = env.get("/lakes/" + EnvClient.enc(lakeId) + "/weather?date=" + date);
+                if (data == null) {
+                    return CatchLog.Weather.NONE;
+                }
+                for (JsonNode s : data.path("stations")) {
+                    JsonNode w = s.get("weather");
+                    if (w != null && !w.isNull()) {
+                        JsonNode mm = w.get("pressureMm");
+                        Double hpa = mm == null || mm.isNull() ? null
+                                : Math.round(mm.asDouble() * HPA_PER_MM_HG * 10.0) / 10.0;
+                        return new CatchLog.Weather(dblOrNull(w.get("tempHighC")), hpa, txtOrNull(w.get("conditions")),
+                                txtOrNull(w.get("icon")), null);
+                    }
+                }
+                return CatchLog.Weather.NONE;
+            } catch (RuntimeException ex) {
+                log.warn("Station weather lookup (env_service) failed for lake {} on {}: {}", lakeId, date, ex.toString());
+                return CatchLog.Weather.NONE;
+            }
+        }
         try {
             List<CatchLog.Weather> rows = jdbc.query(WEATHER_SQL, (rs, n) -> new CatchLog.Weather(
                     dbl(rs, 1), dbl(rs, 2), rs.getString(3), rs.getString(4), dbl(rs, 5)), lakeId, date);
@@ -291,6 +328,14 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
     }
 
     /** {@code catch_memo_<key>} of the memo JSON as text, {@code null} when absent or JSON null. */
+    private static Double dblOrNull(JsonNode v) {
+        return v == null || v.isNull() || !v.isNumber() ? null : v.asDouble();
+    }
+
+    private static String txtOrNull(JsonNode v) {
+        return v == null || v.isNull() ? null : v.asText();
+    }
+
     private static String txt(JsonNode memo, String key) {
         JsonNode v = memo.get("catch_memo_" + key);
         return v == null || v.isNull() ? null : v.asText();

@@ -35,6 +35,9 @@ import com.fishfind.docapi.repo.NewsAdminCommandRepository;
 import com.fishfind.docapi.repo.NewsCacheEvictor;
 import com.fishfind.docapi.repo.NewsDocumentCache;
 import com.fishfind.docapi.repo.CsNewsClient;
+import com.fishfind.docapi.repo.EnvClient;
+import com.fishfind.docapi.repo.EnvRiverQueryRepository;
+import com.fishfind.docapi.repo.HttpForecastQueryRepository;
 import com.fishfind.docapi.repo.HttpNewsAdminCommandRepository;
 import com.fishfind.docapi.repo.HttpNewsDocumentRepository;
 import com.fishfind.docapi.repo.HttpNewsQueryRepository;
@@ -162,8 +165,35 @@ public class JdbcStoreConfig {
      * (the result changes as fish get assigned), so just the one proxied bean per profile.
      */
     @Bean
-    public RiverQueryRepository riverQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public RiverQueryRepository jdbcRiverQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         return new JdbcRiverQueryRepository(jdbc, objectMapper);
+    }
+
+    /**
+     * The water and weather data's only door (1.45.0, env_service plan step 6c): env_service's read API ({@code ENV_URL},
+     * e.g. {@code http://<csnode-vpc-address>:8092}, no trailing path), behind its own {@code envBreaker} -- never
+     * {@code sqlBreaker}, so an env_service outage does not fail the SQL Server endpoints.
+     */
+    @Bean
+    public EnvClient envClient(
+            @Value("${env.url}") String url,
+            @Value("${env.connect-timeout:2s}") Duration connectTimeout,
+            @Value("${env.request-timeout:8s}") Duration requestTimeout,
+            ObjectMapper objectMapper, CircuitBreakerRegistry breakers) {
+        return new EnvClient(url, connectTimeout, requestTimeout, objectMapper, breakers.circuitBreaker("envBreaker"));
+    }
+
+    /**
+     * What {@code RiverController} injects (1.45.0): the Weather tab from env_service, every other river query from
+     * {@link #jdbcRiverQueryRepository} (the proxied bean, so its retry and breaker still apply). {@code @Primary}
+     * because two beans implement the interface.
+     */
+    @Bean
+    @Primary
+    public RiverQueryRepository riverQueryRepository(
+            @Qualifier("jdbcRiverQueryRepository") RiverQueryRepository jdbcRiverQueryRepository,
+            JdbcTemplate jdbc, EnvClient envClient, ObjectMapper objectMapper) {
+        return new EnvRiverQueryRepository(jdbcRiverQueryRepository, jdbc, envClient, objectMapper);
     }
 
     /**
@@ -171,8 +201,10 @@ public class JdbcStoreConfig {
      * proxy it (Resilience4j advises only Spring-managed beans).
      */
     @Bean
-    public ForecastQueryRepository jdbcForecastQueryRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
-        return new JdbcForecastQueryRepository(jdbc, objectMapper);
+    public ForecastQueryRepository jdbcForecastQueryRepository(EnvClient envClient) {
+        // 1.45.0: the forecast documents come from env_service (its bodies are ours); the bean keeps its name so the
+        // caching bean below is unchanged. JdbcForecastQueryRepository stays for the in-memory comparison tests.
+        return new HttpForecastQueryRepository(envClient);
     }
 
     /**
@@ -229,8 +261,8 @@ public class JdbcStoreConfig {
      * behind the MCP write tools, a bean in its own right so Resilience4j can proxy it.
      */
     @Bean
-    public CatchLogCommandRepository catchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
-        return new JdbcCatchLogCommandRepository(jdbc, objectMapper);
+    public CatchLogCommandRepository catchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, EnvClient envClient) {
+        return new JdbcCatchLogCommandRepository(jdbc, objectMapper, envClient);
     }
 
     /** Saved spots (1.37.0, {@code dbo.user_spot}), a bean so Resilience4j can proxy it. */
