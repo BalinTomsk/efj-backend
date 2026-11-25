@@ -17,7 +17,6 @@ import com.fishfind.docapi.repo.JdbcRiverLinkCommandRepository;
 import com.fishfind.docapi.repo.JdbcRiverQueryRepository;
 import com.fishfind.docapi.repo.CachingForecastQueryRepository;
 import com.fishfind.docapi.repo.ForecastQueryRepository;
-import com.fishfind.docapi.repo.JdbcForecastQueryRepository;
 import com.fishfind.docapi.repo.CachingMapQueryRepository;
 import com.fishfind.docapi.repo.JdbcMapQueryRepository;
 import com.fishfind.docapi.repo.JdbcNewsNearRepository;
@@ -197,13 +196,13 @@ public class JdbcStoreConfig {
     }
 
     /**
-     * The SQL-backed forecast repository (1.31.0, {@code /api/v1/forecast/*}), its own bean so Resilience4j can
-     * proxy it (Resilience4j advises only Spring-managed beans).
+     * The forecast repository ({@code /api/v1/forecast/*}): env_service's documents since 1.45.0. Its SQL Server
+     * predecessor (JdbcForecastQueryRepository, 1.31.0) was removed in 1.45.1.
      */
     @Bean
     public ForecastQueryRepository jdbcForecastQueryRepository(EnvClient envClient) {
         // 1.45.0: the forecast documents come from env_service (its bodies are ours); the bean keeps its name so the
-        // caching bean below is unchanged. JdbcForecastQueryRepository stays for the in-memory comparison tests.
+        // caching bean below is unchanged.
         return new HttpForecastQueryRepository(envClient);
     }
 

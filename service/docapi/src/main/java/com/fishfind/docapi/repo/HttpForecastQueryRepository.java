@@ -7,7 +7,7 @@ import java.util.Locale;
 /**
  * The forecast documents from env_service (1.45.0, env_service plan step 6c) instead of SQL Server: its
  * {@code /api/v1/env/forecast/*} answers ARE the bodies {@code /api/v1/forecast/*} returns, so this passes them through.
- * The same three documents as {@link JdbcForecastQueryRepository}, except pressure is in mm Hg and renamed (an app that
+ * The same three documents as the retired SQL Server repository (1.31.0-1.45.0), except pressure is in mm Hg and renamed (an app that
  * reads hPa finds none instead of a wrong value): reasoning {@code pressure.mm} / {@code swingMm} / {@code change1d} /
  * {@code series[].mm} (were {@code hpa} / {@code swingHpa} / {@code change1d} in hPa / {@code series[].hpa}), plot
  * {@code pressureMm[]} (was {@code pressure[]}) with {@code units.pressure = "mmHg"}. {@link CachingForecastQueryRepository}

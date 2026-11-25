@@ -53,10 +53,6 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
     /** The memo as the portal's own JSON function returns it; {@code @top_photos = 0} embeds no photo. */
     static final String READ_SQL = "SELECT dbo.fn_catch_memo_json(?, 0)";
 
-    /** The station forecast snapshot the portal's catch-log form stamps on a memo. */
-    static final String WEATHER_SQL = "SELECT TOP 1 weather_temp, weather_pressure, weather_text, weather_icon, "
-            + "water_temp FROM dbo.fn_catch_weather_snapshot(?, ?)";
-
     /** One account's own logs as JSON (1.36.0, the app's catch log). */
     static final String MINE_SQL = "SELECT dbo.fn_catch_memo_mine_json(?, ?)";
 
@@ -73,12 +69,8 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
-    /** The station weather source from 1.45.0 (env_service); null = the SQL snapshot (tests, the in-memory profile). */
+    /** The station weather source (env_service, 1.45.0); null = no forecast. */
     private final EnvClient env;
-
-    public JdbcCatchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
-        this(jdbc, objectMapper, null);
-    }
 
     public JdbcCatchLogCommandRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, EnvClient env) {
         this.jdbc = jdbc;
@@ -125,7 +117,8 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
      * Not guarded: like the portal's form, a failed lookup is no forecast, never a save failure. From 1.45.0 the weather
      * of the catch date comes from env_service ({@code /lakes/{lakeId}/weather?date=}): the first station of the water
      * body (by mli) that has weather that day; temperature = the day's high, pressure converted to hPa. A date outside
-     * env_service's 15-days-each-way window, or no station with weather, is no forecast, as the SQL snapshot was.
+     * env_service's 15-days-each-way window, or no station with weather, is no forecast. The SQL snapshot
+     * ({@code dbo.fn_catch_weather_snapshot}) was removed in 1.45.1: its tables are no longer written.
      */
     @Override
     public CatchLog.Weather stationWeather(String lakeId, LocalDate date) {
@@ -151,14 +144,7 @@ public class JdbcCatchLogCommandRepository implements CatchLogCommandRepository 
                 return CatchLog.Weather.NONE;
             }
         }
-        try {
-            List<CatchLog.Weather> rows = jdbc.query(WEATHER_SQL, (rs, n) -> new CatchLog.Weather(
-                    dbl(rs, 1), dbl(rs, 2), rs.getString(3), rs.getString(4), dbl(rs, 5)), lakeId, date);
-            return rows.isEmpty() ? CatchLog.Weather.NONE : rows.get(0);
-        } catch (DataAccessException ex) {
-            log.warn("Station weather lookup failed for lake {} on {}", lakeId, date, ex);
-            return CatchLog.Weather.NONE;
-        }
+        return CatchLog.Weather.NONE;
     }
 
     @Override

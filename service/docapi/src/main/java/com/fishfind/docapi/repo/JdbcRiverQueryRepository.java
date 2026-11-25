@@ -169,9 +169,6 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
     /** The waterfalls and dams of one water body (1.24.0); live on docapi's database since envfish-db #70. */
     static final String BARRIERS_SQL = "SELECT dbo.fn_lake_barriers_json(?)";
 
-    /** The Weather tab (wfRiverViewWeather.aspx): stations, latest reading, today's forecast. 1.35.0. */
-    static final String WEATHER_SQL = "SELECT dbo.fn_lake_weather_json(?)";
-
     /**
      * Fishing spots and visible catch logs with a position, for the app's map (1.38.0): the same two sources as the
      * website's river map (wfRiverViewer.aspx GetFishPoints / GetCatchMemoPoints), on existing objects only. Parameters:
@@ -197,19 +194,13 @@ public class JdbcRiverQueryRepository implements RiverQueryRepository {
             FROM dbo.Lake l WHERE l.Lake_id = ?
             FOR JSON PATH, WITHOUT_ARRAY_WRAPPER""";
 
+    /**
+     * Not served here: the Weather tab comes from env_service ({@link EnvRiverQueryRepository}, 1.45.0). The SQL Server
+     * read ({@code dbo.fn_lake_weather_json}) was removed in 1.45.1, since its tables are no longer written.
+     */
     @Override
-    @Retry(name = "sqlRetry")
-    @CircuitBreaker(name = "sqlBreaker", fallbackMethod = "weatherFallback")
     public JsonNode weather(String lakeId) {
-        List<String> rows = jdbc.query(WEATHER_SQL, ps -> ps.setString(1, lakeId), (rs, i) -> rs.getString(1));
-        String json = rows.isEmpty() ? null : rows.get(0);
-        return (json == null || json.isBlank()) ? null : parse(json);
-    }
-
-    /** Circuit-breaker fallback for {@link #weather}. */
-    @SuppressWarnings("unused")
-    public JsonNode weatherFallback(String lakeId, Throwable ex) {
-        throw new RuntimeException("SQL river-weather query failed for id " + lakeId, ex);
+        throw new UnsupportedOperationException("The Weather tab is served by env_service (EnvRiverQueryRepository)");
     }
 
     @Override
