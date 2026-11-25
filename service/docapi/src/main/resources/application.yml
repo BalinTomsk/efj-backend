@@ -75,6 +75,15 @@ resilience4j:
         wait-duration-in-open-state: 30s
       # csnews-env (the news data API, 1.44.0), used programmatically by CsNewsClient. Its own breaker so a
       # news outage never fails the SQL Server endpoints. A 400 is the caller's fault, not csnews-env's.
+      # env_service (the water and weather data, 1.45.0), used programmatically by EnvClient. Its own breaker so a
+      # water/weather outage never fails the SQL Server endpoints. A 400 is the caller's fault, not env_service's.
+      envBreaker:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        ignore-exceptions:
+          - com.fishfind.docapi.service.InvalidDocumentException
       csnewsBreaker:
         sliding-window-size: 10
         minimum-number-of-calls: 5
