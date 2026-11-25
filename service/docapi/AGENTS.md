@@ -206,9 +206,8 @@ com.fishfind.docapi
 │   │                              #   tributaries(lakeId, limit) (1.22.0) + barriers(lakeId) (1.24.0) + weather(lakeId) (1.35.0)
 │   ├── RiverSearchCriteria        # record: the 11 normalized search arguments + SORTS (1.26.0)
 │   ├── ForecastQueryRepository    # interface: stations / plot / reasoning (1.31.0, /api/v1/forecast)
-│   ├── InMemoryForecastQueryRepository / JdbcForecastQueryRepository (fn_forecast_stations_json,
-│   │                              #   fn_forecast_plot_json + fn_plot_weather + fn_fish_reasoning_json week,
-│   │                              #   fn_fish_reasoning_json)
+│   ├── InMemoryForecastQueryRepository / HttpForecastQueryRepository (env_service, 1.45.0; the JDBC one
+│   │                              #   was removed in 1.45.1)
 │   ├── CachingForecastQueryRepository # @Primary in jdbc: 5-min TTL LRU (500) per method, misses not stored
 │   ├── TtlLru                     # the bounded TTL LRU both caching decorators use (1.33.0)
 │   ├── NewsNearRepository         # interface: taggedNews(limit) (csnews-env) + lakesNear(ids, lat, lon, km) (SQL Server)

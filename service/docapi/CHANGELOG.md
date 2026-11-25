@@ -2,6 +2,15 @@
 
 Split out of `AGENTS.md` for readability. Newest entries first.
 
+- 2026-11-25: **1.45.1 (built, not deployed) — the SQL Server water/weather reads are gone.** Since env_service plan
+  step 7 the water and weather tables in SQL Server are frozen, so a read of them would show yesterday's data as
+  current. Removed: `JdbcForecastQueryRepository` (it served nothing since 1.45.0; its tests went with it,
+  `ForecastRepositoryTest` keeps the cache tests), `JdbcRiverQueryRepository.weather` / `WEATHER_SQL`
+  (`dbo.fn_lake_weather_json`; `EnvRiverQueryRepository` serves the Weather tab, the SQL method now throws
+  `UnsupportedOperationException`), and `JdbcCatchLogCommandRepository`'s `dbo.fn_catch_weather_snapshot` path and its
+  two-argument constructor (without an `EnvClient` the fill is "no forecast"). No route, shape or wiring change in
+  production. Step 8 (dropping the SQL objects) no longer touches docapi.
+
 - 2026-11-25: **1.45.0 (built, not deployed) — water and weather through env_service** (env_service plan step 6c). The
   forecast documents, the river Weather tab and the catch-log weather fill no longer read SQL Server's water/weather
   tables: they ask env_service (`efcs-backend/service/env_service`, csnode, `/api/v1/env/*`) over the VPC. Added:

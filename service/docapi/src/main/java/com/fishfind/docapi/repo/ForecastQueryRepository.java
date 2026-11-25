@@ -7,11 +7,11 @@ import com.fasterxml.jackson.databind.JsonNode;
  * envfish-droid Forecast tab. Every method returns the database's own document, so the numbers are the
  * website's numbers:
  * <ul>
- *   <li>{@link #stations} — {@code dbo.fn_forecast_stations_json}, the Planning.aspx map
+ *   <li>{@link #stations} — as {@code dbo.fn_forecast_stations_json} shaped it, the Planning.aspx map
  *       ({@code dbo.fn_map_location}) cut to a radius;</li>
- *   <li>{@link #plot} — {@code dbo.fn_forecast_plot_json} (Plot.aspx's chart), {@code dbo.fn_plot_weather}
+ *   <li>{@link #plot} — as {@code dbo.fn_forecast_plot_json} shaped it (Plot.aspx's chart), {@code dbo.fn_plot_weather}
  *       (its day/weather calendar) and the 7-day score week of {@code dbo.fn_fish_reasoning_json};</li>
- *   <li>{@link #reasoning} — {@code dbo.fn_fish_reasoning_json} (Reasoning.aspx).</li>
+ *   <li>{@link #reasoning} — as {@code dbo.fn_fish_reasoning_json} shaped it (Reasoning.aspx).</li>
  * </ul>
  * Arguments arrive validated and normalized by {@code ForecastController}.
  */

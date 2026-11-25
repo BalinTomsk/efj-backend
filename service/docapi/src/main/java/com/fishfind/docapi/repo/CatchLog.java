@@ -22,7 +22,7 @@ public record CatchLog(String id, String lakeId, String userId, String fishId, S
 
     /**
      * The weather columns of {@code dbo.catch_memo}, as the portal fills them: from the water body's station
-     * forecast ({@code dbo.fn_catch_weather_snapshot}) unless the author overrides a value.
+     * forecast (env_service since 1.45.0) unless the author overrides a value.
      *
      * @param temp     air temperature, °C
      * @param pressure air pressure, as the forecast gives it
