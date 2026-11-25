@@ -5,8 +5,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+
 /**
- * Runs synchronous stored procedures that must happen after a station-processing cycle completes.
+ * Runs the synchronous database steps that must happen after a station-processing cycle completes.
+ *
+ * <p>Since 2.0.0 nothing here touches SQL Server: the fish hand-over (species push, probability update) belongs to
+ * env_service, which reads the cycles this service records in envdata's {@code job_run}. Same as the C# twin 11.0.0.
  */
 @Service
 public class StationPostProcessingService {
@@ -19,11 +26,21 @@ public class StationPostProcessingService {
     }
 
     /**
-     * Executes the required post-processing procedures in order.
+     * Records a cycle that processed at least one station ({@code sp_job_run_record}), so env_service knows new
+     * readings are in.
+     *
+     * @param job {@code water-ca}, {@code water-us} or {@code water} (both passes)
+     * @param started cycle start
+     * @param succeeded stations processed successfully
+     * @param failed stations that failed; status is {@code ok} when 0, else {@code partial}
      */
-    public void runAfterStationProcessing() {
-        log.info("Running post-processing procedure {}", "spPushSpeciesFromLakeToStation");
-        waterDataRepository.pushSpeciesFromLakeToStation();
+    public void recordCycle(String job, Instant started, int succeeded, int failed) {
+        String status = failed == 0 ? "ok" : "partial";
+        log.info("Recording cycle in job_run. job={} status={} succeeded={} failed={}", job, status, succeeded, failed);
+        waterDataRepository.recordCycle(job,
+                LocalDateTime.ofInstant(started, ZoneOffset.UTC),
+                LocalDateTime.now(ZoneOffset.UTC),
+                status, succeeded, failed == 0 ? null : "failed=" + failed);
     }
 
     /**

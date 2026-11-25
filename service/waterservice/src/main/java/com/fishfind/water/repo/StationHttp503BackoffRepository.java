@@ -7,18 +7,20 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * SQL procedure gateway for per-water-station HTTP 503 backoff state.
+ * SQL procedure gateway for per-water-station HTTP 503 backoff state, kept in envdata's {@code station} rows
+ * ({@code sp_station_503_*}). Since 2.0.0 this is the state the C# twin also writes, as in envdata there is one row per
+ * station for both services (the SQL Server state was shared between them too).
  */
 @Repository
 public class StationHttp503BackoffRepository {
     private static final String REFRESH_DUE =
-            "EXEC dbo.sp_water_station_503_refresh_due ?";
+            "CALL sp_station_503_refresh_due(?)";
     private static final String RECORD_HTTP_503 =
-            "EXEC dbo.sp_water_station_503_record ?, ?, ?, ?, ?";
+            "CALL sp_station_503_record(?, ?, ?, ?, ?)";
     private static final String RESET =
-            "EXEC dbo.sp_water_station_503_reset ?, ?, ?";
+            "CALL sp_station_503_reset(?, ?, ?)";
     private static final String SUMMARY_BY_STATE =
-            "EXEC dbo.sp_water_station_503_summary_by_state";
+            "CALL sp_station_503_summary_by_state()";
 
     private final JdbcTemplate jdbc;
 
@@ -31,7 +33,8 @@ public class StationHttp503BackoffRepository {
     }
 
     public void recordHttp503(String provider, String country, String stationMli, String state, LocalDate today) {
-        jdbc.update(RECORD_HTTP_503, provider, country, stationMli, state, today);
+        jdbc.update(RECORD_HTTP_503, provider, country, stationMli,
+                state != null && state.length() > 2 ? state.substring(0, 2) : state, today);
     }
 
     public void reset(String provider, String country, String stationMli) {

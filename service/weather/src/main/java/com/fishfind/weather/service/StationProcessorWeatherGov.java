@@ -62,7 +62,7 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
         String canonical = mapper.writeValueAsString(forecast);
         log.debug("Saving Weather.gov payload. station={} state={} days={} bytes={}",
                 station.mli(), station.state(), forecast.days().size(), canonical.length());
-        // Persisted under the WATER gauge's own mli, not the NWS grid cell - ows_meteo is keyed by mli.
+        // Persisted under the WATER gauge's own mli, not the NWS grid cell - envdata keys weather by mli.
         weatherDataRepository.saveStationData(station.mli(), canonical, converter.providerType());
         log.debug("Processed station. station={} state={}", station.mli(), station.state());
     }
@@ -80,7 +80,7 @@ public class StationProcessorWeatherGov extends StationProcessorBase {
      * feed would.
      *
      * <p>The nearest-station resolver is no longer on this path: a forecast is keyed by grid cell, not
-     * by observation station. {@code WeatherGovStationResolver} and its {@code dbo.weather_gov_station}
+     * by observation station. {@code WeatherGovStationResolver} and its envdata {@code weather_gov_station}
      * cache are left in place for the observation endpoint but now have no caller here.
      */
     private String fetchForStation(StationRef station) throws Exception {

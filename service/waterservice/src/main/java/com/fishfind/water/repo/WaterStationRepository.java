@@ -7,7 +7,8 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * Loads station metadata stored in the {@code WaterStation} table.
+ * Loads the stations to collect from the envdata view {@code v_station_water_due} (supported stations, newest reading
+ * first; port of MSSQL {@code vwWaterStation}).
  */
 @Repository
 public class WaterStationRepository {
@@ -31,7 +32,7 @@ public class WaterStationRepository {
      */
     public List<StationRef> findSupported(String country) {
         return jdbc.query(
-            "SELECT mli, state, tz, stamp FROM vwWaterStation WHERE country = ? ORDER BY stamp DESC",
+            "SELECT mli, state, tz FROM v_station_water_due WHERE country = ? ORDER BY stamp DESC",
             (ps) -> ps.setString(1, country),
             (rs, i) -> new StationRef(
                 rs.getString("mli"),

@@ -4,6 +4,43 @@ All notable changes for this service must be recorded in this file.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-25 (built, not deployed)
+
+The weather data leaves SQL Server: this service now writes the MySQL `envdata` database on debian-mysql, as a
+functional copy of the C# twin `efcs-backend/service/weather` 11.0.0 (env_service plan,
+`efcs-backend/service/env_service/docs/env_service_plan.md`). It was stopped at plan step 7 (2026-11-25) as a
+"legacy writer"; it now runs beside the C# service again, both writing envdata. Deploy needs the `weather` MySQL
+account for jnode's VPC address (10.118.0.3) and the `MYSQL_*` lines in the shared env file first.
+
+### Changed
+- **Database: MySQL `envdata` instead of SQL Server.** `mssql-jdbc` -> `mysql-connector-j`; the datasource is built in
+  code (`EnvdataDataSourceConfig`, `MySqlUrl`) from the NEW keys `MYSQL_URL`
+  (`jdbc:mysql://<host>:3306/envdata?sslMode=REQUIRED`) / `MYSQL_USERNAME` / `MYSQL_PASSWORD`; `spring.datasource` is
+  gone from `application.yml`. `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` stay in the env file as the SQL Server
+  connection, so a rollback to 1.18.0 needs no file change. Every call goes through an envdata view or procedure.
+- **Payloads are saved with `sp_weather_save`**, which stores the raw document and shreds the canonical envelope in
+  one call, instead of a raw `UPDATE dbo.ows_meteo` + trigger. The database stores pressure in **mm Hg**
+  (`pressure_mm`); the envelope still carries `pressureHpa`. An unknown station is still logged and dropped; a
+  payload stored but not shredded is now logged too.
+- Stations: `sp_station_weather_due` (random sample) and `v_station_weather_due` (count) replace
+  `vwWeatherForecastToDay`; the NWS cache and provider coverage use `v_weather_gov_station`,
+  `sp_weather_gov_station_save` and `sp_provider_coverage_save`. The unused fixed-limit overloads (1,400 / 900) are
+  gone.
+- **The SQL retry/breaker ignores SQLSTATE 45000** (an envdata procedure's own refusal): not an outage (`SqlFailures`).
+- **Daily limits halved while both pairs run** (plan decision 3): `open-meteo` 2300 -> **1150**,
+  `pressure-backfill` 1000 -> **500** (env overrides `OPEN_METEO_DAILY_LIMIT` / `OPEN_METEO_PRESSURE_DAILY_LIMIT`
+  unchanged). The C# twin must be halved the same way.
+
+### Removed
+- **The fish hand-over** after a healthy cycle (`dbo.spPushSpeciesFromLakeToStation`, `dbo.spTotalUpdateProbability`).
+  The cycle is recorded in envdata `job_run` instead (service `weather`, job `lower({report name}-{country})`, e.g.
+  `open-meteo-ca`, `weather.gov-us`; only when a station was saved), and env_service runs both in SQL Server.
+
+### Tests
+- `WeatherEngineTest`: the real repositories against a real MySQL engine (`WEATHER_TEST_MYSQL`, optional
+  `WEATHER_TEST_MYSQL_APP` with production's grants). 198 tests, 5 of them on a local MySQL 8.0.46 with envdata
+  built from `envfish-db/mysql/envdata`.
+
 ## [1.18.0] - 2026-11-21 (LIVE on debian-jnode 2026-11-21)
 
 ### Added

@@ -19,22 +19,27 @@ Artifact     : com.fishfind:weather-station-pusher:1.0.0
 
 GOAL
 ----
-- Poll up to 900 US weather stations and up to 1400 non-US weather stations from MSSQL
-  (dbo.vwWeatherForecastToDay).
+- DATABASE (2.0.0, 2026-11-25): the MySQL `envdata` database on debian-mysql, NOT SQL Server. This service is a
+  functional copy of the C# twin efcs-backend/service/weather 11.0.0 (env_service plan,
+  efcs-backend/service/env_service/docs/env_service_plan.md); both run at once against the same providers and the
+  same envdata. Every call is an envdata view read or a CALL; no table is touched directly.
+- Load each provider's stations from envdata: CALL sp_station_weather_due(country, limit) (a random sample of
+  v_station_weather_due, port of MSSQL vwWeatherForecastToDay); limit = the provider's remaining daily budget.
 - Fetch the GRIDPOINT FORECAST from Weather.gov for US stations: /points/{lat},{lon} gives the
   grid cell's forecast URL, then that URL with units=si. Two calls per station; the forecast URL
   is not derivable from a coordinate. (Was /stations/{id}/observations/latest, which is current
   conditions and can never become forecast rows.)
 - Fetch raw JSON forecast data from Open-Meteo for CA stations.
-- Convert each provider's response to the CANONICAL ENVELOPE and store that in dbo.ows_meteo,
-  stamping the column `type` with the PROVIDER that served the station (see CANONICAL FORECAST
-  ENVELOPE). The provider's own document is embedded in the envelope as `raw`, so nothing is lost.
+- Convert each provider's response to the CANONICAL ENVELOPE and store it with CALL sp_weather_save
+  (envdata keeps the raw document in weather_raw and shreds the envelope into weather_day, pressure in mm Hg),
+  passing the PROVIDER that served the station as `type` (see CANONICAL FORECAST ENVELOPE). The provider's own document is embedded in the envelope as `raw`, so nothing is lost.
   Providers that publish only observations (weather.gov, Environment Canada, Weather Underground,
   Google Weather) still store their raw document and only gain a correct `type`.
-- After each full pass, run post-processing stored procedures in order:
-    1. dbo.spPushSpeciesFromLakeToStation
-    2. dbo.spTotalUpdateProbability
-    3. dbo.sp_clean_old_weather_data
+- After each healthy pass, in order:
+    1. CALL sp_job_run_record (only when at least one station was saved): records the cycle in envdata job_run;
+       env_service then runs the fish hand-over in SQL Server (spPushSpeciesFromLakeToStation,
+       spTotalUpdateProbability), which this service ran itself until 1.18.0.
+    2. CALL sp_clean_old_weather_data(NULL)
 - Log failures and skipped unpublished-source events; do not disable stations automatically.
 - Sleep until next midnight between cycles.
 - Expose a health endpoint on port 8081 for Docker/Kubernetes health checks.
@@ -52,7 +57,7 @@ Runtime:
   spring-boot-starter-jdbc
   spring-boot-starter-aop
   spring-boot-starter-mail            (SMTP client for the weekly report email; optional feature)
-  com.microsoft.sqlserver:mssql-jdbc  (managed by Spring Boot BOM)
+  com.mysql:mysql-connector-j  (managed by Spring Boot BOM; replaced mssql-jdbc in 2.0.0)
   io.github.resilience4j:resilience4j-spring-boot3:2.4.0
   io.github.cdimascio:dotenv-java:3.2.0
   slf4j-api                           (via Spring Boot)
@@ -140,7 +145,9 @@ docs/specification.txt
 STARTUP / CREDENTIAL LOADING
 -----------------------------
 Before Spring initialises:
-1. Read DB_URL, DB_USERNAME, DB_PASSWORD from process environment or JVM system properties.
+1. Read MYSQL_URL, MYSQL_USERNAME, MYSQL_PASSWORD from process environment or JVM system properties.
+   (DB_URL / DB_USERNAME / DB_PASSWORD, the SQL Server connection, may stay in the shared env file for a
+   rollback to 1.18.0; 2.x does not read them.)
 2. If any are missing, attempt to load from dotenv:
    - if DOTENV_PATH is set and non-blank → load that path
    - otherwise, if .env exists in the working directory → load it
@@ -154,14 +161,35 @@ Before Spring initialises:
    absence is not a startup failure; see WEEKLY REPORT EMAIL and Weather.gov config below.
 
 
+ENVDATA DATASOURCE (2.0.0)
+--------------------------
+config/EnvdataDataSourceConfig declares the DataSource (HikariDataSource) and JdbcTemplate in code; Spring Boot's
+datasource auto-configuration backs off.
+  - MYSQL_URL: JDBC URL, jdbc:mysql://10.118.0.6:3306/envdata?sslMode=REQUIRED. Missing/blank -> startup fails.
+    config/MySqlUrl.normalize refuses a non-JDBC value and, for jdbc:mysql: URLs only, adds what the URL does not
+    name: sslMode=REQUIRED (the account is REQUIRE SSL), connectTimeout=15000, connectionTimeZone=UTC.
+  - MYSQL_USERNAME / MYSQL_PASSWORD set on the pool when not blank.
+  - Hikari: pool weather-hikari, max 8, min idle 1, connectionTimeout 30000, maxLifetime 1740000,
+    keepaliveTime 300000, validationTimeout 5000. JdbcTemplate queryTimeout 120 s.
+  - MySQL account `weather`: EXECUTE on envdata.*, SELECT on v_station_weather_due, v_weather_gov_station,
+    v_provider_coverage; REQUIRE SSL. OUT parameters are session variables in the CALL text (@out_days,
+    @out_job_run_id), read back on the same connection: the account cannot read procedure metadata, which a
+    CallableStatement OUT parameter needs.
+  - config/SqlFailures: a RetryConfigCustomizer for sqlRetry (clears retry-exceptions, retryOnException) and a
+    CircuitBreakerConfigCustomizer for sqlBreaker (ignoreException): any DataAccessException / SQLException counts,
+    EXCEPT one whose cause chain holds SQLSTATE 45000 (an envdata procedure's own refusal, e.g. unknown station):
+    neither retried nor counted by the breaker (C# twin: ResiliencePipelines.IsSqlFailure).
+
+DAILY LIMITS WHILE BOTH PAIRS RUN (plan decision 3)
+  weather.worker.daily-limit.open-meteo = ${OPEN_METEO_DAILY_LIMIT:1150} (was 2300) and
+  weather.worker.pressure-backfill.daily-limit = ${OPEN_METEO_PRESSURE_DAILY_LIMIT:500} (was 1000): those limits
+  are not per key, so each pair takes half. The C# twin is halved the same way. Other limits unchanged.
+
+
 CONFIGURATION (application.yml)
 --------------------------------
+# No spring.datasource (2.0.0): see ENVDATA DATASOURCE below.
 spring:
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   lifecycle:
     timeout-per-shutdown-phase: 30s     # bound graceful-shutdown wait
   mail:                                # all blank by default: SMTP is optional
@@ -274,7 +302,7 @@ weather:
       max-failure-rate: 0.5              # skip post-processing above this failure rate
     pressure-backfill:                   # Open-Meteo pressure_msl for Weather.gov forecasts (1.18.0)
       enabled: ${OPEN_METEO_PRESSURE_ENABLE:true}
-      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}   # ledger key OpenMeteoPressure
+      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:500}    # ledger key OpenMeteoPressure; halved (was 1000), see below
   report:
     to: ${REPORT_EMAIL_TO:}             # recipient; blank = weekly email silently disabled
     from: ${REPORT_EMAIL_FROM:}         # optional; falls back to spring.mail.username
@@ -342,8 +370,8 @@ Graceful shutdown
   - If a stop is requested mid-cycle the loop breaks and post-processing is SKIPPED.
 
 Per-cycle loop
-  1. Load stations for the worker country (US or CA) from dbo.vwWeatherForecastToDay
-     (max 1400 per country).
+  1. Load stations for the worker country (US or CA): CALL sp_station_weather_due(country, limit),
+     limit = the provider's remaining daily budget.
   2. Compute target delay: max(8_hours_ms / stationCount, 2000). If count <= 1, use 2000 ms.
   3. For each station (unless stopping): process() → tally PROCESSED/SKIPPED/FAILED →
      sleep (targetDelay - actualProcessingTime). Skip sleep if negative.
@@ -453,12 +481,11 @@ Retention: recentIncidents() returns and keeps only incidents detected within th
 
 STATION QUERY (WeatherStationRepository)
 -----------------------------------------
-  SELECT TOP (?) mli, lat, lon, state
-  FROM dbo.vwWeatherForecastToDay
-  WHERE country = ?
+  CALL sp_station_weather_due(?, ?)                              -- country, limit
+  SELECT COUNT(1) FROM v_station_weather_due WHERE country = ?   -- countSupportedStations
 
-StationWorker starts one pass loop for US and one for CA. US calls findSupportedUsStations()
-with a 900-station limit for Weather.gov. Other countries call findSupportedStations(country)
+StationWorker starts one pass loop per provider/country and passes the provider's remaining daily budget as the
+limit (findSupportedStations(country, limit)); there are no fixed limits in the repository.
 with the default 1400-station limit.
 
 Model: StationRef(String mli, double latitude, double longitude, String state)
@@ -513,26 +540,26 @@ Transport: HttpURLConnection, method GET.
 Base URL: weather.worker.weather-gov-base-url (default https://api.weather.gov).
 Endpoint: TWO steps, because station.mli is NOT an NWS identifier.
 
-  vwWeatherForecastToDay is built from dbo.WaterStation, so mli is a WATER gauge id -- every US
+  v_station_weather_due is built from the water stations, so mli is a WATER gauge id -- every US
   row is a numeric USGS site number, never an NWS call sign. /stations/{mli}/observations/latest
   therefore returned HTTP 404 for ALL 2,219 US stations, permanently. Measured 2026-08-08: 0 of 25
   sampled gauges resolved by mli; 25 of 25 resolved by coordinate.
 
   1. WeatherGovStationResolver.resolve(station):
-       - dbo.fn_weather_gov_station(mli) via WeatherGovStationRepository.
+       - SELECT station_id FROM v_weather_gov_station WHERE mli = ? via WeatherGovStationRepository.
          0 rows  = never asked -> call the API and cache the answer.
          1 row   = already answered; station_id NULL is a NEGATIVE cache ("no station nearby"),
                    which stops every cycle re-asking a point that will never resolve.
        - On a miss: GET /points/{lat},{lon}/stations, take the first "stationIdentifier".
          Coordinates MUST be rounded to 4 decimal places (more returns AdjustPointPrecision), and
          the endpoint answers with a 301 that must be followed (HttpURLConnection does for GET).
-       - Store via dbo.sp_save_weather_gov_station. The mapping is geographic and effectively
+       - Store via CALL sp_weather_gov_station_save(mli, lat, lon, station_id). The mapping is geographic and effectively
          permanent, so it is resolved once per gauge, not once per cycle -- resolving inline would
          double the request count against a rate-limited public API for no benefit.
   2. GET /stations/{resolvedNwsStation}/observations/latest.
 
   A gauge with no NWS station nearby throws FileNotFoundException -> SKIPPED, like any unpublished
-  feed. The payload is saved under the WATER gauge's own mli: ows_meteo is keyed by mli.
+  feed. The payload is saved under the WATER gauge's own mli: envdata keys weather by mli.
 Headers:
   User-Agent: weather.worker.weather-gov-user-agent. Weather.gov requires this; include contact info.
   Accept: application/geo+json.
@@ -558,31 +585,29 @@ Save a payload:
   void saveStationData(String mli, String jsonData, int sourceType)
   - Reject blank mli → throw IllegalArgumentException
   - Blank/null jsonData → no-op
-  - Runs in a transaction; @Retry(sqlRetry) + @CircuitBreaker(sqlBreaker)
-  - If the UPDATE matches 0 rows (no ows_meteo row for that mli), log a WARNING
-    with mli and payload size — the payload is dropped and must not vanish silently.
-  - sourceType identifies the PROVIDER (WeatherSourceType). It was hardcoded to 2 for every
-    provider, which made the column useless as provenance and forced dbo.TR_ows_meteo to infer
-    the document's shape from its contents.
+  - @Retry(sqlRetry) + @CircuitBreaker(sqlBreaker, fallbackSave); no transaction.
+  - JdbcTemplate.execute(ConnectionCallback): on ONE connection
+      CALL sp_weather_save(?, ?, ?, @out_days)      -- mli, sourceType, json
+      SELECT @out_days
+  - SQLSTATE 45000 (station unknown to envdata) → caught: log WARNING "Station unknown to envdata; payload
+    dropped. mli= bytes=" and return (so neither retried nor counted). Any other failure is rethrown.
+  - @out_days NULL or < 0 → log WARNING "Payload stored but not shredded (not a fishfind.weather.forecast/v1
+    envelope)". Weather Canada, Wunderground and Google Weather payloads are not canonical, so they log this
+    every time, exactly as the C# twin does.
+  - sourceType identifies the PROVIDER (WeatherSourceType).
   - fallbackSave MUST mirror these parameters plus the Throwable, or resilience4j cannot bind it.
-  SQL:
-    UPDATE dbo.ows_meteo
-    SET type = ?, ows = ?, stamp = GETDATE()
-    WHERE mli = ?
 
-  NOTE: this raw-table UPDATE is an intentional, grandfathered exception to the house
-  rule that application code goes through a view/function/procedure rather than a raw
-  table. It mirrors the legacy WeatherDataWorkerOpen .NET service exactly, and the rule
-  only applies to methods added or changed going forward. If a save procedure for this
-  table (e.g. spSaveStationWeather) is ever introduced, switch to it instead of writing
-  a new raw-table statement elsewhere.
+Post-cycle procedures:
+  recordCycle(job, startedUtc, finishedUtc, status, items, note)
+      → CALL sp_job_run_record(?, ?, ?, ?, ?, ?, ?, @out_job_run_id); service "weather" (the C# twin's name),
+        LocalDateTime UTC times, note cut to 255 characters.
+  cleanOldWeatherData() → CALL sp_clean_old_weather_data(NULL)   (days older than 15 days back)
+  Each protected by Resilience4j retry + circuit breaker.
 
-Post-processing procedures:
-  pushSpeciesFromLakeToStation()  → EXEC dbo.spPushSpeciesFromLakeToStation
-  totalUpdateProbability()        → EXEC dbo.spTotalUpdateProbability
-  cleanOldWeatherData()           → EXEC dbo.sp_clean_old_weather_data
-  Each runs in a transaction; each protected by Resilience4j retry + circuit breaker.
-  Procedures may emit incidental result sets — drain with PreparedStatementCallback + getMoreResults.
+Other envdata calls:
+  WeatherGovStationRepository: SELECT station_id FROM v_weather_gov_station WHERE mli = ? ;
+                               CALL sp_weather_gov_station_save(?, ?, ?, ?)  (station_id NULL = none nearby)
+  WeatherStationCoverageRepository: CALL sp_provider_coverage_save(?, ?, ?)   (covered 1/0)
 
 
 CANONICAL FORECAST ENVELOPE
@@ -667,7 +692,7 @@ StationProcessorBase (template method):
 StationProcessorOpen:
   1. Fetch JSON from Open-Meteo using station lat/lon.
   2. Log save start with payload byte count at DEBUG.
-  3. Update dbo.ows_meteo via WeatherDataRepository.
+  3. Save via WeatherDataRepository (sp_weather_save).
   4. Log station processed at DEBUG.
 
 StationProcessorWeatherGov:
@@ -679,13 +704,16 @@ StationProcessorWeatherGov:
      pressure-less day from the last hour of that local date (PressureFill, rounded half away from 0).
      Disabled / budget spent / any failure -> forecast unchanged, WARN logged, station still processed.
   4. Log save start with payload byte count at DEBUG.
-  5. Update dbo.ows_meteo via WeatherDataRepository.
+  5. Save via WeatherDataRepository (sp_weather_save).
   6. Log station processed at DEBUG.
 
-StationPostProcessingService calls procedures in this exact order:
-  1. dbo.spPushSpeciesFromLakeToStation
-  2. dbo.spTotalUpdateProbability
-  3. dbo.sp_clean_old_weather_data
+StationPostProcessingService.runAfterStationProcessing(provider, country, started, succeeded, failed)
+(synchronized), in this order:
+  1. succeeded > 0 only: recordCycle(job, started, now, status, succeeded, note), job =
+     lower(provider + "-" + country) cut to 32 characters, provider = the worker's REPORT name (as the C# twin
+     passes it): open-meteo-ca, weather.gov-us, weather canada-ca, visual crossing-us, ...; status ok when
+     failed = 0, else partial with note "failed=<n>".
+  2. cleanOldWeatherData().
 
 
 TIMING MODEL
@@ -698,14 +726,14 @@ TIMING MODEL
 
 ERROR HANDLING
 --------------
-  Missing DB_URL / DB_USERNAME / DB_PASSWORD → Spring datasource fails at startup
+  Missing MYSQL_URL                          → startup fails (EnvdataDataSourceConfig)
   Blank mli during save                      → throw IllegalArgumentException
   Blank / null JSON payload                  → skip save
   HTTP 404 from Open-Meteo                   → FileNotFoundException; log skip; outcome SKIPPED
   HTTP 429 from Open-Meteo                   → honour Retry-After inline; if exhausted RateLimitedException → FAILED
   Interrupted during Retry-After wait        → RateLimitedException (no further retry); interrupt flag re-set
   200 body oversized or not a JSON object    → IOException; retried (backoff); if exhausted → FAILED
-  UPDATE matches 0 ows_meteo rows            → log WARNING (payload dropped); still counts as PROCESSED
+  Station unknown to envdata (SQLSTATE 45000)→ log WARNING (payload dropped); still counts as PROCESSED
   HTTP non-200 other than 404 / timeout      → IOException; retried (backoff); if exhausted → FAILED
   Per-station processing exception           → log warning; outcome FAILED; continue
   SQL write failure                          → Resilience4j retry/circuit breaker; then propagates → FAILED
@@ -858,7 +886,7 @@ Do not add these unless explicitly requested:
 RECREATION CHECKLIST
 ---------------------
  1. Maven Java 21 Spring Boot project; coordinates com.fishfind:weather-station-pusher:1.0.0
- 2. Add dependencies: web, actuator, mail, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback
+ 2. Add dependencies: web, actuator, mail, JDBC, AOP, MySQL Connector/J, Resilience4j, dotenv, logback
  3. Add build plugins: cyclonedx-maven-plugin:2.9.2 (bound to package), dependency-check-maven:12.2.2
  4. Implement dotenv bootstrap in WeatherStationPusherApplication using setDefaultProperties()
     (secrets must NOT be written to System.setProperty — use Spring default properties map);
@@ -866,12 +894,13 @@ RECREATION CHECKLIST
     REPORT_EMAIL_FROM (all optional)
  5. StationRef record: mli, latitude, longitude, state
  6. WeatherStationRepository — vwWeatherForecastToDay US query
- 6a. WeatherGovStationRepository — dbo.fn_weather_gov_station / dbo.sp_save_weather_gov_station
- 6b. WeatherStationCoverageRepository — dbo.sp_save_weather_station_coverage
+ 6a. WeatherGovStationRepository — v_weather_gov_station / sp_weather_gov_station_save
+ 6b. WeatherStationCoverageRepository — sp_provider_coverage_save
+ 6c. config/EnvdataDataSourceConfig + MySqlUrl + SqlFailures (envdata datasource, 45000 rule)
  6c. WeatherGovStationResolver — coordinate -> nearest NWS station, cached in the database
  6d. WeatherApiUsageTracker — per-station daily budget ledger (snapshot + tryConsume)
  7. OpenMeteoFetcher — HttpURLConnection; honest User-Agent; verbatim UTF-8 body (no replace)
- 8. WeatherDataRepository — UPDATE dbo.ows_meteo, two stored procedure methods, Resilience4j
+ 8. WeatherDataRepository — sp_weather_save (+ SELECT @out_days), sp_job_run_record, sp_clean_old_weather_data
  9. StationProcessorBase — template method exception handling
 10. StationProcessorOpen — fetch + save flow
 11. StationPostProcessingService — exact procedure order

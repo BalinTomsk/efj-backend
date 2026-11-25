@@ -120,7 +120,7 @@ class StationWorkerTest {
         inOrder.verify(weatherGovProcessor).process(THREE_STATIONS.get(0), "US");
         inOrder.verify(weatherGovProcessor).process(THREE_STATIONS.get(1), "US");
         inOrder.verify(weatherGovProcessor).process(THREE_STATIONS.get(2), "US");
-        inOrder.verify(postProcessing).runAfterStationProcessing();
+        inOrder.verify(postProcessing).runAfterStationProcessing(eq("Weather.gov"), eq("US"), any(), eq(3), eq(0));
         assertThat(recordedSleeps).allMatch(ms -> ms <= 60 * 60 * 1000L);
         assertThat(recordedSleeps.stream().mapToLong(Long::longValue).sum())
                 .isEqualTo(THREE_STATIONS.size() * DERIVED_GAP_MS);
@@ -136,7 +136,7 @@ class StationWorkerTest {
         verify(weatherGovProcessor).process(THREE_STATIONS.get(1), "US");
         verify(weatherGovProcessor, never()).process(THREE_STATIONS.get(0), "US");
         verify(weatherGovProcessor, never()).process(THREE_STATIONS.get(2), "US");
-        verify(postProcessing).runAfterStationProcessing();
+        verify(postProcessing).runAfterStationProcessing(anyString(), anyString(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -146,7 +146,7 @@ class StationWorkerTest {
         StationWorker.RunResult result = worker.runOnce(null);
 
         assertThat(result.processedStations()).isZero();
-        verify(postProcessing).runAfterStationProcessing();
+        verify(postProcessing).runAfterStationProcessing(anyString(), anyString(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -157,7 +157,7 @@ class StationWorkerTest {
 
         assertThat(result.processedStations()).isZero();
         assertThat(result.failedStations()).isEqualTo(3);
-        verify(postProcessing, never()).runAfterStationProcessing();
+        verify(postProcessing, never()).runAfterStationProcessing(anyString(), anyString(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -189,7 +189,7 @@ class StationWorkerTest {
         assertThat(result.failedStations()).isZero();
         verify(stationRepository, never()).findSupportedStations(anyString(), anyInt());
         verify(weatherGovProcessor, never()).process(any(), anyString());
-        verify(postProcessing).runAfterStationProcessing();
+        verify(postProcessing).runAfterStationProcessing(anyString(), anyString(), any(), anyInt(), anyInt());
     }
 
     @Test
@@ -262,7 +262,7 @@ class StationWorkerTest {
 
         assertThat(result.processedStations()).isZero();
         verify(weatherGovProcessor, never()).process(any(), anyString());
-        verify(postProcessing, never()).runAfterStationProcessing();
+        verify(postProcessing, never()).runAfterStationProcessing(anyString(), anyString(), any(), anyInt(), anyInt());
     }
 
     @Test

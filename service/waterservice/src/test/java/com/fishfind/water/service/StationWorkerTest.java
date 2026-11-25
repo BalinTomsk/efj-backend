@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -64,7 +65,7 @@ class StationWorkerTest {
 
         assertEquals(1, worker.runCountryCycle("US"));
         verify(repo, times(2)).findSupported("US");
-        verify(postProcessingService).runAfterStationProcessing();
+        verify(postProcessingService).recordCycle(eq("water-us"), any(), eq(1), eq(0));
         verify(postProcessingService).cleanOldWaterData();
     }
 
@@ -75,7 +76,7 @@ class StationWorkerTest {
 
         assertEquals(0, worker.runCountryCycle("US"));
         verify(repo, times(3)).findSupported("US"); // first try + 2 retries
-        verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService, never()).recordCycle(anyString(), any(), anyInt(), anyInt());
         verify(postProcessingService).cleanOldWaterData();
     }
 
@@ -193,12 +194,13 @@ class StationWorkerTest {
         assertEquals(1, processed);
         verify(processorCA).processWithOutcome("A", "QC", -5);
         verify(processorUS).processWithOutcome("08312000", "NM", -7);
-        verify(postProcessingService, times(1)).runAfterStationProcessing();
+        // A SKIPPED station counts as not processed: job "water", 1 succeeded, 1 failed -> partial.
+        verify(postProcessingService, times(1)).recordCycle(eq("water"), any(), eq(1), eq(1));
         verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
     @Test
-    void runCycleSkipsSpeciesPostProcessingButCleansOldWaterDataWhenNoStationSucceeds() {
+    void runCycleSkipsTheJobRunRecordButCleansOldWaterDataWhenNoStationSucceeds() {
         when(repo.findSupported("CA")).thenReturn(List.of(new StationRef("A", "QC", -5)));
         when(repo.findSupported("US")).thenReturn(List.of());
         when(processorCA.processWithOutcome("A", "QC", -5)).thenReturn(ProcessingOutcome.SKIPPED);
@@ -206,7 +208,7 @@ class StationWorkerTest {
         int processed = worker.runCycle(null);
 
         assertEquals(0, processed);
-        verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService, never()).recordCycle(anyString(), any(), anyInt(), anyInt());
         verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
@@ -286,7 +288,7 @@ class StationWorkerTest {
 
         // CA pass failed, US pass still ran and post-processing still happened.
         assertEquals(1, processed);
-        verify(postProcessingService, times(1)).runAfterStationProcessing();
+        verify(postProcessingService, times(1)).recordCycle(anyString(), any(), anyInt(), anyInt());
         verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
@@ -296,7 +298,7 @@ class StationWorkerTest {
         when(repo.findSupported("US")).thenReturn(List.of());
         when(processorCA.processWithOutcome("A", "QC", -5)).thenReturn(ProcessingOutcome.PROCESSED);
         doThrow(new RuntimeException("species push failed"))
-                .when(postProcessingService).runAfterStationProcessing();
+                .when(postProcessingService).recordCycle(anyString(), any(), anyInt(), anyInt());
         doThrow(new RuntimeException("cleanup failed"))
                 .when(postProcessingService).cleanOldWaterData();
 
@@ -322,7 +324,7 @@ class StationWorkerTest {
 
         // Both passes failed to start; the cycle must complete gracefully and still run cleanup.
         assertEquals(0, processed);
-        verify(postProcessingService, never()).runAfterStationProcessing();
+        verify(postProcessingService, never()).recordCycle(anyString(), any(), anyInt(), anyInt());
         verify(postProcessingService, times(1)).cleanOldWaterData();
     }
 
@@ -358,7 +360,7 @@ class StationWorkerTest {
 
         verify(processorUS).processWithOutcome("08313000", "NY", -5);
         verify(processorCA, never()).processWithOutcome(any(), any(), anyInt());
-        verify(postProcessingService).runAfterStationProcessing();
+        verify(postProcessingService).recordCycle(anyString(), any(), anyInt(), anyInt());
         verify(postProcessingService).cleanOldWaterData();
     }
 
@@ -432,7 +434,7 @@ class StationWorkerTest {
         when(repo.findSupported("US")).thenReturn(List.of());
         when(processorCA.processWithOutcome("A", "QC", -5)).thenReturn(ProcessingOutcome.PROCESSED);
         doThrow(new RuntimeException("species push failed"))
-                .when(postProcessingService).runAfterStationProcessing();
+                .when(postProcessingService).recordCycle(anyString(), any(), anyInt(), anyInt());
 
         RuntimeException ex = assertThrows(RuntimeException.class, () -> worker.runCycle(null));
 

@@ -30,7 +30,7 @@ import java.util.concurrent.Executor;
  *
  * <p>In normal mode the CA and US passes are registered as two independent cron tasks on a Spring-managed
  * scheduler, so a slow CA pass (one request per station) cannot hold back the US refresh. Each scheduled pass
- * is followed by post-processing — species push only when at least one station succeeded, cleanup always —
+ * is followed by post-processing — a job_run record only when at least one station succeeded, cleanup always —
  * serialised between the two countries so the procedures never run concurrently. Console mode
  * ({@link #runCycle(String)}) still processes both countries in parallel and post-processes exactly once.
  */
@@ -213,6 +213,7 @@ public class StationWorker implements ApplicationRunner {
      */
     public int runCycle(String requestedMli) {
         String correlationId = UUID.randomUUID().toString().substring(0, 8);
+        java.time.Instant started = java.time.Instant.now();
 
         CompletableFuture<PassStats> caPass = startPass("CA", requestedMli, correlationId);
         CompletableFuture<PassStats> usPass = startPass("US", requestedMli, correlationId);
@@ -224,7 +225,7 @@ public class StationWorker implements ApplicationRunner {
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
-            RuntimeException postProcessingFailure = postProcess(succeeded);
+            RuntimeException postProcessingFailure = postProcess("water", started, succeeded, failed);
             log.info("Station cycle completed. successfulStations={} failedStations={} "
                             + "caLastProcessedStation={} usLastProcessedStation={} "
                             + "caLastFailedStation={} usLastFailedStation={}",
@@ -257,6 +258,7 @@ public class StationWorker implements ApplicationRunner {
      */
     public int runCountryCycle(String country) {
         String correlationId = UUID.randomUUID().toString().substring(0, 8);
+        java.time.Instant started = java.time.Instant.now();
         PassStats stats = null;
         for (int attempt = 0; stats == null; attempt++) {
             try {
@@ -276,7 +278,8 @@ public class StationWorker implements ApplicationRunner {
 
         MDC.put(MDC_CORRELATION_ID, correlationId);
         try {
-            RuntimeException postProcessingFailure = postProcess(stats.succeeded());
+            RuntimeException postProcessingFailure = postProcess(
+                    "water-" + country.toLowerCase(java.util.Locale.ROOT), started, stats.succeeded(), stats.failed());
             log.info("Station cycle completed. country={} successfulStations={} failedStations={} "
                             + "lastProcessedStation={} lastFailedStation={}",
                     country,
@@ -319,30 +322,34 @@ public class StationWorker implements ApplicationRunner {
     }
 
     /**
-     * Runs species post-processing (only when {@code succeeded > 0}) and then old-data cleanup, one caller at
-     * a time. A species-push failure never blocks cleanup.
+     * Records the cycle in envdata's job_run (only when {@code succeeded > 0}, so env_service hands over only cycles
+     * that brought readings) and then runs old-data cleanup, one caller at a time. A record failure never blocks
+     * cleanup.
      *
+     * @param job {@code water-ca}, {@code water-us} or {@code water} (both passes)
+     * @param started cycle start
      * @param succeeded stations processed successfully by the triggering cycle
+     * @param failed stations that failed in the triggering cycle
      * @return the failure for the caller to rethrow after its summary log (cleanup failure suppressed into the
-     *         species failure when both fail), or {@code null}
+     *         record failure when both fail), or {@code null}
      */
-    private RuntimeException postProcess(int succeeded) {
+    private RuntimeException postProcess(String job, java.time.Instant started, int succeeded, int failed) {
         synchronized (postProcessingLock) {
             RuntimeException postProcessingFailure = null;
             try {
                 if (succeeded > 0) {
-                    postProcessingService.runAfterStationProcessing();
+                    postProcessingService.recordCycle(job, started, succeeded, failed);
                 } else {
                     log.warn("Skipping post-processing: no stations were processed successfully this cycle.");
                 }
             } catch (RuntimeException ex) {
                 postProcessingFailure = ex;
-                log.error("Species post-processing failed; still running old-data cleanup.", ex);
+                log.error("Recording the cycle in job_run failed; still running old-data cleanup.", ex);
             }
             try {
                 postProcessingService.cleanOldWaterData();
             } catch (RuntimeException ex) {
-                // Never let a cleanup failure mask the species-push failure that preceded it.
+                // Never let a cleanup failure mask the job_run failure that preceded it.
                 if (postProcessingFailure == null) {
                     postProcessingFailure = ex;
                 } else {

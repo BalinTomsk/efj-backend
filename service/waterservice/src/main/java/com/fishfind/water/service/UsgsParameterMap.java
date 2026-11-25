@@ -4,7 +4,7 @@ import java.util.Map;
 
 /**
  * Maps a USGS Water Data API {@code parameter_code} to the name/unit pair the legacy WaterServices feed
- * published for it, which is what {@code dbo.sp_push_us_water_data} keys its column mapping and unit
+ * published for it, which is what envdata {@code sp_water_save_us} keys its column mapping and unit
  * conversions on.
  *
  * <p>The pairs are exactly what the old WaterML parser produced: {@code variableName} split at the first

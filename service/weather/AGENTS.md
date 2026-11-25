@@ -70,14 +70,21 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 
 ## Goal
 
-- Poll up to 900 US weather stations and up to 1400 CA weather stations from MSSQL (`dbo.vwWeatherForecastToDay`).
-- Fetch raw JSON latest-observation data from Weather.gov for US stations.
-- Fetch raw JSON forecast data from Open-Meteo for CA stations.
-- Store the raw JSON as-is into `dbo.ows_meteo` with source type `2`. **Do not parse JSON in Java.**
-- After each full pass, run post-processing stored procedures in order:
-  1. `dbo.spPushSpeciesFromLakeToStation`
-  2. `dbo.spTotalUpdateProbability`
-  3. `dbo.sp_clean_old_weather_data`
+- **Since 2.0.0 (2026-11-25) the data lives in the MySQL `envdata` database** on debian-mysql, and this service is a
+  functional copy of the C# twin `efcs-backend/service/weather` 11.0.0 (env_service plan,
+  `efcs-backend/service/env_service/docs/env_service_plan.md`). Both run at once against the same providers and the
+  same envdata; nothing here reads or writes SQL Server any more.
+- Load each provider's stations from envdata (`sp_station_weather_due(country, limit)`, a random sample of
+  `v_station_weather_due`; the limit is the provider's remaining daily budget).
+- Fetch each provider's forecast/observation, convert where a converter exists (Open-Meteo, Visual Crossing,
+  Weather.gov) to the canonical `fishfind.weather.forecast/v1` envelope, and save it with
+  `sp_weather_save(mli, type, json)`: envdata keeps the raw document and shreds the envelope into `weather_day`
+  (pressure stored in **mm Hg**). Other providers' raw JSON is stored and not shredded (logged).
+- After each healthy pass: record the cycle in envdata `job_run` (`sp_job_run_record`, only when a station was
+  saved) and run `sp_clean_old_weather_data(NULL)`. env_service does the fish hand-over in SQL Server
+  (`spPushSpeciesFromLakeToStation`, `spTotalUpdateProbability`), which this service ran itself until 1.18.0.
+- Daily limits while both pairs run (plan decision 3): `open-meteo` **1150** (was 2300) and `pressure-backfill`
+  **500** (was 1000), halved because those limits are not per key; the C# twin needs the same halving.
 - Log failures and skipped unpublished-source events; **do not disable stations automatically**.
 - Sleep until next midnight between cycles.
 
@@ -182,7 +189,7 @@ Dockerfile
 - `spring-boot-starter-jdbc`
 - `spring-boot-starter-aop`
 - `spring-boot-starter-mail` — SMTP client for the weekly report email (optional; app runs fine with it unconfigured)
-- `mssql-jdbc` (`com.microsoft.sqlserver.jdbc.SQLServerDriver`)
+- `mysql-connector-j` (`com.mysql:mysql-connector-j`, Boot-managed; replaced `mssql-jdbc` in 2.0.0)
 - `io.github.resilience4j:resilience4j-spring-boot3`
 - `io.github.cdimascio:dotenv-java`
 - SLF4J + Logback (via Spring Boot default)
@@ -196,7 +203,9 @@ Build plugins:
 
 ## Startup / credential loading
 
-1. **Before Spring initialises**, read `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` from process environment or JVM system properties.
+1. **Before Spring initialises**, read `MYSQL_URL`, `MYSQL_USERNAME`, `MYSQL_PASSWORD` (envdata, since 2.0.0) from
+   process environment or JVM system properties. `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` (SQL Server) may stay in
+   the shared env file for a rollback to 1.18.0; 2.x does not read them.
 2. If any are missing, attempt to load from a dotenv file:
    - if `DOTENV_PATH` is set and non-blank, load that path
    - otherwise, if a `.env` file exists in the working directory, load it
@@ -209,13 +218,16 @@ Build plugins:
 
 ## Configuration (`application.yml`)
 
+The envdata datasource is NOT in `application.yml` (2.0.0): `config/EnvdataDataSourceConfig` builds a Hikari pool
+(`weather-hikari`, max 8, min idle 1, timeout 30 s, max lifetime 29 min, keepalive 5 min) and a `JdbcTemplate`
+(query timeout 120 s) from `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD`; a missing `MYSQL_URL` fails startup.
+`config/MySqlUrl` adds `sslMode=REQUIRED`, `connectTimeout=15000`, `connectionTimeZone=UTC` when the JDBC URL names
+none (the `weather` MySQL account is REQUIRE SSL, EXECUTE on `envdata.*` + SELECT on `v_station_weather_due`,
+`v_weather_gov_station`, `v_provider_coverage`). `config/SqlFailures` makes `sqlRetry` / `sqlBreaker` ignore
+SQLSTATE 45000 (an envdata procedure's own refusal): not retried, not counted.
+
 ```yaml
 spring:
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   lifecycle:
     timeout-per-shutdown-phase: 30s
   mail:                       # all blank by default: SMTP is optional, app starts fine without it
@@ -310,10 +322,10 @@ logging:
 
 ### Per-cycle loop
 
-1. Load stations for the worker country (`US` or `CA`) from `dbo.vwWeatherForecastToDay` (max 1400 per country).
+1. Load stations for the worker country (`US` or `CA`): `CALL sp_station_weather_due(country, limit)`, limit = the provider's remaining daily budget.
 2. Compute target delay: `max(8_hours_ms / stationCount, 2000)`. If count ≤ 1, use `2000 ms`.
 3. For each station (unless stopping): `process()` → tally `PROCESSED/SKIPPED/FAILED` → sleep `(targetDelay - actualProcessingTime)` (skip if negative).
-4. **Post-processing gate** (`maybeRunPostProcessing`): with `attempted = processed + failed`, if `attempted > 0 && failed/attempted > weather.worker.post-processing.max-failure-rate` → log **ERROR** and **skip** post-processing (don't recompute probabilities from partial data); otherwise run the procedures. Skipped (no-feed) stations never block post-processing.
+4. **Post-processing gate** (`maybeRunPostProcessing`): with `attempted = processed + failed`, if `attempted > 0 && failed/attempted > weather.worker.post-processing.max-failure-rate` → log **ERROR** and **skip** post-processing (the cycle is not recorded in `job_run`, so env_service does not recompute probabilities from partial data); otherwise `runAfterStationProcessing(provider, country, started, processed, failed)`. Skipped (no-feed) stations never block post-processing.
 5. On cycle completion, record a `CycleReportEntry` (date, worker, country, processed, failed, last processed/failed station) into `CycleReportRecorder` — the same data as the "Worker cycle completed" log line, feeding the weekly report email (see below). Only the background loop records; `--console` runs do not.
 6. Sleep until next local midnight (skip if already past boundary).
 
@@ -359,9 +371,8 @@ logging:
 ## Station query (`WeatherStationRepository`)
 
 ```sql
-SELECT TOP 1400 mli, lat, lon, state
-FROM dbo.vwWeatherForecastToDay
-WHERE country = ?
+CALL sp_station_weather_due(?, ?)                                -- country, limit; random sample, flag DESC
+SELECT COUNT(1) FROM v_station_weather_due WHERE country = ?     -- sizes the day's budget
 ```
 
 `StationWorker` starts one pass loop for `US` and one for `CA`; the repository binds the
@@ -406,26 +417,26 @@ void saveStationData(String mli, String jsonData)
 
 - Reject blank `mli` → throw `IllegalArgumentException`.
 - Blank / null `jsonData` → no-op.
-- Runs in a transaction; protected by Resilience4j `@Retry(sqlRetry)` + `@CircuitBreaker(sqlBreaker)`.
-- `UPDATE` matching 0 rows → log **WARNING** with `mli` and payload size (payload is dropped; must not vanish silently).
-- The raw `UPDATE` (rather than a view/procedure) is an intentional, grandfathered exception to the house DB-access rule — it mirrors the legacy `WeatherDataWorkerOpen` .NET service exactly. If a save procedure for this table is ever introduced, switch to it instead of adding a new raw-table statement elsewhere.
+- Protected by Resilience4j `@Retry(sqlRetry)` + `@CircuitBreaker(sqlBreaker)`.
+- `CALL sp_weather_save(?, ?, ?, @out_days)` then `SELECT @out_days` on the SAME connection (`ConnectionCallback`):
+  the EXECUTE-only account cannot read the procedure metadata a `CallableStatement` OUT parameter needs.
+- SQLSTATE 45000 (station unknown to envdata) → log **WARNING** `Station unknown to envdata; payload dropped.` and
+  return (caught, so neither retried nor counted). `@out_days < 0` → **WARNING** `Payload stored but not shredded`.
 
-```sql
-UPDATE dbo.ows_meteo
-SET type = 2, ows = ?, stamp = GETDATE()
-WHERE mli = ?
-```
-
-### Post-processing procedures
+### Post-cycle procedures
 
 ```java
-pushSpeciesFromLakeToStation()  // → EXEC dbo.spPushSpeciesFromLakeToStation
-totalUpdateProbability()        // → EXEC dbo.spTotalUpdateProbability
-cleanOldWeatherData()           // → EXEC dbo.sp_clean_old_weather_data
+recordCycle(job, startedUtc, finishedUtc, status, items, note) // → CALL sp_job_run_record(?, ?, ?, ?, ?, ?, ?, @out_job_run_id), service "weather"
+cleanOldWeatherData()                                          // → CALL sp_clean_old_weather_data(NULL)
 ```
 
-- Each runs in a transaction; each is protected by Resilience4j retry + circuit breaker.
-- Procedures may emit incidental result sets or update counts — drain with `PreparedStatementCallback` + `getMoreResults`.
+- `StationPostProcessingService.runAfterStationProcessing(provider, country, started, succeeded, failed)`
+  (`synchronized`): when `succeeded > 0`, record job `lower(provider + "-" + country)` cut to 32 (provider = the
+  worker's report name, as the C# twin passes it: `open-meteo-ca`, `weather.gov-us`, `weather canada-ca`, ...),
+  status `ok` / `partial` (note `failed=<n>`); then always the retention.
+- `WeatherGovStationRepository`: `SELECT station_id FROM v_weather_gov_station WHERE mli = ?` /
+  `CALL sp_weather_gov_station_save(?, ?, ?, ?)`. `WeatherStationCoverageRepository`:
+  `CALL sp_provider_coverage_save(?, ?, ?)`.
 
 ---
 
@@ -439,13 +450,11 @@ cleanOldWeatherData()           // → EXEC dbo.sp_clean_old_weather_data
 `StationProcessorOpen` implements:
 1. Fetch JSON from Open-Meteo using station lat/lon.
 2. Log save start with payload byte count at `DEBUG`.
-3. Update `dbo.ows_meteo` via `WeatherDataRepository`.
+3. Save via `WeatherDataRepository` (`sp_weather_save`).
 4. Log station processed at `DEBUG`.
 
-`StationPostProcessingService` calls procedures in this exact order (matches legacy base):
-1. `dbo.spPushSpeciesFromLakeToStation`
-2. `dbo.spTotalUpdateProbability`
-3. `dbo.sp_clean_old_weather_data`
+`StationPostProcessingService` runs, in this order: `sp_job_run_record` (only when a station was saved), then
+`sp_clean_old_weather_data(NULL)`.
 
 ---
 
@@ -463,14 +472,14 @@ cleanOldWeatherData()           // → EXEC dbo.sp_clean_old_weather_data
 
 | Scenario | Behaviour |
 |---|---|
-| Missing `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | Spring datasource fails at startup |
+| Missing `MYSQL_URL` | startup fails (`EnvdataDataSourceConfig`) |
 | Blank `mli` during save | throw `IllegalArgumentException` |
 | Blank / null JSON payload | skip save |
 | HTTP 404 from Open-Meteo | `FileNotFoundException`; log skip; outcome `SKIPPED` |
 | HTTP 429 from Open-Meteo | honour `Retry-After` inline; if exhausted → `RateLimitedException` → `FAILED` |
 | Interrupted during `Retry-After` wait | `RateLimitedException` (no further retry); interrupt flag re-set |
 | 200 body oversized or not a JSON object | `IOException`; retried (backoff); if exhausted → `FAILED` |
-| `UPDATE` matches 0 `ows_meteo` rows | log **WARNING** (payload dropped); still counts as `PROCESSED` |
+| Station unknown to envdata (SQLSTATE 45000) | log **WARNING** (payload dropped); still counts as `PROCESSED`; not retried |
 | HTTP non-200 other than 404 / timeout | `IOException`; retried (backoff); if exhausted → `FAILED` |
 | Open Open-Meteo circuit | `CallNotPermittedException` fast-fail → `FAILED` |
 | Per-station processing exception | log warning with station and state; outcome `FAILED`; continue |
@@ -601,16 +610,16 @@ Do not add these unless explicitly requested:
 ## Recreation checklist
 
 1. Maven Java 21 Spring Boot project; coordinates `com.fishfind:weather-station-pusher:1.0.0`.
-2. Add dependencies (web, actuator, JDBC, AOP, MSSQL, Resilience4j, dotenv, logback).
+2. Add dependencies (web, actuator, JDBC, AOP, MySQL Connector/J, Resilience4j, dotenv, logback).
 3. Add build plugins: `cyclonedx-maven-plugin:2.9.2` + `dependency-check-maven:12.2.2`.
 4. Implement dotenv bootstrap in `WeatherStationPusherApplication` using `setDefaultProperties()` — **no** `System.setProperty()` for secrets.
 5. `StationRef` record: `mli`, `latitude`, `longitude`, `state`.
-6. `WeatherStationRepository` — `vwWeatherForecastToDay` US query.
+6. `WeatherStationRepository` — `sp_station_weather_due` + `v_station_weather_due` count; `EnvdataDataSourceConfig`, `MySqlUrl`, `SqlFailures`.
 7. `OpenMeteoFetcher` — `HttpURLConnection`; daily `User-Agent`; verbatim UTF-8 body; `@Retry`/`@CircuitBreaker`/`@RateLimiter` (`openMeteo`) + inline 429 `Retry-After`; `RateLimitedException`.
-8. `WeatherDataRepository` — `UPDATE dbo.ows_meteo`, two stored procedure methods, Resilience4j.
+8. `WeatherDataRepository` — `sp_weather_save`, `sp_job_run_record`, `sp_clean_old_weather_data`, Resilience4j.
 9. `ProcessingOutcome` enum; `StationProcessorBase` — template method returning the outcome.
 10. `StationProcessorOpen` — fetch + save flow.
-11. `StationPostProcessingService` — exact procedure order.
+11. `StationPostProcessingService` — job_run record, then retention.
 12. `StationWorker` — background thread, 8-hour dynamic delay, midnight sleep, `@PreDestroy` graceful shutdown, post-processing success gate, records a `CycleReportEntry` per completed cycle.
 13. `ConsoleDebugRunner` — `--console` + `--station` one-shot mode.
 14. `CycleReportEntry` record + `CycleReportRecorder` — in-memory last-7-days-per-worker buffer (not persisted).
@@ -630,7 +639,7 @@ Do not add these unless explicitly requested:
 This service mirrors only the `WeatherDataWorkerOpen` path of the legacy .NET `OWMService`:
 - Only the Open-Meteo worker is present.
 - US and CA station loops are processed.
-- Persistence is an `UPDATE` into existing `ows_meteo` rows (not an insert).
+- Persistence is `sp_weather_save` into envdata (2.0.0; was an `UPDATE` of SQL Server `ows_meteo`).
 - Post-processing order follows the legacy weather worker base implementation.
 - Daily cadence aligns to midnight, not top-of-hour.
 

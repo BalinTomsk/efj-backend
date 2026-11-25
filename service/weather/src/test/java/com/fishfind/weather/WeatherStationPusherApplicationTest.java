@@ -55,4 +55,12 @@ class WeatherStationPusherApplicationTest {
 
         assertThat(fallback).isEmpty();
     }
+
+    @Test
+    void theEnvdataConnectionIsTakenFromTheDotenvFile() {
+        // 2.0.0: in production MYSQL_* arrive only through the mounted dotenv file (DOTENV_PATH); a key missing from
+        // this allow-list is silently ignored and startup fails on a blank MYSQL_URL.
+        assertThat(WeatherStationPusherApplication.DOTENV_KEYS)
+                .contains("MYSQL_URL", "MYSQL_USERNAME", "MYSQL_PASSWORD", "WUNDERGROUND_API_KEY");
+    }
 }

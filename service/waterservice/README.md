@@ -2,12 +2,13 @@
 
 `water-station-pusher` is a Spring Boot 3 background service that:
 
-- reads supported Canadian and US water stations from SQL Server
+- reads supported Canadian and US water stations from the MySQL `envdata` database (since 2.0.0)
 - downloads hourly hydrometric CSV files from Environment Canada for CA stations
 - reads the latest US values from one USGS Water Data API snapshot per cycle (key: `USGS_API_KEY`)
 - parses the readings
-- upserts them into `dbo.WaterData`
-- runs post-processing stored procedures after each worker cycle
+- upserts them into envdata (`sp_water_save_ca`, `sp_water_save_us`)
+- records each successful cycle in envdata `job_run` and runs the retention procedure after each cycle
+  (env_service does the fish hand-over in SQL Server)
 - logs station failures and skipped unpublished source feeds without disabling stations automatically
 
 This service has no HTTP API. It runs as a worker process.
@@ -17,7 +18,7 @@ This service has no HTTP API. It runs as a worker process.
 - Java 21
 - Maven 3.9+
 - Docker Desktop if you want to run it in a container
-- Access to a Microsoft SQL Server instance
+- Access to the MySQL `envdata` database (`envfish-db/mysql/envdata`)
 
 ## Project layout
 
@@ -38,11 +39,11 @@ This service has no HTTP API. It runs as a worker process.
 - `src/main/java/com/fishfind/water/service/UsgsWaterDataClient.java`
   Pages the USGS Water Data API `latest-continuous` snapshot and looks up site time zones.
 - `src/main/java/com/fishfind/water/service/UsgsParameterMap.java`
-  Maps USGS parameter codes to the legacy names/units `dbo.sp_push_us_water_data` expects.
+  Maps USGS parameter codes to the legacy names/units envdata `sp_water_save_us` expects.
 - `src/main/java/com/fishfind/water/repo/WaterStationRepository.java`
-  Loads supported stations from `vwWaterStation`.
+  Loads supported stations from envdata `v_station_water_due`.
 - `src/main/java/com/fishfind/water/repo/WaterDataRepository.java`
-  Upserts readings into `dbo.WaterData`.
+  Saves readings, records cycles and runs the retention through envdata procedures.
 - `src/main/resources/application.yml`
   Spring datasource, worker timing, and Resilience4j settings.
 
@@ -50,16 +51,20 @@ This service has no HTTP API. It runs as a worker process.
 
 The application requires these values:
 
-- `DB_URL`
-- `DB_USERNAME`
-- `DB_PASSWORD`
+- `MYSQL_URL` (JDBC URL of envdata; `sslMode=REQUIRED` is added when the URL names no SSL mode)
+- `MYSQL_USERNAME`
+- `MYSQL_PASSWORD`
+- `USGS_API_KEY`
+
+`DB_URL` / `DB_USERNAME` / `DB_PASSWORD` (SQL Server) may stay in the file for a rollback to 1.14.0; 2.x does not
+read them.
 
 Example `.env`:
 
 ```env
-DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=your_database;encrypt=true;trustServerCertificate=true
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
+MYSQL_URL=jdbc:mysql://10.118.0.6:3306/envdata?sslMode=REQUIRED
+MYSQL_USERNAME=waterservice
+MYSQL_PASSWORD=your_password
 ```
 
 Notes:
@@ -67,7 +72,7 @@ Notes:
 - A real `.env` file should live in the project root.
 - Do not commit the real `.env`.
 - `.env.example` contains placeholders only.
-- If the process environment already defines `DB_URL`, `DB_USERNAME`, or `DB_PASSWORD`, those values win.
+- If the process environment already defines `MYSQL_URL`, `MYSQL_USERNAME`, or `MYSQL_PASSWORD`, those values win.
 - If environment variables are missing, the app tries to load `.env` from the current working directory.
 - You can override the dotenv file location with `DOTENV_PATH`.
 
@@ -90,12 +95,11 @@ This is the default. The application starts Spring and then launches two non-dae
 
 Worker behavior:
 
-- loads all supported CA and US stations from `WaterStation`
-- loads all supported CA and US stations from `vwWaterStation`
+- loads all supported CA and US stations from envdata `v_station_water_due`
 - processes each country list one station at a time
 - sleeps 1 second between station retrievals
-- after each worker cycle finishes, synchronously runs stale-data cleanup through `dbo.sp_clean_old_water_data`
-- when at least one station succeeds in a cycle, also runs `dbo.spPushSpeciesFromLakeToStation`
+- when at least one station succeeds in a cycle, records it in envdata `job_run` (`sp_job_run_record`)
+- after each worker cycle finishes, synchronously runs the retention through `sp_clean_old_water_data`
 - after a full cycle, waits until the next top-of-hour before starting again only if the cycle finished early
 - starts the next cycle immediately if processing already ran past that hour boundary
 - keeps running until the process is stopped

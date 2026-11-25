@@ -1,18 +1,10 @@
 server:
   port: 0
 
-spring:
-  datasource:
-    url: jdbc:h2:mem:waterservice-test;MODE=MSSQLServer;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
-    hikari:
-      pool-name: water-test-hikari
-      maximum-pool-size: 2
-      minimum-idle: 1
-      connection-timeout: 5000
-      validation-timeout: 1000
+# The envdata datasource is built from MYSQL_* (EnvdataDataSourceConfig); the context test points it at H2.
+MYSQL_URL: jdbc:h2:mem:waterservice-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+MYSQL_USERNAME: sa
+MYSQL_PASSWORD:
 
 water:
   worker:
@@ -27,3 +19,24 @@ logging:
   level:
     root: WARN
     com.fishfind.water: WARN
+
+# Same sqlRetry / sqlBreaker shape as the production application.yml (git-ignored), so the context test proves the
+# SqlFailures customizers win over its retry-exceptions list.
+resilience4j:
+  retry:
+    retry-aspect-order: 1
+    instances:
+      sqlRetry:
+        max-attempts: 3
+        wait-duration: 10ms
+        retry-exceptions:
+          - org.springframework.dao.DataAccessException
+          - java.sql.SQLException
+  circuitbreaker:
+    circuit-breaker-aspect-order: 2
+    instances:
+      sqlBreaker:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
