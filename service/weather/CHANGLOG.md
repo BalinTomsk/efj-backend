@@ -27,9 +27,9 @@ account for jnode's VPC address (10.118.0.3) and the `MYSQL_*` lines in the shar
   `sp_weather_gov_station_save` and `sp_provider_coverage_save`. The unused fixed-limit overloads (1,400 / 900) are
   gone.
 - **The SQL retry/breaker ignores SQLSTATE 45000** (an envdata procedure's own refusal): not an outage (`SqlFailures`).
-- **Daily limits halved while both pairs run** (plan decision 3): `open-meteo` 2300 -> **1150**,
-  `pressure-backfill` 1000 -> **500** (env overrides `OPEN_METEO_DAILY_LIMIT` / `OPEN_METEO_PRESSURE_DAILY_LIMIT`
-  unchanged). The C# twin must be halved the same way.
+- Daily limits unchanged (`open-meteo` 2300, `pressure-backfill` 1000). The first 2.0.0 build halved them to
+  1150 / 500 per plan decision 3; reverted the same day: Open-Meteo's free limit is per calling IP, and jnode and
+  csnode call from different IPs, as they did side by side before plan step 7. Nothing to change on the C# twin.
 
 ### Removed
 - **The fish hand-over** after a healthy cycle (`dbo.spPushSpeciesFromLakeToStation`, `dbo.spTotalUpdateProbability`).

@@ -180,10 +180,11 @@ datasource auto-configuration backs off.
     EXCEPT one whose cause chain holds SQLSTATE 45000 (an envdata procedure's own refusal, e.g. unknown station):
     neither retried nor counted by the breaker (C# twin: ResiliencePipelines.IsSqlFailure).
 
-DAILY LIMITS WHILE BOTH PAIRS RUN (plan decision 3)
-  weather.worker.daily-limit.open-meteo = ${OPEN_METEO_DAILY_LIMIT:1150} (was 2300) and
-  weather.worker.pressure-backfill.daily-limit = ${OPEN_METEO_PRESSURE_DAILY_LIMIT:500} (was 1000): those limits
-  are not per key, so each pair takes half. The C# twin is halved the same way. Other limits unchanged.
+DAILY LIMITS WHILE BOTH PAIRS RUN
+  Unchanged and NOT halved: weather.worker.daily-limit.open-meteo = ${OPEN_METEO_DAILY_LIMIT:2300},
+  weather.worker.pressure-backfill.daily-limit = ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}, the same as the C# twin.
+  Open-Meteo's free limit (~10,000/day, 600/min) is per calling IP; jnode and csnode have different IPs. (A halving
+  to 1150 / 500 shipped in the first 2.0.0 build and was reverted the same day.)
 
 
 CONFIGURATION (application.yml)
@@ -302,7 +303,7 @@ weather:
       max-failure-rate: 0.5              # skip post-processing above this failure rate
     pressure-backfill:                   # Open-Meteo pressure_msl for Weather.gov forecasts (1.18.0)
       enabled: ${OPEN_METEO_PRESSURE_ENABLE:true}
-      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:500}    # ledger key OpenMeteoPressure; halved (was 1000), see below
+      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}   # ledger key OpenMeteoPressure
   report:
     to: ${REPORT_EMAIL_TO:}             # recipient; blank = weekly email silently disabled
     from: ${REPORT_EMAIL_FROM:}         # optional; falls back to spring.mail.username

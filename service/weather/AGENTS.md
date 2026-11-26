@@ -83,8 +83,10 @@ to verify the fix; run `mssql\UNIT_TESTS\autorun.bat`). That file lives in the s
 - After each healthy pass: record the cycle in envdata `job_run` (`sp_job_run_record`, only when a station was
   saved) and run `sp_clean_old_weather_data(NULL)`. env_service does the fish hand-over in SQL Server
   (`spPushSpeciesFromLakeToStation`, `spTotalUpdateProbability`), which this service ran itself until 1.18.0.
-- Daily limits while both pairs run (plan decision 3): `open-meteo` **1150** (was 2300) and `pressure-backfill`
-  **500** (was 1000), halved because those limits are not per key; the C# twin needs the same halving.
+- Daily limits are the same as before 2.0.0 and as the C# twin's: `open-meteo` 2300, `pressure-backfill` 1000. They
+  are NOT halved while both pairs run: Open-Meteo's free limit (~10,000/day, 600/min) is per calling IP, and jnode
+  and csnode call from different IPs (both pairs ran full limits side by side before plan step 7 without trouble).
+  Only USGS is per key, hence the Java pair's own `USGS_API_KEY`.
 - Log failures and skipped unpublished-source events; **do not disable stations automatically**.
 - Sleep until next midnight between cycles.
 

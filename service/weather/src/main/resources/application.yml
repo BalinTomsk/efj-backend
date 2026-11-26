@@ -215,9 +215,9 @@ weather:
       max-wait-ms: 60000
     daily-limit:
       weather-gov: ${WEATHER_GOV_DAILY_LIMIT:900}
-      # Halved (was 2300) while the Java and C# pairs both run against the same providers: these limits are not
-      # per key, so each pair takes half (env_service plan, decision 3). The C# twin must be halved the same way.
-      open-meteo: ${OPEN_METEO_DAILY_LIMIT:1150}
+      # covers all 2,219 CA stations in one day. Not halved for the C# twin: Open-Meteo's free limit
+      # (~10,000/day, 600/min) is per calling IP, and jnode and csnode call from different IPs.
+      open-meteo: ${OPEN_METEO_DAILY_LIMIT:2300}
       visual-crossing: ${VISUAL_CROSSING_DAILY_LIMIT:900}
       google-weather: ${GOOGLE_WEATHER_DAILY_LIMIT:161}
       weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:2300} # ditto; CA-native provider
@@ -227,7 +227,7 @@ weather:
       # Open-Meteo pressure_msl for Weather.gov forecasts (which carry none). Own ledger key
       # OpenMeteoPressure, separate from open-meteo above. Failure saves the forecast without pressure.
       enabled: ${OPEN_METEO_PRESSURE_ENABLE:true}
-      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:500}    # halved (was 1000) for the same reason as open-meteo
+      daily-limit: ${OPEN_METEO_PRESSURE_DAILY_LIMIT:1000}   # > weather-gov 900, the only caller
   report:
     to: ${REPORT_EMAIL_TO:}          # recipient; blank = weekly email disabled
     from: ${REPORT_EMAIL_FROM:}      # optional; falls back to spring.mail.username
