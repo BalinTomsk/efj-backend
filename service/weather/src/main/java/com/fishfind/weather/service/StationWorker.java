@@ -233,6 +233,7 @@ public class StationWorker implements ApplicationRunner {
     }
 
     private CountryPassSummary runCycle(WorkerDefinition worker, String requestedMli) throws InterruptedException {
+        java.time.Instant started = java.time.Instant.now();
         String country = worker.country();
         int totalSupportedStations = stationRepository.countSupportedStations(country);
         int dailyLimit = dailyLimitFor(worker);
@@ -343,7 +344,7 @@ public class StationWorker implements ApplicationRunner {
             return summary;
         }
 
-        maybeRunPostProcessing(summary);
+        maybeRunPostProcessing(summary, started);
         return summary;
     }
 
@@ -450,11 +451,12 @@ public class StationWorker implements ApplicationRunner {
 
     /**
      * Runs post-processing only when the cycle was healthy. A high failure rate (e.g. an open
-     * circuit or mass SQL failures) is a cycle-level problem: skip post-processing so probabilities
-     * are not recomputed from partial data, and log an error for alerting. Skipped stations
+     * circuit or mass SQL failures) is a cycle-level problem: skip post-processing, so the cycle is not
+     * recorded in job_run and env_service does not recompute probabilities from partial data, and log an
+     * error for alerting. Skipped stations
      * (no published feed) are normal and never block post-processing.
      */
-    private void maybeRunPostProcessing(CountryPassSummary summary) {
+    private void maybeRunPostProcessing(CountryPassSummary summary, java.time.Instant started) {
         int processed = summary.successfulStations();
         int skipped = summary.skippedStations();
         int failed = summary.failedStations();
@@ -472,7 +474,8 @@ public class StationWorker implements ApplicationRunner {
         log.info("Cycle healthy; running post-processing. country={} processed={} skipped={} failed={}",
                 summary.country(), processed, skipped, failed);
         try {
-            postProcessingService.runAfterStationProcessing();
+            postProcessingService.runAfterStationProcessing(
+                    summary.provider(), summary.country(), started, processed, failed);
         } catch (RuntimeException ex) {
             log.error("Post-processing failed after healthy cycle. country={} processed={} skipped={} failed={}",
                     summary.country(), processed, skipped, failed, ex);

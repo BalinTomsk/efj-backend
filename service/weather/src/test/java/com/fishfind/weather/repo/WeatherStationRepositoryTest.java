@@ -1,9 +1,10 @@
 package com.fishfind.weather.repo;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,52 +32,26 @@ class WeatherStationRepositoryTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void queriesSupportedStationsWithExpectedSqlAndCountryParameter() {
+    void callsTheEnvdataSampleProcedureWithCountryAndLimit() throws Exception {
         StationRef expected = new StationRef("MLI-1", 1.0, 2.0, "WA");
-        when(jdbc.query(anyString(), any(RowMapper.class), eq(1400), eq("CA"))).thenReturn(List.of(expected));
+        when(jdbc.query(anyString(), any(RowMapper.class), eq("CA"), eq(1150))).thenReturn(List.of(expected));
 
-        List<StationRef> result = repository.findSupportedStations("CA");
-
-        assertThat(result).containsExactly(expected);
-
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<RowMapper<StationRef>> mapper = ArgumentCaptor.forClass(RowMapper.class);
-        org.mockito.Mockito.verify(jdbc).query(sql.capture(), mapper.capture(), eq(1400), eq("CA"));
-
-        assertThat(sql.getValue())
-                .contains("SELECT TOP (?)")
-                .contains("dbo.vwWeatherForecastToDay")
-                .contains("country = ?");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void usStationsAreCappedAtWeatherGovLimit() {
-        when(jdbc.query(anyString(), any(RowMapper.class), eq(900), eq("US"))).thenReturn(List.of());
-
-        repository.findSupportedUsStations();
-
-        org.mockito.Mockito.verify(jdbc).query(anyString(), any(RowMapper.class), eq(900), eq("US"));
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void rowMapperMapsAllColumns() throws Exception {
-        when(jdbc.query(anyString(), any(RowMapper.class), eq(900), eq("US"))).thenReturn(List.of());
-        repository.findSupportedUsStations();
+        assertThat(repository.findSupportedStations("CA", 1150)).containsExactly(expected);
 
         ArgumentCaptor<RowMapper<StationRef>> mapper = ArgumentCaptor.forClass(RowMapper.class);
-        org.mockito.Mockito.verify(jdbc).query(anyString(), mapper.capture(), eq(900), eq("US"));
+        verify(jdbc).query(eq("CALL sp_station_weather_due(?, ?)"), mapper.capture(), eq("CA"), eq(1150));
 
         ResultSet rs = mock(ResultSet.class);
         when(rs.getString("mli")).thenReturn("MLI-9");
         when(rs.getDouble("lat")).thenReturn(47.5);
         when(rs.getDouble("lon")).thenReturn(-122.3);
         when(rs.getString("state")).thenReturn("WA");
+        assertThat(mapper.getValue().mapRow(rs, 0)).isEqualTo(new StationRef("MLI-9", 47.5, -122.3, "WA"));
+    }
 
-        StationRef mapped = mapper.getValue().mapRow(rs, 0);
-
-        assertThat(mapped).isEqualTo(new StationRef("MLI-9", 47.5, -122.3, "WA"));
+    @Test
+    void rejectsANonPositiveLimit() {
+        assertThatThrownBy(() -> repository.findSupportedStations("US", 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -89,7 +64,7 @@ class WeatherStationRepositoryTest {
         verify(jdbc).queryForObject(sql.capture(), eq(Integer.class), eq("US"));
         assertThat(sql.getValue())
                 .contains("COUNT(1)")
-                .contains("dbo.vwWeatherForecastToDay")
+                .contains("FROM v_station_weather_due")
                 .contains("country = ?");
     }
 }

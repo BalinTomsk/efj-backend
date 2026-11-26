@@ -1,12 +1,15 @@
 Recreate this project as a Java 21 Spring Boot background service named `water-station-pusher`.
 
 Goal
-- Poll supported Canadian and US water stations from MSSQL.
+- Poll supported Canadian and US water stations from the MySQL `envdata` database (`v_station_water_due`).
 - Download each CA station's hourly hydrometric CSV from Environment Canada.
 - Read each US station's latest values from one USGS Water Data API snapshot per cycle.
-- Parse readings and upsert them into `dbo.WaterData`.
-- After each worker cycle, synchronously run `dbo.sp_clean_old_water_data`.
-- When at least one station succeeds in a cycle, also run `dbo.spPushSpeciesFromLakeToStation`.
+- Parse readings and upsert them into envdata through its procedures (`sp_water_save_ca`, `sp_water_save_us`).
+- When at least one station succeeds in a cycle, record the cycle in envdata `job_run` (`sp_job_run_record`).
+  env_service then does the fish hand-over in SQL Server; this service does not touch SQL Server (since 2.0.0).
+- After each worker cycle, synchronously run `sp_clean_old_water_data(NULL)`.
+- A functional copy of the C# twin `efcs-backend/service/waterservice` 11.0.0: same keys, procedures, payloads,
+  `job_run` records and SQL failure rule. Both run at once against the same providers and the same envdata.
 - Log processing failures and skipped unpublished-source events, but do not disable stations automatically.
 
 Tech stack
@@ -19,7 +22,7 @@ Tech stack
 - `spring-boot-starter-aop`
 - `spring-boot-starter-actuator`
 - `io.micrometer:micrometer-registry-prometheus` (runtime)
-- MSSQL JDBC driver (Boot-managed version overridden via `<mssql-jdbc.version>` to the current 12.8.x line)
+- MySQL Connector/J `com.mysql:mysql-connector-j` (Boot-managed version; replaced `mssql-jdbc` in 2.0.0)
 - Resilience4j Spring Boot 3 integration for SQL retry/circuit breaker
 - `commons-csv` is used for CA CSV parsing (quoted-field-safe, fault-tolerant)
 - `dotenv-java` for local credential loading
@@ -41,7 +44,7 @@ Project structure
 
 Main application behavior
 - `WaterStationPusherApplication.main` only calls `SpringApplication.run`; credential loading is delegated to a Spring `EnvironmentPostProcessor`.
-- DB credentials are resolved by Spring from the process environment (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) or JVM system properties.
+- DB credentials are resolved by Spring from the process environment (`MYSQL_URL`, `MYSQL_USERNAME`, `MYSQL_PASSWORD`), JVM system properties or the `.env` file. `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` (SQL Server) stay in the env file for a rollback to 1.14.0 and are not read.
 - For local development, `com.fishfind.water.config.DotenvEnvironmentPostProcessor` loads a `.env` file (via `dotenv-java`) and registers its declared entries as the LOWEST-precedence Spring property source (`addLast`).
   - Real OS environment variables and JVM system properties always win over the `.env` file.
   - Only keys declared in the `.env` file are imported (`Dotenv.Filter.DECLARED_IN_ENV_FILE`); the OS environment is not copied.
@@ -51,25 +54,25 @@ Main application behavior
     and sets `FF_MASTER_KEY_FILE=/run/secrets/master.key`.
   - SECURITY: credentials are NEVER copied into JVM-global system properties (no `System.setProperty`), so they do not leak into `System.getProperties()`, heap dumps, or diagnostic tooling.
 - Required keys:
-  - `DB_URL`
-  - `DB_USERNAME`
-  - `DB_PASSWORD`
+  - `MYSQL_URL` (startup fails without it)
+  - `MYSQL_USERNAME`
+  - `MYSQL_PASSWORD`
+  - `USGS_API_KEY` (the Java pair's own key; the C# pair has another)
 - Register the post-processor in `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`.
 
 Datasource config
-- Configure Spring datasource from:
-  - `${DB_URL}`
-  - `${DB_USERNAME}`
-  - `${DB_PASSWORD}`
-- Driver class: `com.microsoft.sqlserver.jdbc.SQLServerDriver`
-- HikariCP tuning (in `application.yml` under `spring.datasource.hikari`):
-  - `pool-name: water-hikari`
-  - `maximum-pool-size: 4` (two parallel country passes + post-processing, with headroom)
-  - `minimum-idle: 1`
-  - `connection-timeout: 30000`
-  - `max-lifetime: 1740000` (29 min — retire connections before the server/network idle timeout)
-  - `keepalive-time: 300000` (5 min)
-  - `validation-timeout: 5000`
+- `com.fishfind.water.config.EnvdataDataSourceConfig` declares the `DataSource` (a `HikariDataSource`) and the
+  `JdbcTemplate` in code. Spring Boot's datasource auto-configuration backs off, so the git-ignored
+  `application.yml`'s `spring.datasource` block (still `${DB_URL}` + the SQL Server driver) is never used.
+- `MYSQL_URL` is a JDBC URL: `jdbc:mysql://10.118.0.6:3306/envdata?sslMode=REQUIRED`. `MySqlUrl.normalize` refuses a
+  blank or non-JDBC value and, for `jdbc:mysql:` only, adds what the URL does not name: `sslMode=REQUIRED` (the
+  envdata accounts are REQUIRE SSL), `connectTimeout=15000`, `connectionTimeZone=UTC`. Other JDBC URLs (the tests'
+  H2) pass unchanged. `MYSQL_USERNAME` / `MYSQL_PASSWORD` are set on the pool when not blank.
+- Hikari: `pool-name water-hikari`, `maximumPoolSize 4`, `minimumIdle 1`, `connectionTimeout 30000`,
+  `maxLifetime 1740000`, `keepaliveTime 300000`, `validationTimeout 5000`.
+- `JdbcTemplate.queryTimeout` = 120 s.
+- MySQL account `waterservice`: EXECUTE on `envdata.*`, SELECT on `v_station_water_due`, REQUIRE SSL. No table is
+  read or written directly. OUT parameters are session variables in the CALL text (`@out_job_run_id`).
 
 Worker behavior
 - Lifecycle is Spring-managed; no hand-managed `Thread`s.
@@ -90,19 +93,21 @@ Worker behavior
 - `StationWorker.runCountryCycle(country)` (scheduled): run that country's pass on the scheduler thread (a
   pass failure is logged and treated as an empty pass), then post-processing, then log
   `Station cycle completed. country=...`.
-- Post-processing (`postProcess(succeeded)`), shared by both cycle kinds and serialised by a lock so the two
-  country tasks never run the procedures concurrently: species push only when at least one station
-  succeeded in the triggering cycle; stale-data cleanup always. With independent schedules each country
-  post-processes after its own pass (twice per hour when both fit); the procedures are idempotent.
+- Post-processing (`postProcess(job, started, succeeded, failed)`), shared by both cycle kinds and serialised by
+  a lock so the two country tasks never run the procedures concurrently: `job_run` record only when at least one
+  station succeeded in the triggering cycle (job `water-ca` / `water-us` for a scheduled country cycle, `water`
+  for a console cycle; status `ok` when no station failed, else `partial` with note `failed=<n>`; items = stations
+  processed successfully; started = cycle start, finished = now, both UTC); retention always. With independent
+  schedules each country post-processes after its own pass (twice per hour when both fit).
 - `StationWorker.runCycle(requestedMli)` (console mode):
   - Run the CA and US passes in parallel on `countryPassExecutor`.
   - A failure of one country's pass is isolated (logged) and does not abort the other.
-  - Run species post-processing EXACTLY ONCE for the combined result, and ONLY when at least one station
-    was processed successfully.
-  - Run stale-data cleanup EXACTLY ONCE after the cycle by executing `dbo.sp_clean_old_water_data`.
-  - Post-processing failure semantics: a species post-processing failure never prevents cleanup from running;
-    if cleanup ALSO fails, the species exception propagates with the cleanup exception attached as suppressed
-    (a cleanup failure must not mask the species failure). The cycle-completed summary log is always emitted.
+  - Record the cycle in `job_run` EXACTLY ONCE for the combined result (job `water`), and ONLY when at least one
+    station was processed successfully.
+  - Run retention EXACTLY ONCE after the cycle by executing `sp_clean_old_water_data(NULL)`.
+  - Post-processing failure semantics: a `job_run` failure never prevents cleanup from running; if cleanup ALSO
+    fails, the record exception propagates with the cleanup exception attached as suppressed (a cleanup failure
+    must not mask the record failure). The cycle-completed summary log is always emitted.
   - Pass startup is shutdown-safe: an executor `RejectedExecutionException` (e.g. during context shutdown) is
     converted into a failed future, so the cycle degrades to an empty pass instead of throwing out of the
     scheduler. `awaitPass` handles both `CompletionException` and `CancellationException`.
@@ -138,7 +143,8 @@ Console mode
   parallel followed by a single post-processing run.
 
 WaterStation query rules
-- Read from view `vwWaterStation`
+- Read from envdata view `v_station_water_due` (supported stations; port of MSSQL `vwWaterStation`):
+  `SELECT mli, state, tz FROM v_station_water_due WHERE country = ? ORDER BY stamp DESC`
 - Select columns:
   - `mli`
   - `state`
@@ -211,10 +217,10 @@ US parse rules (`StationProcessorUS`)
 - `buildReadings` emits one `UsSeriesReading` per observation, keeping only instantaneous values
   (`statistic_id` `00011` or null) with a numeric value and a parameter code known to `UsgsParameterMap`, which
   maps the code to the EXACT legacy WaterML name/unit pair (`00060` -> `Streamflow` / `ft^3/s`, `00065` ->
-  `Gage height` / `ft`, ...; 128 codes harvested from live legacy responses) so `dbo.sp_push_us_water_data`
-  and its unit conversions behave as before.
-- The day is the observation time converted to the station's LOCAL date. Payload:
-  `<root><a d="yyyy-MM-dd" v="..." /></root>`.
+  `Gage height` / `ft`, ...; 128 codes harvested from live legacy responses), which envdata
+  `sp_water_save_us` keys its column mapping and unit conversions on.
+- The day is the observation time converted to the station's LOCAL date:
+  `UsSeriesReading(String name, String unit, LocalDate day, double value)` (non-finite values dropped).
 
 Failure handling
 - On any station processing exception:
@@ -229,18 +235,17 @@ HTTP 503 station backoff
 - `StationProcessorBase` maps upstream HTTP 503 failures to `ProcessingOutcome.FAILED_HTTP_503`.
 - `StationWorker` records those failures through `StationHttp503BackoffService.recordHttp503(...)` and resets
   backoff through `recordProcessed(...)` after a successful station processing result.
-- `StationHttp503BackoffRepository` is the Java SQL gateway. It calls stored procedures and does not directly
+- `StationHttp503BackoffRepository` is the Java SQL gateway. It calls envdata procedures and does not directly
   update station tables:
-  - `refreshDue(today)` -> `EXEC dbo.sp_water_station_503_refresh_due ?`
-  - `recordHttp503(provider,country,stationMli,state,today)` -> `EXEC dbo.sp_water_station_503_record ?, ?, ?, ?, ?`
-  - `reset(provider,country,stationMli)` -> `EXEC dbo.sp_water_station_503_reset ?, ?, ?`
-  - `summaryByState()` -> `EXEC dbo.sp_water_station_503_summary_by_state`
-- Database schema lives in `envfish-db/mssql`:
-  - `dbo.WaterStation` stores `backoffstate`, `backoff_daily_503_count`, `backoff_weekly_503_count`,
-    `backoff_last_503_date`, `backoff_next_date`, and `supported`.
-  - `vwWaterStation` returns only `supported = 1`, so weekly/monthly backoff rows are skipped by the worker.
-  - Procedure definitions are in `mssql/script02_Proc.sql`; tests are in
-    `mssql/UNIT_TESTS/unit_test@WaterStation503Backoff.sql`.
+  - `refreshDue(today)` -> `CALL sp_station_503_refresh_due(?)`
+  - `recordHttp503(provider,country,stationMli,state,today)` -> `CALL sp_station_503_record(?, ?, ?, ?, ?)` (state
+    cut to 2 characters)
+  - `reset(provider,country,stationMli)` -> `CALL sp_station_503_reset(?, ?, ?)`
+  - `summaryByState()` -> `CALL sp_station_503_summary_by_state()` (columns `state`, `backoff_stage`, `station_count`)
+- The state lives in envdata `station` (`backoff_state`, `backoff_daily_503_count`, `backoff_weekly_503_count`,
+  `backoff_last_503_date`, `backoff_next_date`, `supported`), one row per station shared with the C# twin.
+  `v_station_water_due` returns only `supported = 1`, so weekly/monthly backoff rows are skipped by the worker.
+  Procedures: `envfish-db/mysql/envdata/script02_Proc.sql`.
 - Backoff rules:
   - `backoffstate`: 0 normal, 1 daily tracking, 2 weekly retry, 3 monthly retry.
   - 3 consecutive daily HTTP 503 final failures -> weekly retry, `backoff_next_date = today + 7 days`,
@@ -251,39 +256,43 @@ HTTP 503 station backoff
   - Any successful station result resets counters/state and restores `supported = 1`.
   - `refreshDue()` restores due weekly/monthly rows before loading stations.
 
-WaterData persistence rules
-- Implement repository method `saveStationData(String mli, List<Reading> readings)`
-- Reject blank `mli`
-- If readings list is null or empty, do nothing
-- Wrap save in one transaction
-- Apply Resilience4j retry and circuit breaker around SQL operations
-- Deduplicate readings by timestamp within the batch, keeping the last duplicate
-- Upsert each reading by executing legacy stored procedure `dbo.sp_UpdateWaterData` as ONE JDBC batch
-  (`JdbcTemplate.batchUpdate` with a ParameterizedPreparedStatementSetter), not one round-trip per reading
-- Mapping:
-  - CSV water level -> `dbo.WaterData.elevation`
-  - CSV discharge -> `dbo.WaterData.discharge`
-- Store timestamp as SQL `datetime2`
-- Also implement `saveUsStationData(String mli, String state, List<UsSeriesReading> seriesList)`
-- Use the legacy stored procedure `dbo.sp_push_us_water_data`
-- Also implement post-processing repository methods:
-  - `cleanOldWaterData()` -> `dbo.sp_clean_old_water_data`
-  - `pushSpeciesFromLakeToStation()` -> `dbo.spPushSpeciesFromLakeToStation`
-
-Important note about delete logic
-- There was earlier intent to delete old `WaterData` rows older than 15 days for a station.
-- In the current project state that delete is not active.
-- Recreate the current behavior as-is unless explicitly told to restore the cleanup query.
-- The cleanup now happens only through the post-cycle procedure `dbo.sp_clean_old_water_data`.
+Water persistence rules (`WaterDataRepository`, envdata)
+- `saveStationData(String mli, List<Reading> readings)`:
+  - Reject blank `mli`; if readings is null or empty, do nothing.
+  - `@Transactional` + `@Retry("sqlRetry")` + `@CircuitBreaker("sqlBreaker", fallback rethrows
+    "SQL save failed for station <mli>")`.
+  - Drop null readings / stamps; deduplicate by timestamp (Instant), keeping the last duplicate, in first-seen order.
+  - `CALL sp_water_save_ca(?, ?)` (mli, rows JSON) per chunk of **500** readings. Rows JSON, built with Jackson's
+    `JsonGenerator`: `[{"s":"yyyy-MM-dd HH:mm:ss","e":<water level>,"d":<discharge>}]`, `s` in UTC, a null or
+    non-finite value written as `null`. The procedure upserts by `(station, ts)`, stores a `-999` discharge as NULL
+    and refreshes `station_current`.
+- `saveUsStationData(String mli, String state, List<UsSeriesReading> seriesList)`:
+  - Reject blank `mli` / `state`; keep points with a non-blank name, a day and a finite value; none = no call.
+  - `@Transactional` + retry/breaker (fallback "SQL save failed for US station <mli>").
+  - ONE `CALL sp_water_save_us(?, ?, ?)` per station: mli, state (first 2 characters), series JSON
+    `[{"name":"Streamflow","unit":"ft^3/s","points":[{"d":"yyyy-MM-dd","v":12.5}]}]`, grouped by (name, unit) in
+    first-seen order, `unit` may be `null`. envdata merges every series of a day into one reading, stores metric
+    values, pressure in **mm Hg**, pH as the real value, oxygen in mg/L only.
+- `recordCycle(job, startedUtc, finishedUtc, status, items, note)`:
+  `CALL sp_job_run_record(?, ?, ?, ?, ?, ?, ?, @out_job_run_id)` with service `waterservice` (the C# twin's name),
+  `LocalDateTime` UTC times, note cut to 255 characters. Retry/breaker, no transaction.
+- `cleanOldWaterData()`: `CALL sp_clean_old_water_data(NULL)` (raw readings 30 days by dropping day partitions,
+  aggregates and job runs 30 days). Retry/breaker, never in a transaction (partition DDL commits implicitly).
+- An unknown station is refused by every save procedure with `SIGNAL SQLSTATE '45000'`.
 
 Resilience4j settings
 - Aspect order: `circuit-breaker-aspect-order: 2` and `retry-aspect-order: 1` so the circuit breaker is the
   OUTERMOST aspect. An open breaker short-circuits immediately without burning retry attempts/backoff, and all
   retries of one call are recorded as a single breaker outcome.
 - SQL (`WaterDataRepository`):
-  - Retry `sqlRetry`: max attempts `3`, wait `2s`, retry `org.springframework.dao.DataAccessException` and
-    `java.sql.SQLException`.
+  - Retry `sqlRetry`: max attempts `3`, wait `2s`.
   - Circuit breaker `sqlBreaker`: sliding window `10`, min calls `5`, failure threshold `50%`, open wait `30s`.
+  - Which exceptions count is set in code by `com.fishfind.water.config.SqlFailures` (a `RetryConfigCustomizer`
+    for `sqlRetry` that clears `retry-exceptions` and sets `retryOnException`, and a
+    `CircuitBreakerConfigCustomizer` for `sqlBreaker` that sets `ignoreException`): any `DataAccessException` or
+    `SQLException`, EXCEPT one whose cause chain holds a `SQLException` with SQLSTATE `45000` (an envdata
+    procedure's own refusal, e.g. an unknown station). That one is neither retried nor counted by the breaker
+    (C# twin: `ResiliencePipelines.IsSqlFailure`).
 - HTTP fetches:
   - Retry `httpRetry`: max attempts `3`, wait `2s`; retry-exceptions
     `org.springframework.web.client.ResourceAccessException` and `HttpServerErrorException` (5xx); ignore
@@ -396,6 +405,10 @@ Files to include
 - `src/main/java/com/fishfind/water/service/StationPostProcessingService.java`
 - `src/main/java/com/fishfind/water/web/HealthController.java`
 - `src/main/java/com/fishfind/water/config/DotenvEnvironmentPostProcessor.java`
+- `src/main/java/com/fishfind/water/config/EnvdataDataSourceConfig.java`
+- `src/main/java/com/fishfind/water/config/MySqlUrl.java`
+- `src/main/java/com/fishfind/water/config/SqlFailures.java`
+- `src/main/java/com/fishfind/water/repo/StationHttp503BackoffRepository.java`
 - `src/main/java/com/fishfind/water/config/WorkerConfig.java`
 - `src/main/java/com/fishfind/water/config/HttpClientConfig.java`
 - `src/main/resources/META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor.imports`
@@ -413,8 +426,11 @@ Do not include
 If rebuilding from this specification, reproduce current behavior faithfully rather than improving architecture unless asked.
 
 Current implementation notes
-- `WaterDataRepository.cleanOldWaterData()` and `pushSpeciesFromLakeToStation()` must tolerate procedures that emit incidental result sets or update counts.
 - `saveStationData` deduplicates readings by timestamp within a batch and keeps the last duplicate.
-- `saveUsStationData` ignores empty variable payloads instead of failing the full station save.
+- `saveUsStationData` ignores invalid points instead of failing the full station save.
+- Tests: `WaterEngineTest` runs the real repositories against a real MySQL engine when `WATER_TEST_MYSQL` holds the
+  JDBC URL (with `user=`/`password=`) of a privileged account on a THROWAWAY database built from
+  `envfish-db/mysql/envdata`; `WATER_TEST_MYSQL_APP` (optional) is an account with production's grants, used by the
+  repositories. Without the variable those tests are skipped; a mocked `JdbcTemplate` never parses SQL.
 - Cycle threads use the prefixes `water-cycle-` (scheduler) and `water-pass-` (parallel country passes).
 - `StationProcessorBase` centralizes the shared CA/US exception handling and formats messages as `{country} station`, and its `process(...)` returns a success boolean.

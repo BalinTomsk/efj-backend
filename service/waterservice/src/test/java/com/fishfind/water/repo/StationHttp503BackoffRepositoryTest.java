@@ -29,7 +29,7 @@ class StationHttp503BackoffRepositoryTest {
         repository.recordHttp503("usgs", "US", "08313000", "NY", today);
 
         verify(jdbc).update(
-                "EXEC dbo.sp_water_station_503_record ?, ?, ?, ?, ?",
+                "CALL sp_station_503_record(?, ?, ?, ?, ?)",
                 "usgs",
                 "US",
                 "08313000",
@@ -43,7 +43,7 @@ class StationHttp503BackoffRepositoryTest {
 
         repository.refreshDue(today);
 
-        verify(jdbc).update("EXEC dbo.sp_water_station_503_refresh_due ?", today);
+        verify(jdbc).update("CALL sp_station_503_refresh_due(?)", today);
     }
 
     @Test
@@ -51,7 +51,7 @@ class StationHttp503BackoffRepositoryTest {
         repository.reset("environment-canada", "CA", "02JE025");
 
         verify(jdbc).update(
-                "EXEC dbo.sp_water_station_503_reset ?, ?, ?",
+                "CALL sp_station_503_reset(?, ?, ?)",
                 "environment-canada",
                 "CA",
                 "02JE025");
@@ -69,7 +69,7 @@ class StationHttp503BackoffRepositoryTest {
 
         ArgumentCaptor<RowMapper<StationHttp503BackoffRepository.BackoffSummary>> mapper =
                 ArgumentCaptor.forClass(RowMapper.class);
-        verify(jdbc).query(eq("EXEC dbo.sp_water_station_503_summary_by_state"), mapper.capture());
+        verify(jdbc).query(eq("CALL sp_station_503_summary_by_state()"), mapper.capture());
 
         ResultSet rs = mock(ResultSet.class);
         when(rs.getString("state")).thenReturn("WA");

@@ -34,12 +34,12 @@ class StationProcessorUSTest {
 
     @Test
     void buildReadingsUsesLegacyNameAndUnit() {
-        // sp_push_us_water_data keys its unit conversion on the exact legacy unit string ('ft^3/s').
+        // envdata sp_water_save_us keys its unit conversion on the exact legacy unit string ('ft^3/s').
         List<UsSeriesReading> series = StationProcessorUS.buildReadings(
                 List.of(obs("00060", "2026-10-11T18:00:00+00:00", "12.5")), MOUNTAIN);
 
         assertEquals(List.of(new UsSeriesReading("Streamflow", "ft^3/s",
-                "<root><a d=\"2026-10-11\" v=\"12.5\" /></root>")), series);
+                java.time.LocalDate.of(2026, 10, 11), 12.5)), series);
     }
 
     @Test
@@ -49,7 +49,8 @@ class StationProcessorUSTest {
         List<UsSeriesReading> series = StationProcessorUS.buildReadings(
                 List.of(obs("00065", "2026-10-11T03:00:00+00:00", "3.34")), MOUNTAIN);
 
-        assertEquals("<root><a d=\"2026-10-10\" v=\"3.34\" /></root>", series.get(0).xmlDoc());
+        assertEquals(java.time.LocalDate.of(2026, 10, 10), series.get(0).day());
+        assertEquals(3.34, series.get(0).value());
     }
 
     @Test

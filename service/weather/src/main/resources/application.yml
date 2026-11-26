@@ -1,9 +1,6 @@
 spring:
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  # No spring.datasource since 2.0.0: the envdata (MySQL) datasource is built from MYSQL_URL / MYSQL_USERNAME /
+  # MYSQL_PASSWORD by EnvdataDataSourceConfig. DB_* stay in the env file as the SQL Server connection, unused here.
   lifecycle:
     timeout-per-shutdown-phase: 30s
   mail:
@@ -33,9 +30,8 @@ resilience4j:
       sqlRetry:
         max-attempts: 3
         wait-duration: 2s
-        retry-exceptions:
-          - org.springframework.dao.DataAccessException
-          - java.sql.SQLException
+        # Which exceptions: SqlFailures (code) - any DataAccessException / SQLException except SQLSTATE 45000,
+        # an envdata procedure's own refusal. sqlBreaker ignores 45000 too.
       openMeteo:
         max-attempts: 4
         wait-duration: 1s
@@ -219,7 +215,9 @@ weather:
       max-wait-ms: 60000
     daily-limit:
       weather-gov: ${WEATHER_GOV_DAILY_LIMIT:900}
-      open-meteo: ${OPEN_METEO_DAILY_LIMIT:2300}      # covers all 2,219 CA stations in one day
+      # covers all 2,219 CA stations in one day. Not halved for the C# twin: Open-Meteo's free limit
+      # (~10,000/day, 600/min) is per calling IP, and jnode and csnode call from different IPs.
+      open-meteo: ${OPEN_METEO_DAILY_LIMIT:2300}
       visual-crossing: ${VISUAL_CROSSING_DAILY_LIMIT:900}
       google-weather: ${GOOGLE_WEATHER_DAILY_LIMIT:161}
       weather-canada: ${WEATHER_CANADA_DAILY_LIMIT:2300} # ditto; CA-native provider

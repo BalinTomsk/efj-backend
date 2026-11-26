@@ -6,20 +6,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Loads weather stations that should be processed by the weather workers.
+ * Loads the weather stations that should be processed, from envdata ({@code sp_station_weather_due}, a random sample
+ * of {@code v_station_weather_due}; port of MSSQL {@code vwWeatherForecastToDay}).
+ *
+ * <p>The limit is the caller's: {@code StationWorker} passes the provider's remaining daily budget
+ * ({@code weather.worker.daily-limit.*}, enforced across restarts by {@code WeatherApiUsageTracker}). The two old
+ * fixed limits (1,400 default, 900 Weather.gov) were unused overloads and are gone, as in the C# twin.
  */
 @Repository
 public class WeatherStationRepository {
-    private static final int DEFAULT_STATION_LIMIT = 1400;
-    private static final int US_WEATHER_GOV_STATION_LIMIT = 900;
-    private static final String FIND_SUPPORTED_STATIONS = """
-            SELECT TOP (?) mli, lat, lon, state
-            FROM dbo.vwWeatherForecastToDay
-            WHERE country = ?
-            """;
+    private static final String FIND_SUPPORTED_STATIONS = "CALL sp_station_weather_due(?, ?)";
     private static final String COUNT_SUPPORTED_STATIONS = """
             SELECT COUNT(1)
-            FROM dbo.vwWeatherForecastToDay
+            FROM v_station_weather_due
             WHERE country = ?
             """;
 
@@ -29,14 +28,9 @@ public class WeatherStationRepository {
         this.jdbc = jdbc;
     }
 
-    public List<StationRef> findSupportedUsStations() {
-        return findSupportedStations("US", US_WEATHER_GOV_STATION_LIMIT);
-    }
-
-    public List<StationRef> findSupportedStations(String country) {
-        return findSupportedStations(country, DEFAULT_STATION_LIMIT);
-    }
-
+    /**
+     * Stations for one country, capped at {@code limit}, in random order.
+     */
     public List<StationRef> findSupportedStations(String country, int limit) {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
@@ -49,11 +43,14 @@ public class WeatherStationRepository {
                         rs.getDouble("lon"),
                         rs.getString("state")
                 ),
-                limit,
-                country
+                country,
+                limit
         );
     }
 
+    /**
+     * How many stations the view holds for a country, independent of any per-cycle limit.
+     */
     public int countSupportedStations(String country) {
         Integer count = jdbc.queryForObject(COUNT_SUPPORTED_STATIONS, Integer.class, country);
         return count == null ? 0 : count;

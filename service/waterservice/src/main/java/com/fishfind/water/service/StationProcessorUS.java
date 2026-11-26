@@ -98,13 +98,13 @@ public class StationProcessorUS extends StationProcessorBase {
     }
 
     /**
-     * Turns a station's latest USGS values into stored-procedure payloads, one per series, named and united as
-     * the legacy WaterML feed named them ({@link UsgsParameterMap}) and dated by the station's local day.
-     * Unmapped parameters, non-instantaneous statistics and non-numeric values are dropped.
+     * Turns a station's latest USGS values into one point per series for envdata's {@code sp_water_save_us}, named
+     * and united as the legacy WaterML feed named them ({@link UsgsParameterMap}) and dated by the station's local
+     * day. Unmapped parameters, non-instantaneous statistics and non-numeric values are dropped.
      *
      * @param observations the station's latest values
      * @param zone the station's local time zone
-     * @return stored-procedure payloads
+     * @return one point per mapped series
      */
     static List<UsSeriesReading> buildReadings(List<UsgsObservation> observations, ZoneId zone) {
         List<UsSeriesReading> results = new ArrayList<>();
@@ -114,42 +114,28 @@ public class StationProcessorUS extends StationProcessorBase {
             }
 
             UsgsParameterMap.LegacyName legacy = UsgsParameterMap.find(observation.parameterCode());
-            String value = normalizeNumericValue(observation.value());
+            Double value = parseNumericValue(observation.value());
             if (legacy == null || value == null) {
                 continue;
             }
 
             LocalDate day = observation.time().atZoneSameInstant(zone).toLocalDate();
-            String xmlDoc = "<root><a d=\"" + day + "\" v=\"" + escapeXml(value) + "\" /></root>";
-            results.add(new UsSeriesReading(legacy.name(), legacy.unit(), xmlDoc));
+            results.add(new UsSeriesReading(legacy.name(), legacy.unit(), day, value));
         }
 
         return results;
     }
 
-    private static String normalizeNumericValue(String value) {
-        if (value == null) {
-            return null;
-        }
-
-        String trimmed = value.trim();
-        if (trimmed.isEmpty()) {
+    private static Double parseNumericValue(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
 
         try {
-            Double.parseDouble(trimmed);
-            return trimmed;
+            double parsed = Double.parseDouble(value.trim());
+            return Double.isFinite(parsed) ? parsed : null;
         } catch (NumberFormatException ignored) {
             return null;
         }
-    }
-
-    private static String escapeXml(String value) {
-        return value
-                .replace("&", "&amp;")
-                .replace("\"", "&quot;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
     }
 }

@@ -1,12 +1,10 @@
 package com.fishfind.weather.repo;
 
-import com.fishfind.weather.canonical.WeatherSourceType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -15,130 +13,166 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fishfind.weather.canonical.WeatherSourceType;
+import com.fishfind.weather.config.SqlFailures;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
+import java.time.LocalDateTime;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.UncategorizedSQLException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCallback;
+import org.springframework.jdbc.core.PreparedStatementSetter;
 
-@ExtendWith(MockitoExtension.class)
+/**
+ * Pins the SQL text, the bound parameters and the 45000 rule. A mock never parses SQL: {@link WeatherEngineTest} runs
+ * the same repositories against a real MySQL engine.
+ */
 class WeatherDataRepositoryTest {
 
-    @Mock
-    private JdbcTemplate jdbc;
+    private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    private final WeatherDataRepository repository = new WeatherDataRepository(jdbc);
 
-    @InjectMocks
-    private WeatherDataRepository repository;
+    private final Logger repoLogger = (Logger) LoggerFactory.getLogger(WeatherDataRepository.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
-    @Test
-    void saveStationDataUpdatesRowWithExpectedSql() {
-        repository.saveStationData("MLI-1", "{\"x\":1}", WeatherSourceType.VISUAL_CROSSING);
+    @BeforeEach
+    void captureLogs() {
+        logs.start();
+        repoLogger.addAppender(logs);
+    }
 
-        verify(jdbc).update(
-                "UPDATE dbo.ows_meteo SET type = ?, ows = ?, stamp = GETDATE() WHERE mli = ?",
-                WeatherSourceType.VISUAL_CROSSING,
-                "{\"x\":1}",
-                "MLI-1");
+    @AfterEach
+    void releaseLogs() {
+        repoLogger.detachAppender(logs);
+    }
+
+    /** Runs the repository's ConnectionCallback against a mocked connection whose SELECT @out_days returns {@code days}. */
+    @SuppressWarnings("unchecked")
+    private PreparedStatement runSaveAgainst(Integer days) throws Exception {
+        Connection connection = mock(Connection.class);
+        PreparedStatement call = mock(PreparedStatement.class);
+        Statement select = mock(Statement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(connection.prepareStatement("CALL sp_weather_save(?, ?, ?, @out_days)")).thenReturn(call);
+        when(connection.createStatement()).thenReturn(select);
+        when(select.executeQuery("SELECT @out_days")).thenReturn(rs);
+        when(rs.next()).thenReturn(true);
+        when(rs.getInt(1)).thenReturn(days == null ? 0 : days);
+        when(rs.wasNull()).thenReturn(days == null);
+        when(jdbc.execute(any(ConnectionCallback.class))).thenAnswer(inv ->
+                ((ConnectionCallback<Integer>) inv.getArgument(0)).doInConnection(connection));
+
+        repository.saveStationData("MLI-1", "{\"schema\":\"x\"}", WeatherSourceType.OPEN_METEO);
+        return call;
     }
 
     @Test
-    void saveStationDataWarnsWhenNoRowMatches() {
-        when(jdbc.update(anyString(), any(), any(), any())).thenReturn(0);
+    void saveStationDataCallsSpWeatherSaveAndReadsTheOutParameterOnTheSameConnection() throws Exception {
+        PreparedStatement call = runSaveAgainst(8);
 
-        Logger logger = (Logger) LoggerFactory.getLogger(WeatherDataRepository.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        try {
-            repository.saveStationData("MLI-404", "{\"x\":1}", WeatherSourceType.OPEN_METEO);
-        } finally {
-            logger.detachAppender(appender);
-        }
-
-        assertThat(appender.list)
-                .as("a 0-row update silently drops the payload and must be logged")
-                .anySatisfy(event -> {
-                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
-                    assertThat(event.getFormattedMessage()).contains("MLI-404");
-                });
+        verify(call).setString(1, "MLI-1");
+        verify(call).setInt(2, WeatherSourceType.OPEN_METEO);
+        verify(call).setString(3, "{\"schema\":\"x\"}");
+        verify(call).execute();
+        assertThat(logs.list).noneMatch(e -> e.getLevel() == Level.WARN);
     }
 
     @Test
-    void saveStationDataRejectsBlankMli() {
-        assertThatThrownBy(() -> repository.saveStationData("  ", "{}", WeatherSourceType.OPEN_METEO))
+    void aPayloadStoredButNotShreddedIsLogged() throws Exception {
+        runSaveAgainst(-1);
+
+        assertThat(logs.list).anyMatch(e -> e.getLevel() == Level.WARN
+                && e.getFormattedMessage().contains("Payload stored but not shredded"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anUnknownStationIsLoggedAndDroppedNotThrown() {
+        when(jdbc.execute(any(ConnectionCallback.class))).thenThrow(new UncategorizedSQLException("CALL", "CALL",
+                new SQLException("sp_weather_save: unknown station mli", "45000", 1644)));
+
+        repository.saveStationData("NOPE", "{}", WeatherSourceType.WEATHER_GOV);
+
+        assertThat(logs.list).anyMatch(e -> e.getLevel() == Level.WARN
+                && e.getFormattedMessage().contains("Station unknown to envdata; payload dropped. mli=NOPE"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anOutageIsRethrownForTheRetryAndBreaker() {
+        DataAccessResourceFailureException outage = new DataAccessResourceFailureException("link failure");
+        when(jdbc.execute(any(ConnectionCallback.class))).thenThrow(outage);
+
+        assertThatThrownBy(() -> repository.saveStationData("MLI-1", "{}", WeatherSourceType.OPEN_METEO))
+                .isSameAs(outage);
+        assertThat(SqlFailures.isSqlFailure(outage)).isTrue();
+    }
+
+    @Test
+    void saveStationDataRejectsBlankMliAndSkipsBlankPayload() {
+        assertThatThrownBy(() -> repository.saveStationData(" ", "{}", WeatherSourceType.OPEN_METEO))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> repository.saveStationData(null, "{}", WeatherSourceType.OPEN_METEO))
-                .isInstanceOf(IllegalArgumentException.class);
+        repository.saveStationData("MLI-1", "  ", WeatherSourceType.OPEN_METEO);
+
         verifyNoInteractions(jdbc);
     }
 
     @Test
-    void saveStationDataSkipsBlankPayload() {
-        repository.saveStationData("MLI-1", "   ", WeatherSourceType.OPEN_METEO);
-        repository.saveStationData("MLI-1", null, WeatherSourceType.OPEN_METEO);
+    void recordCycleBindsEveryParameterAndTheOutParameterIsASessionVariable() throws Exception {
+        LocalDateTime started = LocalDateTime.of(2026, 11, 25, 0, 0);
+        LocalDateTime finished = started.plusHours(8);
 
-        verify(jdbc, never()).update(anyString(), any(), any(), any());
+        repository.recordCycle("open-meteo-ca", started, finished, "ok", 1150, null);
+
+        ArgumentCaptor<PreparedStatementSetter> setter = ArgumentCaptor.forClass(PreparedStatementSetter.class);
+        verify(jdbc).update(eq("CALL sp_job_run_record(?, ?, ?, ?, ?, ?, ?, @out_job_run_id)"), setter.capture());
+        PreparedStatement ps = mock(PreparedStatement.class);
+        setter.getValue().setValues(ps);
+        verify(ps).setString(1, "weather");
+        verify(ps).setString(2, "open-meteo-ca");
+        verify(ps).setObject(3, started);
+        verify(ps).setObject(4, finished);
+        verify(ps).setString(5, "ok");
+        verify(ps).setInt(6, 1150);
+        verify(ps).setNull(7, Types.VARCHAR);
     }
 
     @Test
-    void pushSpeciesProcedureExecutesAndDrainsResultSets() throws Exception {
-        ResultSet rs = org.mockito.Mockito.mock(ResultSet.class);
-        PreparedStatement ps = org.mockito.Mockito.mock(PreparedStatement.class);
-        // One result set, then nothing more.
-        when(ps.execute()).thenReturn(true);
-        when(ps.getResultSet()).thenReturn(rs);
-        when(ps.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).thenReturn(false);
-        when(ps.getUpdateCount()).thenReturn(-1);
-
-        when(jdbc.execute(eq("EXEC dbo.spPushSpeciesFromLakeToStation"), any(PreparedStatementCallback.class)))
-                .thenAnswer(inv -> ((PreparedStatementCallback<?>) inv.getArgument(1)).doInPreparedStatement(ps));
-
-        repository.pushSpeciesFromLakeToStation();
-
-        verify(ps).execute();
-        verify(rs).close();
-    }
-
-    @Test
-    void totalUpdateProbabilityExecutesProcedure() {
-        when(jdbc.execute(eq("EXEC dbo.spTotalUpdateProbability"), any(PreparedStatementCallback.class)))
-                .thenReturn(null);
-
-        repository.totalUpdateProbability();
-
-        verify(jdbc).execute(eq("EXEC dbo.spTotalUpdateProbability"), any(PreparedStatementCallback.class));
-    }
-
-    @Test
-    void cleanOldWeatherDataExecutesProcedure() {
-        when(jdbc.execute(eq("EXEC dbo.sp_clean_old_weather_data"), any(PreparedStatementCallback.class)))
-                .thenReturn(null);
-
+    void cleanOldWeatherDataCallsTheRetentionProcedure() {
         repository.cleanOldWeatherData();
 
-        verify(jdbc).execute(eq("EXEC dbo.sp_clean_old_weather_data"), any(PreparedStatementCallback.class));
+        verify(jdbc).update("CALL sp_clean_old_weather_data(NULL)");
     }
 
     @Test
-    void fallbackSaveWrapsCause() {
+    void sqlFailureRuleIgnoresAProcedureRefusal() {
+        SQLException refusal = new SQLException("unknown station mli", "45000", 1644);
+
+        assertThat(SqlFailures.isSqlFailure(new UncategorizedSQLException("x", "x", refusal))).isFalse();
+        assertThat(SqlFailures.isSqlFailure(new SQLException("Communications link failure", "08S01"))).isTrue();
+        assertThat(SqlFailures.isSqlFailure(new IllegalStateException())).isFalse();
+    }
+
+    @Test
+    void fallbacksWrapTheCause() {
         RuntimeException cause = new RuntimeException("boom");
 
         assertThatThrownBy(() -> repository.fallbackSave("MLI-1", "{}", WeatherSourceType.OPEN_METEO, cause))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("MLI-1")
                 .hasCause(cause);
-    }
-
-    @Test
-    void fallbackProcedureWrapsCause() {
-        RuntimeException cause = new RuntimeException("boom");
-
+        assertThatThrownBy(() -> repository.fallbackRecord("open-ca", null, null, "ok", 1, null, cause))
+                .hasCause(cause);
         assertThatThrownBy(() -> repository.fallbackProcedure(cause))
                 .isInstanceOf(RuntimeException.class)
                 .hasCause(cause);

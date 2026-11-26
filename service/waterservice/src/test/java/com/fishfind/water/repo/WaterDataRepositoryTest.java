@@ -1,44 +1,52 @@
 package com.fishfind.water.repo;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishfind.water.config.SqlFailures;
 import com.fishfind.water.domain.Reading;
 import com.fishfind.water.domain.UsSeriesReading;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
-import org.springframework.jdbc.core.PreparedStatementCallback;
 
-import java.lang.reflect.Method;
-import java.sql.PreparedStatement;
-import java.sql.Timestamp;
-import java.sql.Types;
-import java.time.Instant;
+import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+/**
+ * Pins the SQL text and the JSON the envdata procedures expand with JSON_TABLE ({@code sp_water_save_ca} rows,
+ * {@code sp_water_save_us} series) and the SQL failure rule. A mock never parses SQL: {@link WaterEngineTest} runs
+ * the same repositories against a real MySQL engine.
+ */
 class WaterDataRepositoryTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final WaterDataRepository repository = new WaterDataRepository(jdbc);
 
     @Test
     void saveStationDataRejectsBlankMli() {
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> repository.saveStationData(" ", List.of())
-        );
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> repository.saveStationData(" ", List.of()));
 
         assertEquals("mli must not be null or blank", ex.getMessage());
     }
@@ -51,162 +59,128 @@ class WaterDataRepositoryTest {
     }
 
     @Test
-    void saveStationDataUpsertsOnlyValidReadings() {
-        Reading valid = new Reading(
-                "02JE025",
-                OffsetDateTime.of(2024, 1, 2, 3, 4, 0, 0, ZoneOffset.UTC),
-                1.2,
-                3.4
-        );
-        Reading missingStamp = new Reading("02JE025", null, 2.0, 4.0);
-
-        repository.saveStationData("02JE025", Arrays.asList(valid, null, missingStamp));
-
-        verify(jdbc, times(1)).batchUpdate(
-                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
-                eq(List.of(valid)),
-                eq(1),
-                org.mockito.ArgumentMatchers.<ParameterizedPreparedStatementSetter<Reading>>any()
-        );
-    }
-
-    @Test
-    void saveStationDataDeduplicatesMatchingTimestampsWithinBatch() {
-        OffsetDateTime stamp = OffsetDateTime.of(2024, 1, 2, 3, 4, 0, 0, ZoneOffset.UTC);
+    void saveStationDataSendsValidDeduplicatedReadingsAsOneJsonArray() throws Exception {
+        OffsetDateTime stamp = OffsetDateTime.of(2024, 1, 2, 3, 4, 0, 0, ZoneOffset.ofHours(-5));
         Reading first = new Reading("02JE025", stamp, 1.2, 3.4);
         Reading duplicate = new Reading("02JE025", stamp, 9.9, 8.8);
+        Reading missingStamp = new Reading("02JE025", null, 2.0, 4.0);
 
-        repository.saveStationData("02JE025", List.of(first, duplicate));
+        repository.saveStationData("02JE025", Arrays.asList(first, null, missingStamp, duplicate));
 
-        verify(jdbc, times(1)).batchUpdate(
-                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
-                eq(List.of(duplicate)),
-                eq(1),
-                org.mockito.ArgumentMatchers.<ParameterizedPreparedStatementSetter<Reading>>any()
-        );
+        ArgumentCaptor<String> rows = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(eq("CALL sp_water_save_ca(?, ?)"), eq("02JE025"), rows.capture());
+        // Time in UTC, the latest duplicate wins.
+        assertEquals("[{\"s\":\"2024-01-02 08:04:00\",\"e\":9.9,\"d\":8.8}]", rows.getValue());
     }
 
     @Test
-    void saveStationDataBatchesUpsertsAndBindsParametersPerReading() throws Exception {
-        Reading r1 = new Reading("02JE025",
-                OffsetDateTime.of(2024, 1, 2, 3, 0, 0, 0, ZoneOffset.UTC), 1.2, 3.4);
-        Reading r2 = new Reading("02JE025",
-                OffsetDateTime.of(2024, 1, 2, 4, 0, 0, 0, ZoneOffset.UTC), null, 5.6);
+    void saveStationDataSplitsIntoCallsOf500Readings() throws Exception {
+        OffsetDateTime t = OffsetDateTime.of(2026, 11, 24, 10, 0, 0, 0, ZoneOffset.UTC);
+        List<Reading> readings = IntStream.range(0, 1001)
+                .mapToObj(i -> new Reading("x", t.minusMinutes(5L * i), 1.0, 2.0))
+                .toList();
 
-        repository.saveStationData("02JE025", List.of(r1, r2));
+        repository.saveStationData("02JE025", readings);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<ParameterizedPreparedStatementSetter<Reading>> setterCaptor =
-                ArgumentCaptor.forClass(ParameterizedPreparedStatementSetter.class);
-        verify(jdbc).batchUpdate(
-                eq("EXEC dbo.sp_UpdateWaterData ?, ?, ?, ?"),
-                eq(List.of(r1, r2)),
-                eq(2),
-                setterCaptor.capture()
-        );
-
-        PreparedStatement ps = mock(PreparedStatement.class);
-        setterCaptor.getValue().setValues(ps, r1);
-        verify(ps).setString(1, "02JE025");
-        verify(ps).setTimestamp(2, Timestamp.from(r1.stamp().toInstant()));
-        verify(ps).setObject(3, 1.2, Types.DOUBLE);
-        verify(ps).setObject(4, 3.4, Types.DOUBLE);
-
-        PreparedStatement ps2 = mock(PreparedStatement.class);
-        setterCaptor.getValue().setValues(ps2, r2);
-        verify(ps2).setObject(3, null, Types.DOUBLE);
-        verify(ps2).setObject(4, 5.6, Types.DOUBLE);
+        ArgumentCaptor<String> rows = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, times(3)).update(eq("CALL sp_water_save_ca(?, ?)"), eq("02JE025"), rows.capture());
+        assertEquals(List.of(500, 500, 1),
+                rows.getAllValues().stream().map(json -> readTree(json).size()).toList());
     }
 
     @Test
-    void fallbackWrapsOriginalException() {
-        RuntimeException ex = assertThrows(
-                RuntimeException.class,
-                () -> repository.fallback("02JE025", List.of(), new IllegalStateException("sql failed"))
-        );
+    void caRowsJsonWritesMissingAndNonFiniteValuesAsNull() {
+        String json = WaterDataRepository.buildCaRowsJson(List.of(
+                new Reading("x", OffsetDateTime.of(2026, 11, 24, 10, 0, 0, 0, ZoneOffset.UTC), null, Double.NaN)));
 
-        assertEquals("SQL save failed for station 02JE025", ex.getMessage());
-        assertInstanceOf(IllegalStateException.class, ex.getCause());
-    }
-
-    @Test
-    void toTimestampConvertsInstant() throws Exception {
-        Instant instant = Instant.parse("2024-01-02T03:04:05Z");
-
-        Timestamp timestamp = (Timestamp) invokePrivate("toTimestamp", new Class<?>[]{Instant.class}, instant);
-
-        assertEquals(Timestamp.from(instant), timestamp);
+        assertEquals("[{\"s\":\"2026-11-24 10:00:00\",\"e\":null,\"d\":null}]", json);
     }
 
     @Test
     void saveUsStationDataRejectsBlankState() {
-        IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> repository.saveUsStationData("08313000", " ", List.of())
-        );
-
-        assertEquals("state must not be null or blank", ex.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> repository.saveUsStationData("08313000", " ", List.of()));
     }
 
     @Test
-    void saveUsStationDataExecutesStoredProcedurePerValidSeries() {
-        repository.saveUsStationData("08313000", "NY", List.of(
-                new UsSeriesReading("Streamflow", "ft^3/s", "<root><a d=\"2024-01-02\" v=\"1.2\" /></root>"),
-                new UsSeriesReading(" ", "ft", "<root><a d=\"2024-01-02\" v=\"1.2\" /></root>"),
-                new UsSeriesReading("Gage height", "ft", "<root><a d=\"2024-01-02\" v=\"7.8\" /></root>")
-        ));
+    void saveUsStationDataSendsAllSeriesOfAStationInOneCall() {
+        LocalDate day = LocalDate.of(2026, 11, 23);
+        repository.saveUsStationData("08313000", "NMX", List.of(
+                new UsSeriesReading("Streamflow", "ft^3/s", day, 12.5),
+                new UsSeriesReading("pH", null, day, 7.62),
+                new UsSeriesReading(" ", "x", day, 1),                       // no name: dropped
+                new UsSeriesReading("Gage height", "ft", day, Double.NaN),   // not finite: dropped
+                new UsSeriesReading("Streamflow", "ft^3/s", day.plusDays(1), 13)));
 
-        verify(jdbc, times(2)).execute(
-                eq("EXEC dbo.sp_push_us_water_data ?, ?, ?, ?, ?"),
-                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
-        );
+        ArgumentCaptor<String> series = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).update(eq("CALL sp_water_save_us(?, ?, ?)"), eq("08313000"), eq("NM"), series.capture());
+        JsonNode root = readTree(series.getValue());
+        assertEquals(2, root.size());
+        assertEquals("Streamflow", root.get(0).get("name").asText());
+        assertEquals("ft^3/s", root.get(0).get("unit").asText());
+        assertEquals(2, root.get(0).get("points").size());
+        assertEquals("2026-11-23", root.get(0).get("points").get(0).get("d").asText());
+        assertEquals(12.5, root.get(0).get("points").get(0).get("v").asDouble());
+        assertTrue(root.get(1).get("unit").isNull());
     }
 
     @Test
-    void fallbackUsWrapsOriginalException() {
-        RuntimeException ex = assertThrows(
-                RuntimeException.class,
-                () -> repository.fallbackUs("08313000", "NY", List.of(), new IllegalStateException("sql failed"))
-        );
+    void saveUsStationDataSkipsAStationWithNoValidSeries() {
+        repository.saveUsStationData("08313000", "NM",
+                List.of(new UsSeriesReading("", "ft", LocalDate.of(2026, 11, 23), 1)));
 
-        assertEquals("SQL save failed for US station 08313000", ex.getMessage());
-        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        verifyNoInteractions(jdbc);
     }
 
     @Test
-    void pushSpeciesFromLakeToStationExecutesStoredProcedure() {
-        repository.pushSpeciesFromLakeToStation();
+    void recordCycleCallsJobRunRecordWithTheOutParameterAsASessionVariable() {
+        LocalDateTime started = LocalDateTime.of(2026, 11, 25, 18, 0);
+        LocalDateTime finished = started.plusMinutes(40);
 
-        verify(jdbc).execute(
-                eq("EXEC dbo.spPushSpeciesFromLakeToStation"),
-                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
-        );
+        repository.recordCycle("water-ca", started, finished, "partial", 1500, "x".repeat(300));
+
+        verify(jdbc).update("CALL sp_job_run_record(?, ?, ?, ?, ?, ?, ?, @out_job_run_id)",
+                "waterservice", "water-ca", started, finished, "partial", 1500, "x".repeat(255));
     }
 
     @Test
-    void cleanOldWaterDataExecutesStoredProcedure() {
+    void cleanOldWaterDataCallsTheRetentionProcedure() {
         repository.cleanOldWaterData();
 
-        verify(jdbc).execute(
-                eq("EXEC dbo.sp_clean_old_water_data"),
-                org.mockito.ArgumentMatchers.<PreparedStatementCallback<Object>>any()
-        );
+        verify(jdbc).update("CALL sp_clean_old_water_data(NULL)");
     }
 
     @Test
-    void fallbackProcedureWrapsOriginalException() {
-        RuntimeException ex = assertThrows(
-                RuntimeException.class,
-                () -> repository.fallbackProcedure(new IllegalStateException("sql failed"))
-        );
+    void sqlFailureRuleIgnoresAProcedureRefusal() {
+        // SQLSTATE 45000 = an envdata procedure's own SIGNAL (e.g. unknown station mli): a bad request, not an outage.
+        SQLException refusal = new SQLException("sp_water_save_ca: unknown station mli", "45000", 1644);
+        assertFalse(SqlFailures.isSqlFailure(new UncategorizedSQLException("CALL", "CALL", refusal)));
+        assertTrue(SqlFailures.isProcedureRefusal(new RuntimeException(new UncategorizedSQLException("x", "x", refusal))));
 
-        assertEquals("SQL stored procedure execution failed", ex.getMessage());
-        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertTrue(SqlFailures.isSqlFailure(new SQLException("Communications link failure", "08S01")));
+        assertTrue(SqlFailures.isSqlFailure(new DataIntegrityViolationException("dup")));
+        assertFalse(SqlFailures.isSqlFailure(new IllegalArgumentException("mli")));
     }
 
-    private Object invokePrivate(String name, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Method method = WaterDataRepository.class.getDeclaredMethod(name, parameterTypes);
-        method.setAccessible(true);
-        return method.invoke(repository, args);
+    @Test
+    void fallbacksWrapTheOriginalException() {
+        IllegalStateException cause = new IllegalStateException("db down");
+
+        RuntimeException ca = assertThrows(RuntimeException.class, () -> repository.fallback("02JE025", List.of(), cause));
+        RuntimeException us = assertThrows(RuntimeException.class,
+                () -> repository.fallbackUs("08313000", "NM", List.of(), cause));
+        RuntimeException record = assertThrows(RuntimeException.class,
+                () -> repository.fallbackRecord("water", null, null, "ok", 1, null, cause));
+
+        assertEquals("SQL save failed for station 02JE025", ca.getMessage());
+        assertEquals("SQL save failed for US station 08313000", us.getMessage());
+        assertInstanceOf(IllegalStateException.class, record.getCause());
+    }
+
+    private static JsonNode readTree(String json) {
+        try {
+            return MAPPER.readTree(json);
+        } catch (Exception ex) {
+            throw new AssertionError(ex);
+        }
     }
 }

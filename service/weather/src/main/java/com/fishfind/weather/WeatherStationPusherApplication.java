@@ -20,6 +20,19 @@ public class WeatherStationPusherApplication {
     private static final String DEFAULT_DOTENV_FILE = ".env";
     private static final String DOTENV_PATH_ENV = "DOTENV_PATH";
 
+    /**
+     * The keys taken from the dotenv file. Only these: the file is shared with the water service and holds keys this
+     * service must not see. {@code MYSQL_*} (2.0.0) is the envdata connection; {@code DB_*} (SQL Server) is still
+     * imported but no longer read by anything.
+     */
+    static final java.util.List<String> DOTENV_KEYS = java.util.List.of(
+            "MYSQL_URL", "MYSQL_USERNAME", "MYSQL_PASSWORD",
+            "DB_URL", "DB_USERNAME", "DB_PASSWORD",
+            "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD",
+            "REPORT_EMAIL_TO", "REPORT_EMAIL_FROM",
+            "WEATHER_GOV_USER_AGENT", "WEATHER_CANADA_USER_AGENT",
+            "VISUAL_CROSSING_API_KEY", "GOOGLE_WEATHER_API_KEY", "WUNDERGROUND_API_KEY");
+
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(WeatherStationPusherApplication.class);
 
@@ -47,20 +60,9 @@ public class WeatherStationPusherApplication {
         Dotenv dotenv = loadDotenv();
 
         Map<String, Object> fallback = new HashMap<>();
-        addIfMissing(dotenv, fallback, "DB_URL");
-        addIfMissing(dotenv, fallback, "DB_USERNAME");
-        addIfMissing(dotenv, fallback, "DB_PASSWORD");
-        addIfMissing(dotenv, fallback, "SMTP_HOST");
-        addIfMissing(dotenv, fallback, "SMTP_PORT");
-        addIfMissing(dotenv, fallback, "SMTP_USERNAME");
-        addIfMissing(dotenv, fallback, "SMTP_PASSWORD");
-        addIfMissing(dotenv, fallback, "REPORT_EMAIL_TO");
-        addIfMissing(dotenv, fallback, "REPORT_EMAIL_FROM");
-        addIfMissing(dotenv, fallback, "WEATHER_GOV_USER_AGENT");
-        addIfMissing(dotenv, fallback, "WEATHER_CANADA_USER_AGENT");
-        addIfMissing(dotenv, fallback, "VISUAL_CROSSING_API_KEY");
-        addIfMissing(dotenv, fallback, "GOOGLE_WEATHER_API_KEY");
-        addIfMissing(dotenv, fallback, "WUNDERGROUND_API_KEY");
+        for (String key : DOTENV_KEYS) {
+            addIfMissing(dotenv, fallback, key);
+        }
         return fallback;
     }
 
